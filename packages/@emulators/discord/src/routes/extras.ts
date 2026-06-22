@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore, type DiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, unknownGuild, unknownChannel, unknownMessage, unknownBan, unknownInvite, toAPIUser, toAPIMessage, recordAudit, AuditLogEvent, auditReason } from "../helpers.js";
+import { getAuth, unauthorized, notFound, unknownGuild, unknownChannel, unknownMessage, unknownBan, unknownInvite, invalidFormBody, toAPIUser, toAPIMessage, toAPIScheduledEvent, recordAudit, AuditLogEvent, auditReason } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 import type { DiscordBan, DiscordInvite } from "../entities.js";
 
@@ -11,11 +11,38 @@ function toAPIBan(b: DiscordBan, ds: DiscordStore): Record<string, unknown> {
   return { reason: b.reason, user: user ? toAPIUser(user) : null };
 }
 
-function toAPIInvite(inv: DiscordInvite, ds: DiscordStore): Record<string, unknown> {
+/**
+ * On a ban, Discord deletes the user's recent messages in the guild. `delete_message_seconds`
+ * (0-604800) takes precedence; the deprecated `delete_message_days` (0-7) is converted to seconds.
+ */
+function deleteRecentMessages(
+  ds: DiscordStore,
+  guildSnowflake: string,
+  userSnowflake: string,
+  deleteMessageSeconds?: number,
+  deleteMessageDays?: number,
+): void {
+  let seconds = 0;
+  if (typeof deleteMessageSeconds === "number") seconds = deleteMessageSeconds;
+  else if (typeof deleteMessageDays === "number") seconds = deleteMessageDays * 86400;
+  if (seconds <= 0) return;
+  const cutoff = Date.now() - Math.min(seconds, 604800) * 1000;
+  for (const m of ds.messages.findBy("guild_snowflake", guildSnowflake)) {
+    if (m.author_snowflake !== userSnowflake) continue;
+    if (new Date(m.timestamp).getTime() >= cutoff) ds.messages.delete(m.id);
+  }
+}
+
+interface InviteSerializeOptions {
+  withCounts?: boolean;
+  guildScheduledEventId?: string | null;
+}
+
+function toAPIInvite(inv: DiscordInvite, ds: DiscordStore, opts: InviteSerializeOptions = {}): Record<string, unknown> {
   const guild = inv.guild_snowflake ? ds.guilds.findOneBy("snowflake", inv.guild_snowflake) : null;
   const channel = ds.channels.findOneBy("snowflake", inv.channel_snowflake);
   const inviter = inv.inviter_snowflake ? ds.users.findOneBy("snowflake", inv.inviter_snowflake) : null;
-  return {
+  const payload: Record<string, unknown> = {
     code: inv.code,
     type: 0,
     guild: guild ? { id: guild.snowflake, name: guild.name, icon: guild.icon, features: guild.features } : null,
@@ -28,6 +55,40 @@ function toAPIInvite(inv: DiscordInvite, ds: DiscordStore): Record<string, unkno
     created_at: inv.created_at,
     expires_at: inv.expires_at,
   };
+  // Voice channel target fields, only present when the invite targets a stream/embedded app.
+  if (inv.target_type != null) {
+    payload.target_type = inv.target_type;
+    if (inv.target_user_snowflake) {
+      const targetUser = ds.users.findOneBy("snowflake", inv.target_user_snowflake);
+      if (targetUser) payload.target_user = toAPIUser(targetUser);
+    }
+    if (inv.target_application_snowflake) {
+      const targetApp = ds.applications.findOneBy("snowflake", inv.target_application_snowflake);
+      if (targetApp) {
+        payload.target_application = {
+          id: targetApp.snowflake,
+          name: targetApp.name,
+          description: targetApp.description,
+          icon: targetApp.icon,
+          bot: targetApp.bot_user_snowflake ? toAPIUser(ds.users.findOneBy("snowflake", targetApp.bot_user_snowflake)!) : undefined,
+        };
+      }
+    }
+  }
+  if (inv.flags != null) payload.flags = inv.flags;
+  // Counts are only returned on GET /invites/{code} when with_counts is true.
+  if (opts.withCounts && guild) {
+    payload.approximate_member_count = guild.member_snowflakes.length;
+    payload.approximate_presence_count = guild.member_snowflakes.length;
+  }
+  // Only included when a valid guild_scheduled_event_id is supplied to GET /invites/{code}.
+  if (opts.guildScheduledEventId) {
+    const event = ds.scheduledEvents.findOneBy("snowflake", opts.guildScheduledEventId);
+    if (event && event.guild_snowflake === inv.guild_snowflake) {
+      payload.guild_scheduled_event = toAPIScheduledEvent(event, ds);
+    }
+  }
+  return payload;
 }
 
 export function extrasRoutes(ctx: DiscordRouteContext): void {
@@ -104,11 +165,12 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
     const guild = ds.guilds.findOneBy("snowflake", guildId);
     const user = ds.users.findOneBy("snowflake", userId);
     if (!guild || !user) return notFound(c);
-    const body = (await c.req.json().catch(() => ({}))) as { reason?: string };
+    const body = (await c.req.json().catch(() => ({}))) as { reason?: string; delete_message_seconds?: number; delete_message_days?: number };
     const reason = auditReason(c) ?? body.reason ?? null;
     if (!ds.bans.findBy("guild_snowflake", guildId).some((b) => b.user_snowflake === userId)) {
       ds.bans.insert({ guild_snowflake: guildId, user_snowflake: userId, reason });
     }
+    deleteRecentMessages(ds, guildId, userId, body.delete_message_seconds, body.delete_message_days);
     // Remove the member if present.
     const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId);
     if (member) {
@@ -171,7 +233,7 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
     const guildId = c.req.param("guildId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
     if (!guild) return unknownGuild(c);
-    const body = (await c.req.json().catch(() => ({}))) as { user_ids?: string[]; reason?: string };
+    const body = (await c.req.json().catch(() => ({}))) as { user_ids?: string[]; reason?: string; delete_message_seconds?: number };
     const reason = auditReason(c) ?? body.reason ?? null;
     const userIds = Array.isArray(body.user_ids) ? body.user_ids.slice(0, 200) : [];
     const banned: string[] = [];
@@ -183,7 +245,8 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
         failed.push(userId);
         continue;
       }
-      ds.bans.insert({ guild_snowflake: guildId, user_snowflake: userId, reason: body.reason ?? null });
+      ds.bans.insert({ guild_snowflake: guildId, user_snowflake: userId, reason });
+      deleteRecentMessages(ds, guildId, userId, body.delete_message_seconds);
       const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId);
       if (member) {
         ds.members.delete(member.id);
@@ -216,18 +279,57 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
       max_age?: number;
       max_uses?: number;
       temporary?: boolean;
+      unique?: boolean;
+      target_type?: number;
+      target_user_id?: string;
+      target_application_id?: string;
     };
+
+    // Validate ranges: max_age 0-604800 (7 days), max_uses 0-100 — out-of-range is a 50035.
+    const errors: Record<string, string> = {};
+    if (body.max_age != null && (typeof body.max_age !== "number" || body.max_age < 0 || body.max_age > 604800)) {
+      errors.max_age = "int value should be between 0 and 604800.";
+    }
+    if (body.max_uses != null && (typeof body.max_uses !== "number" || body.max_uses < 0 || body.max_uses > 100)) {
+      errors.max_uses = "int value should be between 0 and 100.";
+    }
+    if (body.target_type != null && body.target_type !== 1 && body.target_type !== 2) {
+      errors.target_type = "Value must be one of (1, 2).";
+    }
+    if (Object.keys(errors).length > 0) return invalidFormBody(c, errors);
+
     const maxAge = body.max_age ?? 86400;
+    const maxUses = body.max_uses ?? 0;
+    const targetType = body.target_type ?? null;
+
+    // Unless `unique` is set, reuse an existing equivalent invite on this channel (Discord behavior).
+    if (!body.unique) {
+      const existing = ds.invites.findBy("channel_snowflake", channel.snowflake).find(
+        (i) =>
+          i.max_age === maxAge &&
+          i.max_uses === maxUses &&
+          i.temporary === (body.temporary ?? false) &&
+          (i.target_type ?? null) === targetType &&
+          (i.target_user_snowflake ?? null) === (body.target_user_id ?? null) &&
+          (i.target_application_snowflake ?? null) === (body.target_application_id ?? null),
+      );
+      if (existing) return c.json(toAPIInvite(existing, ds), 200);
+    }
+
     const invite = ds.invites.insert({
       code: randomBytes(5).toString("base64url").slice(0, 8),
       guild_snowflake: channel.guild_snowflake,
       channel_snowflake: channel.snowflake,
       inviter_snowflake: auth.user?.snowflake ?? null,
       uses: 0,
-      max_uses: body.max_uses ?? 0,
+      max_uses: maxUses,
       max_age: maxAge,
       temporary: body.temporary ?? false,
       expires_at: maxAge > 0 ? new Date(Date.now() + maxAge * 1000).toISOString() : null,
+      target_type: targetType,
+      target_user_snowflake: body.target_user_id ?? null,
+      target_application_snowflake: body.target_application_id ?? null,
+      flags: 0,
     });
     bus.publish({
       t: "INVITE_CREATE",
@@ -276,7 +378,9 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const invite = ds.invites.findOneBy("code", c.req.param("code"));
     if (!invite) return unknownInvite(c);
-    return c.json(toAPIInvite(invite, ds));
+    const withCounts = c.req.query("with_counts") === "true";
+    const guildScheduledEventId = c.req.query("guild_scheduled_event_id") ?? null;
+    return c.json(toAPIInvite(invite, ds, { withCounts, guildScheduledEventId }));
   });
 
   app.delete("/api/v:version/invites/:code", (c) => {
