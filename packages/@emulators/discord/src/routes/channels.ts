@@ -1,5 +1,6 @@
 import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
+import type { DiscordChannel } from "../entities.js";
 import { getDiscordStore } from "../store.js";
 import {
   getAuth,
@@ -9,9 +10,11 @@ import {
   unknownChannel,
   unknownMessage,
   toAPIChannel,
+  toAPIMember,
   toAPIMessage,
   redactMessageContent,
   recordAudit,
+  auditReason,
   AuditLogEvent,
   snowflake,
   requirePermission,
@@ -20,8 +23,8 @@ import { createChannel } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import { PermissionFlags } from "../permissions.js";
 
-/** Message flag bit for a crossposted (published) announcement message. */
-const MESSAGE_FLAG_CROSSPOSTED = 1 << 1;
+/** Message flag bit for a crossposted (published) announcement message (CROSSPOSTED, 1 << 0). */
+const MESSAGE_FLAG_CROSSPOSTED = 1 << 0;
 
 export function channelsRoutes(ctx: DiscordRouteContext): void {
   const { app, store, bus } = ctx;
@@ -63,8 +66,19 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
       position: body.position as number | undefined,
       bitrate: body.bitrate as number | undefined,
       userLimit: body.user_limit as number | undefined,
+      rateLimitPerUser: body.rate_limit_per_user as number | undefined,
+      permissionOverwrites: body.permission_overwrites as DiscordChannel["permission_overwrites"] | undefined,
+      rtcRegion: body.rtc_region as string | null | undefined,
+      videoQualityMode: body.video_quality_mode as number | undefined,
+      defaultAutoArchiveDuration: body.default_auto_archive_duration as number | undefined,
+      availableTags: body.available_tags as unknown[] | undefined,
+      defaultReactionEmoji: body.default_reaction_emoji,
+      defaultSortOrder: body.default_sort_order as number | null | undefined,
+      defaultForumLayout: body.default_forum_layout as number | undefined,
+      defaultThreadRateLimitPerUser: body.default_thread_rate_limit_per_user as number | undefined,
     });
-    const payload = toAPIChannel(channel);
+    if (typeof body.flags === "number") ds.channels.update(channel.id, { flags: body.flags });
+    const payload = toAPIChannel(ds.channels.findOneBy("snowflake", channel.snowflake)!);
     bus.publish({ t: "CHANNEL_CREATE", guildId, requiredIntents: Intents.Guilds, d: payload });
     recordAudit(ds, bus, {
       guildSnowflake: guildId,
@@ -103,7 +117,16 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
     if (!channel) return unknownChannel(c);
-    return c.json(toAPIChannel(channel));
+    const payload = toAPIChannel(channel);
+    // For a thread, include the current user's thread-member object if they have joined.
+    const isThread = channel.type === 10 || channel.type === 11 || channel.type === 12;
+    if (isThread && auth.user) {
+      const tm = ds.threadMembers
+        .findBy("thread_snowflake", channel.snowflake)
+        .find((m) => m.user_snowflake === auth.user!.snowflake);
+      if (tm) payload.member = { id: channel.snowflake, user_id: tm.user_snowflake, join_timestamp: tm.joined_at, flags: 0 };
+    }
+    return c.json(payload);
   });
 
   app.patch("/api/v:version/channels/:channelId", async (c) => {
@@ -127,13 +150,33 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     if (body.rate_limit_per_user !== undefined) patch.rate_limit_per_user = body.rate_limit_per_user;
     if (body.bitrate !== undefined) patch.bitrate = body.bitrate;
     if (body.user_limit !== undefined) patch.user_limit = body.user_limit;
+    if (body.permission_overwrites !== undefined) patch.permission_overwrites = body.permission_overwrites;
+    if (body.rtc_region !== undefined) patch.rtc_region = body.rtc_region;
+    if (body.video_quality_mode !== undefined) patch.video_quality_mode = body.video_quality_mode;
+    if (body.default_auto_archive_duration !== undefined)
+      patch.default_auto_archive_duration = body.default_auto_archive_duration;
+    if (body.flags !== undefined) patch.flags = body.flags;
+    if (body.available_tags !== undefined) patch.available_tags = body.available_tags;
+    if (body.default_reaction_emoji !== undefined) patch.default_reaction_emoji = body.default_reaction_emoji;
+    if (body.default_sort_order !== undefined) patch.default_sort_order = body.default_sort_order;
+    if (body.default_forum_layout !== undefined) patch.default_forum_layout = body.default_forum_layout;
+    if (body.default_thread_rate_limit_per_user !== undefined)
+      patch.default_thread_rate_limit_per_user = body.default_thread_rate_limit_per_user;
+    if (body.applied_tags !== undefined) patch.applied_tags = body.applied_tags;
     const isThread = channel.type === 10 || channel.type === 11 || channel.type === 12;
-    if (isThread && (body.archived !== undefined || body.locked !== undefined || body.auto_archive_duration !== undefined)) {
+    if (
+      isThread &&
+      (body.archived !== undefined ||
+        body.locked !== undefined ||
+        body.auto_archive_duration !== undefined ||
+        body.invitable !== undefined)
+    ) {
       patch.thread_metadata = {
         ...(channel.thread_metadata ?? { archived: false, auto_archive_duration: 1440, archive_timestamp: new Date().toISOString(), locked: false }),
         ...(body.archived !== undefined ? { archived: !!body.archived } : {}),
         ...(body.locked !== undefined ? { locked: !!body.locked } : {}),
         ...(body.auto_archive_duration !== undefined ? { auto_archive_duration: body.auto_archive_duration } : {}),
+        ...(body.invitable !== undefined ? { invitable: !!body.invitable } : {}),
       };
     }
     const channelChanges = Object.keys(patch)
@@ -198,6 +241,10 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
     if (!channel) return unknownChannel(c);
+    // In a guild channel, TYPING_START carries the typing user's guild member object.
+    const member = channel.guild_snowflake
+      ? ds.members.findBy("guild_snowflake", channel.guild_snowflake).find((m) => m.user_snowflake === auth.user!.snowflake)
+      : undefined;
     bus.publish({
       t: "TYPING_START",
       guildId: channel.guild_snowflake,
@@ -207,6 +254,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
         guild_id: channel.guild_snowflake ?? undefined,
         user_id: auth.user.snowflake,
         timestamp: Math.floor(Date.now() / 1000),
+        ...(member ? { member: toAPIMember(member, ds) } : {}),
       },
     });
     return new Response(null, { status: 204 });
@@ -230,11 +278,28 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
       allow: body.allow ?? "0",
       deny: body.deny ?? "0",
     };
+    const existing = channel.permission_overwrites.find((o) => o.id === overwriteId);
     const overwrites = channel.permission_overwrites.filter((o) => o.id !== overwriteId);
     overwrites.push(overwrite);
     ds.channels.update(channel.id, { permission_overwrites: overwrites });
     const updated = ds.channels.findOneBy("snowflake", channel.snowflake)!;
     bus.publish({ t: "CHANNEL_UPDATE", guildId: updated.guild_snowflake, requiredIntents: Intents.Guilds, d: toAPIChannel(updated) });
+    if (updated.guild_snowflake) {
+      recordAudit(ds, bus, {
+        guildSnowflake: updated.guild_snowflake,
+        actionType: existing ? AuditLogEvent.ChannelOverwriteUpdate : AuditLogEvent.ChannelOverwriteCreate,
+        actorSnowflake: auth.user?.snowflake ?? null,
+        targetSnowflake: updated.snowflake,
+        changes: [
+          { key: "id", new_value: overwrite.id },
+          { key: "type", new_value: overwrite.type },
+          { key: "allow", new_value: overwrite.allow },
+          { key: "deny", new_value: overwrite.deny },
+        ],
+        reason: auditReason(c),
+        options: { id: overwrite.id, type: String(overwrite.type) },
+      });
+    }
     return new Response(null, { status: 204 });
   });
 
@@ -245,11 +310,28 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
     if (!channel) return unknownChannel(c);
     const overwriteId = c.req.param("overwriteId");
+    const removed = channel.permission_overwrites.find((o) => o.id === overwriteId);
     ds.channels.update(channel.id, {
       permission_overwrites: channel.permission_overwrites.filter((o) => o.id !== overwriteId),
     });
     const updated = ds.channels.findOneBy("snowflake", channel.snowflake)!;
     bus.publish({ t: "CHANNEL_UPDATE", guildId: updated.guild_snowflake, requiredIntents: Intents.Guilds, d: toAPIChannel(updated) });
+    if (updated.guild_snowflake && removed) {
+      recordAudit(ds, bus, {
+        guildSnowflake: updated.guild_snowflake,
+        actionType: AuditLogEvent.ChannelOverwriteDelete,
+        actorSnowflake: auth.user?.snowflake ?? null,
+        targetSnowflake: updated.snowflake,
+        changes: [
+          { key: "id", old_value: removed.id },
+          { key: "type", old_value: removed.type },
+          { key: "allow", old_value: removed.allow },
+          { key: "deny", old_value: removed.deny },
+        ],
+        reason: auditReason(c),
+        options: { id: removed.id, type: String(removed.type) },
+      });
+    }
     return new Response(null, { status: 204 });
   });
 
@@ -299,6 +381,17 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
       avatar: null,
       token: `whk_${snowflake()}`,
       application_snowflake: auth.application?.snowflake ?? null,
+      // Persist the followed source so the channel-follower webhook can surface source_guild/source_channel.
+      // (The toAPIWebhook serializer is owned by another agent; we only store the snowflakes here.)
+      source_guild_snowflake: source.guild_snowflake,
+      source_channel_snowflake: source.snowflake,
+    });
+    // Fires a Webhooks Update Gateway event for the target channel.
+    bus.publish({
+      t: "WEBHOOKS_UPDATE",
+      guildId: target.guild_snowflake,
+      requiredIntents: Intents.Guilds,
+      d: { guild_id: target.guild_snowflake ?? undefined, channel_id: target.snowflake },
     });
     return c.json({ channel_id: source.snowflake, webhook_id: webhook.snowflake });
   });

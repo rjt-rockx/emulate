@@ -164,7 +164,8 @@ describe("channel permissions, crosspost, follow, pins, recipients", () => {
     })).json()) as { id: string };
     const res = await app.request(api(`/channels/${general}/messages/${msg.id}/crosspost`), { method: "POST", headers: botHeaders() });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { flags: number }).flags & 2).toBe(2);
+    // CROSSPOSTED is message flag 1 << 0 per discord-api-types.
+    expect(((await res.json()) as { flags: number }).flags & 1).toBe(1);
   });
 
   it("follows an announcement channel", async () => {
