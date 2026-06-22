@@ -1,10 +1,11 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, toAPIUser, toAPIChannel } from "../helpers.js";
+import { getAuth, unauthorized, notFound, toAPIUser, toAPIChannel, toAPIMember } from "../helpers.js";
 import { createChannel } from "../factories.js";
+import { Intents } from "../gateway/intents.js";
 
 export function usersRoutes(ctx: DiscordRouteContext): void {
-  const { app, store } = ctx;
+  const { app, store, bus } = ctx;
 
   // Register @me literal routes before the :userId param route so "@me" is not
   // captured as a user id.
@@ -59,6 +60,41 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
         return partial;
       });
     return c.json(guilds);
+  });
+
+  // Current user's member object within a specific guild (oauth `guilds.members.read`).
+  app.get("/api/v:version/users/@me/guilds/:guildId/member", (c) => {
+    const auth = getAuth(c, store);
+    if (!auth || !auth.user) return unauthorized(c);
+    const ds = getDiscordStore(store);
+    const guildId = c.req.param("guildId");
+    const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === auth.user!.snowflake);
+    if (!member) return notFound(c);
+    return c.json(toAPIMember(member, ds));
+  });
+
+  // Leave a guild.
+  app.delete("/api/v:version/users/@me/guilds/:guildId", (c) => {
+    const auth = getAuth(c, store);
+    if (!auth || !auth.user) return unauthorized(c);
+    const ds = getDiscordStore(store);
+    const guildId = c.req.param("guildId");
+    const guild = ds.guilds.findOneBy("snowflake", guildId);
+    if (!guild) return notFound(c);
+    const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === auth.user!.snowflake);
+    if (member) {
+      ds.members.delete(member.id);
+      ds.guilds.update(guild.id, { member_snowflakes: guild.member_snowflakes.filter((s) => s !== auth.user!.snowflake) });
+      bus.publish({
+        t: "GUILD_MEMBER_REMOVE",
+        guildId,
+        requiredIntents: Intents.GuildMembers,
+        d: { guild_id: guildId, user: toAPIUser(auth.user) },
+      });
+      // The leaving user/bot sees the guild become unavailable.
+      bus.publish({ t: "GUILD_DELETE", guildId, requiredIntents: Intents.Guilds, d: { id: guildId, unavailable: false } });
+    }
+    return new Response(null, { status: 204 });
   });
 
   app.post("/api/v:version/users/@me/channels", async (c) => {

@@ -24,6 +24,79 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   const { app, store, bus } = ctx;
 
   // ---------------------------------------------------------------------------
+  // Literal routes that must be registered before their `:param` siblings, since
+  // the router matches in registration order (e.g. /members/search vs /members/:userId).
+  // ---------------------------------------------------------------------------
+
+  // Modify the current member (nick, etc.).
+  app.patch("/api/v:version/guilds/:guildId/members/@me", async (c) => {
+    const auth = getAuth(c, store);
+    if (!auth || !auth.user) return unauthorized(c);
+    const ds = getDiscordStore(store);
+    const guildId = c.req.param("guildId");
+    const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === auth.user!.snowflake);
+    if (!member) return notFound(c);
+    const body = (await c.req.json().catch(() => ({}))) as { nick?: string | null };
+    if (body.nick !== undefined) ds.members.update(member.id, { nick: body.nick });
+    const updated = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === auth.user!.snowflake)!;
+    const apiMember = toAPIMember(updated, ds);
+    bus.publish({ t: "GUILD_MEMBER_UPDATE", guildId, requiredIntents: Intents.GuildMembers, d: { ...apiMember, guild_id: guildId } });
+    return c.json(apiMember);
+  });
+
+  // Deprecated set-own-nick alias (returns just the nick).
+  app.patch("/api/v:version/guilds/:guildId/members/@me/nick", async (c) => {
+    const auth = getAuth(c, store);
+    if (!auth || !auth.user) return unauthorized(c);
+    const ds = getDiscordStore(store);
+    const guildId = c.req.param("guildId");
+    const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === auth.user!.snowflake);
+    if (!member) return notFound(c);
+    const body = (await c.req.json().catch(() => ({}))) as { nick?: string | null };
+    if (body.nick !== undefined) ds.members.update(member.id, { nick: body.nick });
+    return c.json({ nick: body.nick ?? null });
+  });
+
+  // Search guild members by username/nick prefix.
+  app.get("/api/v:version/guilds/:guildId/members/search", (c) => {
+    const auth = getAuth(c, store);
+    if (!auth || auth.type !== "bot") return unauthorized(c);
+    const ds = getDiscordStore(store);
+    const guildId = c.req.param("guildId");
+    if (!ds.guilds.findOneBy("snowflake", guildId)) return notFound(c);
+    const query = (c.req.query("query") ?? "").toLowerCase();
+    const limit = Math.min(Number(c.req.query("limit") ?? 1) || 1, 1000);
+    const matches = ds.members
+      .findBy("guild_snowflake", guildId)
+      .filter((m) => {
+        if (!query) return true;
+        const user = ds.users.findOneBy("snowflake", m.user_snowflake);
+        const uname = user?.username.toLowerCase() ?? "";
+        const nick = (m.nick ?? "").toLowerCase();
+        return uname.startsWith(query) || nick.startsWith(query);
+      })
+      .slice(0, limit)
+      .map((m) => toAPIMember(m, ds));
+    return c.json(matches);
+  });
+
+  // Per-role member counts (literal — must precede /roles/:roleId).
+  app.get("/api/v:version/guilds/:guildId/roles/member-counts", (c) => {
+    const auth = getAuth(c, store);
+    if (!auth || auth.type !== "bot") return unauthorized(c);
+    const ds = getDiscordStore(store);
+    const guildId = c.req.param("guildId");
+    if (!ds.guilds.findOneBy("snowflake", guildId)) return notFound(c);
+    const counts: Record<string, number> = {};
+    for (const role of ds.roles.findBy("guild_snowflake", guildId)) {
+      counts[role.snowflake] = ds.members
+        .findBy("guild_snowflake", guildId)
+        .filter((m) => m.role_snowflakes.includes(role.snowflake)).length;
+    }
+    return c.json(counts);
+  });
+
+  // ---------------------------------------------------------------------------
   // Guild core
   // ---------------------------------------------------------------------------
 
@@ -36,6 +109,30 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (!guild) return notFound(c);
     const withCounts = c.req.query("with_counts") === "true";
     return c.json(toAPIGuild(guild, ds, { withCounts }));
+  });
+
+  // Guild preview (public-facing subset; available to bots in the guild here).
+  app.get("/api/v:version/guilds/:guildId/preview", (c) => {
+    const auth = getAuth(c, store);
+    if (!auth || auth.type !== "bot") return unauthorized(c);
+    const ds = getDiscordStore(store);
+    const guildId = c.req.param("guildId");
+    const guild = ds.guilds.findOneBy("snowflake", guildId);
+    if (!guild) return notFound(c);
+    const memberCount = ds.members.findBy("guild_snowflake", guildId).length;
+    return c.json({
+      id: guild.snowflake,
+      name: guild.name,
+      icon: guild.icon,
+      splash: guild.splash,
+      discovery_splash: null,
+      emojis: ds.emojis.findBy("guild_snowflake", guildId).map((e) => toAPIEmoji(e, ds)),
+      features: guild.features,
+      approximate_member_count: memberCount,
+      approximate_presence_count: memberCount,
+      description: guild.description,
+      stickers: ds.stickers.findBy("guild_snowflake", guildId).map((s) => ({ id: s.snowflake, name: s.name })),
+    });
   });
 
   app.post("/api/v:version/guilds", async (c) => {
@@ -142,6 +239,36 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const guild = ds.guilds.findOneBy("snowflake", guildId);
     if (!guild) return notFound(c);
     const roles = ds.roles.findBy("guild_snowflake", guildId).map(toAPIRole);
+    return c.json(roles);
+  });
+
+  // Get a single role.
+  app.get("/api/v:version/guilds/:guildId/roles/:roleId", (c) => {
+    const auth = getAuth(c, store);
+    if (!auth || auth.type !== "bot") return unauthorized(c);
+    const ds = getDiscordStore(store);
+    const guildId = c.req.param("guildId");
+    const role = ds.roles.findOneBy("snowflake", c.req.param("roleId"));
+    if (!role || role.guild_snowflake !== guildId) return notFound(c);
+    return c.json(toAPIRole(role));
+  });
+
+  // Reorder roles (batch position update). Returns all guild roles.
+  app.patch("/api/v:version/guilds/:guildId/roles", async (c) => {
+    const auth = getAuth(c, store);
+    if (!auth || auth.type !== "bot") return unauthorized(c);
+    const ds = getDiscordStore(store);
+    const guildId = c.req.param("guildId");
+    if (!ds.guilds.findOneBy("snowflake", guildId)) return notFound(c);
+    const body = (await c.req.json().catch(() => [])) as Array<{ id: string; position?: number }>;
+    for (const entry of Array.isArray(body) ? body : []) {
+      const role = ds.roles.findOneBy("snowflake", entry.id);
+      if (role && role.guild_snowflake === guildId && entry.position !== undefined) {
+        ds.roles.update(role.id, { position: entry.position });
+      }
+    }
+    const roles = ds.roles.findBy("guild_snowflake", guildId).map(toAPIRole);
+    bus.publish({ t: "GUILD_ROLE_UPDATE", guildId, requiredIntents: Intents.Guilds, d: { guild_id: guildId, roles } });
     return c.json(roles);
   });
 
@@ -403,6 +530,68 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       actorSnowflake: auth.user?.snowflake ?? null,
       targetSnowflake: userId,
     });
+    return new Response(null, { status: 204 });
+  });
+
+  // Add a single role to a member.
+  app.put("/api/v:version/guilds/:guildId/members/:userId/roles/:roleId", (c) => {
+    const auth = getAuth(c, store);
+    if (!auth || auth.type !== "bot") return unauthorized(c);
+    const ds = getDiscordStore(store);
+    const guildId = c.req.param("guildId");
+    const userId = c.req.param("userId");
+    const roleId = c.req.param("roleId");
+    const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId);
+    const role = ds.roles.findOneBy("snowflake", roleId);
+    if (!member || !role || role.guild_snowflake !== guildId) return notFound(c);
+    if (!member.role_snowflakes.includes(roleId)) {
+      ds.members.update(member.id, { role_snowflakes: [...member.role_snowflakes, roleId] });
+      const updated = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId)!;
+      bus.publish({
+        t: "GUILD_MEMBER_UPDATE",
+        guildId,
+        requiredIntents: Intents.GuildMembers,
+        d: { ...toAPIMember(updated, ds), guild_id: guildId },
+      });
+      recordAudit(ds, {
+        guildSnowflake: guildId,
+        actionType: AuditLogEvent.MemberRoleUpdate,
+        actorSnowflake: auth.user?.snowflake ?? null,
+        targetSnowflake: userId,
+        changes: [{ key: "$add", new_value: [{ id: roleId, name: role.name }] }],
+      });
+    }
+    return new Response(null, { status: 204 });
+  });
+
+  // Remove a single role from a member.
+  app.delete("/api/v:version/guilds/:guildId/members/:userId/roles/:roleId", (c) => {
+    const auth = getAuth(c, store);
+    if (!auth || auth.type !== "bot") return unauthorized(c);
+    const ds = getDiscordStore(store);
+    const guildId = c.req.param("guildId");
+    const userId = c.req.param("userId");
+    const roleId = c.req.param("roleId");
+    const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId);
+    if (!member) return notFound(c);
+    if (member.role_snowflakes.includes(roleId)) {
+      ds.members.update(member.id, { role_snowflakes: member.role_snowflakes.filter((r) => r !== roleId) });
+      const updated = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId)!;
+      bus.publish({
+        t: "GUILD_MEMBER_UPDATE",
+        guildId,
+        requiredIntents: Intents.GuildMembers,
+        d: { ...toAPIMember(updated, ds), guild_id: guildId },
+      });
+      const role = ds.roles.findOneBy("snowflake", roleId);
+      recordAudit(ds, {
+        guildSnowflake: guildId,
+        actionType: AuditLogEvent.MemberRoleUpdate,
+        actorSnowflake: auth.user?.snowflake ?? null,
+        targetSnowflake: userId,
+        changes: [{ key: "$remove", new_value: [{ id: roleId, name: role?.name }] }],
+      });
+    }
     return new Response(null, { status: 204 });
   });
 

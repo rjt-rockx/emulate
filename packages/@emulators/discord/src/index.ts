@@ -34,6 +34,11 @@ import { roleConnectionsRoutes } from "./routes/roleConnections.js";
 import { guildSettingsRoutes } from "./routes/guildSettings.js";
 import { soundboardRoutes } from "./routes/soundboard.js";
 import { inspectorRoutes } from "./routes/inspector.js";
+import { monetizationRoutes } from "./routes/monetization.js";
+import { integrationsRoutes } from "./routes/integrations.js";
+import { applicationManagementRoutes } from "./routes/applicationManagement.js";
+import { commandPermissionsRoutes } from "./routes/commandPermissions.js";
+import { lobbiesRoutes } from "./routes/lobbies.js";
 
 export const discordPlugin: ServicePlugin = {
   name: "discord",
@@ -77,6 +82,11 @@ export const discordPlugin: ServicePlugin = {
     roleConnectionsRoutes(ctx);
     guildSettingsRoutes(ctx);
     soundboardRoutes(ctx);
+    monetizationRoutes(ctx);
+    integrationsRoutes(ctx);
+    applicationManagementRoutes(ctx);
+    commandPermissionsRoutes(ctx);
+    lobbiesRoutes(ctx);
     inspectorRoutes(ctx);
   },
 

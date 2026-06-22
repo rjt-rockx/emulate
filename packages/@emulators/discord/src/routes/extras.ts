@@ -151,6 +151,47 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
     return new Response(null, { status: 204 });
   });
 
+  // Bulk ban up to 200 users at once.
+  app.post("/api/v:version/guilds/:guildId/bulk-ban", async (c) => {
+    const auth = getAuth(c, store);
+    if (!auth || auth.type !== "bot") return unauthorized(c);
+    const ds = getDiscordStore(store);
+    const guildId = c.req.param("guildId");
+    const guild = ds.guilds.findOneBy("snowflake", guildId);
+    if (!guild) return notFound(c);
+    const body = (await c.req.json().catch(() => ({}))) as { user_ids?: string[]; reason?: string };
+    const userIds = Array.isArray(body.user_ids) ? body.user_ids.slice(0, 200) : [];
+    const banned: string[] = [];
+    const failed: string[] = [];
+    for (const userId of userIds) {
+      const user = ds.users.findOneBy("snowflake", userId);
+      const already = ds.bans.findBy("guild_snowflake", guildId).some((b) => b.user_snowflake === userId);
+      if (!user || already) {
+        failed.push(userId);
+        continue;
+      }
+      ds.bans.insert({ guild_snowflake: guildId, user_snowflake: userId, reason: body.reason ?? null });
+      const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId);
+      if (member) {
+        ds.members.delete(member.id);
+        ds.guilds.update(guild.id, { member_snowflakes: guild.member_snowflakes.filter((s) => s !== userId) });
+        bus.publish({ t: "GUILD_MEMBER_REMOVE", guildId, requiredIntents: Intents.GuildMembers, d: { guild_id: guildId, user: toAPIUser(user) } });
+      }
+      bus.publish({ t: "GUILD_BAN_ADD", guildId, requiredIntents: Intents.GuildModeration, d: { guild_id: guildId, user: toAPIUser(user) } });
+      recordAudit(ds, {
+        guildSnowflake: guildId,
+        actionType: AuditLogEvent.MemberBanAdd,
+        actorSnowflake: auth.user?.snowflake ?? null,
+        targetSnowflake: userId,
+        reason: body.reason ?? null,
+      });
+      banned.push(userId);
+    }
+    // Discord returns 400 if no users could be banned.
+    if (banned.length === 0) return c.json({ banned_users: [], failed_users: failed }, 400);
+    return c.json({ banned_users: banned, failed_users: failed });
+  });
+
   // ----- Invites -----
   app.post("/api/v:version/channels/:channelId/invites", async (c) => {
     const auth = getAuth(c, store);
