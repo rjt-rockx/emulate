@@ -1,9 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
 import {
-  getAuth,
-  unauthorized,
-  unknownGuild,
   unknownMember,
   unknownRole,
   unknownUser,
@@ -20,6 +17,10 @@ import {
   permissionsEnforced,
   discordError,
   invalidFormBody,
+  requireBot,
+  requireUser,
+  requireGuild,
+  getGuildMember,
 } from "../helpers.js";
 import {
   createGuild,
@@ -97,11 +98,9 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
 
   // Modify the current member (nick/avatar/banner/bio).
   app.patch("/api/v:version/guilds/:guildId/members/@me", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireUser(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
-    const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === auth.user!.snowflake);
+    const member = getGuildMember(ds, guildId, auth.user!.snowflake);
     if (!member) return unknownMember(c);
     const body = (await c.req.json().catch(() => ({}))) as {
       nick?: string | null;
@@ -113,14 +112,14 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (body.nick !== undefined) patch.nick = body.nick;
     if (body.avatar !== undefined) patch.avatar = body.avatar;
     if (Object.keys(patch).length > 0) ds.members.update(member.id, patch);
-    const updated = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === auth.user!.snowflake)!;
+    const updated = getGuildMember(ds, guildId, auth.user!.snowflake)!;
     const apiMember = toAPIMember(updated, ds);
     // The bot's own GUILD_MEMBER_UPDATE is always delivered, even without GUILD_MEMBERS intent.
     bus.publish({
       t: "GUILD_MEMBER_UPDATE",
       guildId,
       requiredIntents: 0,
-      targetUserId: auth.user.snowflake,
+      targetUserId: auth.user!.snowflake,
       d: { ...apiMember, guild_id: guildId },
     });
     return c.json(apiMember);
@@ -128,11 +127,9 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
 
   // Deprecated set-own-nick alias (returns just the nick).
   app.patch("/api/v:version/guilds/:guildId/members/@me/nick", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireUser(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
-    const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === auth.user!.snowflake);
+    const member = getGuildMember(ds, guildId, auth.user!.snowflake);
     if (!member) return unknownMember(c);
     const body = (await c.req.json().catch(() => ({}))) as { nick?: string | null };
     if (body.nick !== undefined) ds.members.update(member.id, { nick: body.nick });
@@ -141,11 +138,9 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
 
   // Search guild members by username/nick prefix.
   app.get("/api/v:version/guilds/:guildId/members/search", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
-    if (!ds.guilds.findOneBy("snowflake", guildId)) return unknownGuild(c);
+    { const _g = requireGuild(c, ds, guildId); if (_g instanceof Response) return _g; }
     const query = (c.req.query("query") ?? "").toLowerCase();
     const limit = Math.min(Number(c.req.query("limit") ?? 1) || 1, 1000);
     const matches = ds.members
@@ -165,11 +160,9 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   // Per-role member counts (literal — must precede /roles/:roleId).
   // Per the API docs: "Does not include the @everyone role."
   app.get("/api/v:version/guilds/:guildId/roles/member-counts", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
-    if (!ds.guilds.findOneBy("snowflake", guildId)) return unknownGuild(c);
+    { const _g = requireGuild(c, ds, guildId); if (_g instanceof Response) return _g; }
     const counts: Record<string, number> = {};
     for (const role of ds.roles.findBy("guild_snowflake", guildId)) {
       // The @everyone role has snowflake == guild snowflake — excluded per API docs.
@@ -186,24 +179,18 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   // ---------------------------------------------------------------------------
 
   app.get("/api/v:version/guilds/:guildId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
     const withCounts = c.req.query("with_counts") === "true";
     return c.json(toAPIGuild(guild, ds, { withCounts }));
   });
 
   // Guild preview (public-facing subset; available to bots in the guild here).
   app.get("/api/v:version/guilds/:guildId/preview", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
     const memberCount = ds.members.findBy("guild_snowflake", guildId).length;
     return c.json({
       id: guild.snowflake,
@@ -221,9 +208,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.post("/api/v:version/guilds", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     let body: Record<string, unknown> = {};
     try {
       body = await c.req.json();
@@ -246,12 +231,9 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.patch("/api/v:version/guilds/:guildId", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
     let body: Record<string, unknown> = {};
     try {
       body = await c.req.json();
@@ -314,12 +296,9 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/guilds/:guildId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
 
     // Cascade: messages in guild channels, then channels, then roles, members, emojis, guild.
     const channels = ds.channels.findBy("guild_snowflake", guildId);
@@ -350,21 +329,16 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   // ---------------------------------------------------------------------------
 
   app.get("/api/v:version/guilds/:guildId/roles", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
     const roles = ds.roles.findBy("guild_snowflake", guildId).map(toAPIRole);
     return c.json(roles);
   });
 
   // Get a single role.
   app.get("/api/v:version/guilds/:guildId/roles/:roleId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
     const role = ds.roles.findOneBy("snowflake", c.req.param("roleId"));
     if (!role || role.guild_snowflake !== guildId) return unknownRole(c);
@@ -373,11 +347,9 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
 
   // Reorder roles (batch position update). Returns all guild roles.
   app.patch("/api/v:version/guilds/:guildId/roles", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
-    if (!ds.guilds.findOneBy("snowflake", guildId)) return unknownGuild(c);
+    { const _g = requireGuild(c, ds, guildId); if (_g instanceof Response) return _g; }
     const body = (await c.req.json().catch(() => [])) as Array<{ id: string; position?: number }>;
     for (const entry of Array.isArray(body) ? body : []) {
       const role = ds.roles.findOneBy("snowflake", entry.id);
@@ -391,12 +363,9 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.post("/api/v:version/guilds/:guildId/roles", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
     const denied = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageRoles, { guildId });
     if (denied) return denied;
     let body: Record<string, unknown> = {};
@@ -445,13 +414,10 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.patch("/api/v:version/guilds/:guildId/roles/:roleId", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     const roleId = c.req.param("roleId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
     const role = ds.roles.findOneBy("snowflake", roleId);
     if (!role || role.guild_snowflake !== guildId) return unknownRole(c);
     const denied = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageRoles, { guildId });
@@ -510,13 +476,10 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/guilds/:guildId/roles/:roleId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     const roleId = c.req.param("roleId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
     const role = ds.roles.findOneBy("snowflake", roleId);
     if (!role || role.guild_snowflake !== guildId) return unknownRole(c);
     const denied = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageRoles, { guildId });
@@ -554,12 +517,9 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   // ---------------------------------------------------------------------------
 
   app.get("/api/v:version/guilds/:guildId/members", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
     // Pagination: ascending by user id, `limit` (1-1000, default 1) members after `after`.
     const limitRaw = Number(c.req.query("limit"));
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.floor(limitRaw), 1000) : 1;
@@ -576,26 +536,20 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.get("/api/v:version/guilds/:guildId/members/:userId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
     const userId = c.req.param("userId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
-    const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
+    const member = getGuildMember(ds, guildId, userId);
     if (!member) return unknownMember(c);
     return c.json(toAPIMember(member, ds));
   });
 
   app.put("/api/v:version/guilds/:guildId/members/:userId", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
     const userId = c.req.param("userId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
     const user = ds.users.findOneBy("snowflake", userId);
     if (!user) return unknownUser(c);
     let body: Record<string, unknown> = {};
@@ -634,14 +588,11 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.patch("/api/v:version/guilds/:guildId/members/:userId", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     const userId = c.req.param("userId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
-    const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
+    const member = getGuildMember(ds, guildId, userId);
     if (!member) return unknownMember(c);
     let body: Record<string, unknown> = {};
     try {
@@ -658,7 +609,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (body.flags !== undefined) patch.flags = body.flags;
     const previousRoles = member.role_snowflakes;
     if (Object.keys(patch).length > 0) ds.members.update(member.id, patch);
-    const updated = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId)!;
+    const updated = getGuildMember(ds, guildId, userId)!;
     const apiMember = toAPIMember(updated, ds);
     // A bot's own member update is delivered regardless of the GUILD_MEMBERS intent.
     const isSelf = auth.user?.snowflake === userId;
@@ -716,14 +667,11 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/guilds/:guildId/members/:userId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     const userId = c.req.param("userId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
-    const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
+    const member = getGuildMember(ds, guildId, userId);
     if (!member) return unknownMember(c);
     const denied = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.KickMembers, { guildId });
     if (denied) return denied;
@@ -751,15 +699,12 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
 
   // Add a single role to a member.
   app.put("/api/v:version/guilds/:guildId/members/:userId/roles/:roleId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     const userId = c.req.param("userId");
     const roleId = c.req.param("roleId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
-    const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
+    const member = getGuildMember(ds, guildId, userId);
     if (!member) return unknownMember(c);
     const role = ds.roles.findOneBy("snowflake", roleId);
     if (!role || role.guild_snowflake !== guildId) return unknownRole(c);
@@ -774,7 +719,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     }
     if (!member.role_snowflakes.includes(roleId)) {
       ds.members.update(member.id, { role_snowflakes: [...member.role_snowflakes, roleId] });
-      const updated = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId)!;
+      const updated = getGuildMember(ds, guildId, userId)!;
       bus.publish({
         t: "GUILD_MEMBER_UPDATE",
         guildId,
@@ -795,17 +740,15 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
 
   // Remove a single role from a member.
   app.delete("/api/v:version/guilds/:guildId/members/:userId/roles/:roleId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     const userId = c.req.param("userId");
     const roleId = c.req.param("roleId");
-    const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId);
+    const member = getGuildMember(ds, guildId, userId);
     if (!member) return unknownMember(c);
     if (member.role_snowflakes.includes(roleId)) {
       ds.members.update(member.id, { role_snowflakes: member.role_snowflakes.filter((r) => r !== roleId) });
-      const updated = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId)!;
+      const updated = getGuildMember(ds, guildId, userId)!;
       bus.publish({
         t: "GUILD_MEMBER_UPDATE",
         guildId,
@@ -830,36 +773,27 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   // ---------------------------------------------------------------------------
 
   app.get("/api/v:version/guilds/:guildId/emojis", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
     const emojis = ds.emojis.findBy("guild_snowflake", guildId).map((e) => toAPIEmoji(e, ds));
     return c.json(emojis);
   });
 
   app.get("/api/v:version/guilds/:guildId/emojis/:emojiId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
     const emojiId = c.req.param("emojiId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
     const emoji = ds.emojis.findOneBy("snowflake", emojiId);
     if (!emoji || emoji.guild_snowflake !== guildId) return unknownEmoji(c);
     return c.json(toAPIEmoji(emoji, ds));
   });
 
   app.post("/api/v:version/guilds/:guildId/emojis", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
     let body: Record<string, unknown> = {};
     try {
       body = await c.req.json();
@@ -900,13 +834,10 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.patch("/api/v:version/guilds/:guildId/emojis/:emojiId", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     const emojiId = c.req.param("emojiId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
     const emoji = ds.emojis.findOneBy("snowflake", emojiId);
     if (!emoji || emoji.guild_snowflake !== guildId) return unknownEmoji(c);
     let body: Record<string, unknown> = {};
@@ -940,13 +871,10 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/guilds/:guildId/emojis/:emojiId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     const emojiId = c.req.param("emojiId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
     const emoji = ds.emojis.findOneBy("snowflake", emojiId);
     if (!emoji || emoji.guild_snowflake !== guildId) return unknownEmoji(c);
     ds.emojis.delete(emoji.id);

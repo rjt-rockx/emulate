@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore, type DiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, unknownGuild, unknownChannel, unknownMessage, unknownBan, unknownInvite, invalidFormBody, discordError, toAPIUser, toAPIMessage, toAPIScheduledEvent, recordAudit, AuditLogEvent, auditReason } from "../helpers.js";
+import { notFound, unknownChannel, unknownBan, unknownInvite, invalidFormBody, discordError, toAPIUser, toAPIMessage, toAPIScheduledEvent, recordAudit, AuditLogEvent, auditReason, requireBot, requireGuild, requireMessage } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 import type { APIBan, APIInvite } from "discord-api-types/v10";
 import type { DiscordBan, DiscordInvite } from "../entities.js";
@@ -98,9 +98,7 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
 
   // ----- Pins -----
   app.get("/api/v:version/channels/:channelId/pins", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const pinned = ds.messages
       .findBy("channel_snowflake", c.req.param("channelId"))
       .filter((m) => m.pinned)
@@ -109,13 +107,10 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
   });
 
   const setPinned = (c: Context<AppEnv>, pinned: boolean) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const channelId = c.req.param("channelId");
     const messageId = c.req.param("messageId");
-    const message = ds.messages.findOneBy("snowflake", messageId);
-    if (!message || message.channel_snowflake !== channelId) return unknownMessage(c);
+    const message = requireMessage(c, ds, channelId, messageId); if (message instanceof Response) return message;
     ds.messages.update(message.id, { pinned });
     bus.publish({
       t: "CHANNEL_PINS_UPDATE",
@@ -140,9 +135,7 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
 
   // ----- Bans -----
   app.get("/api/v:version/guilds/:guildId/bans", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
     const before = c.req.query("before");
     const after = c.req.query("after");
@@ -162,9 +155,7 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.get("/api/v:version/guilds/:guildId/bans/:userId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const ban = ds.bans
       .findBy("guild_snowflake", c.req.param("guildId"))
       .find((b) => b.user_snowflake === c.req.param("userId"));
@@ -173,9 +164,7 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.put("/api/v:version/guilds/:guildId/bans/:userId", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     const userId = c.req.param("userId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
@@ -216,9 +205,7 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/guilds/:guildId/bans/:userId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     const userId = c.req.param("userId");
     const ban = ds.bans.findBy("guild_snowflake", guildId).find((b) => b.user_snowflake === userId);
@@ -243,12 +230,9 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
 
   // Bulk ban up to 200 users at once.
   app.post("/api/v:version/guilds/:guildId/bulk-ban", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
     const body = (await c.req.json().catch(() => ({}))) as { user_ids?: string[]; reason?: string; delete_message_seconds?: number };
     const reason = auditReason(c) ?? body.reason ?? null;
     const userIds = Array.isArray(body.user_ids) ? body.user_ids.slice(0, 200) : [];
@@ -286,9 +270,7 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
 
   // ----- Invites -----
   app.post("/api/v:version/channels/:channelId/invites", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
     if (!channel) return unknownChannel(c);
     const body = (await c.req.json().catch(() => ({}))) as {
@@ -377,16 +359,12 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.get("/api/v:version/channels/:channelId/invites", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     return c.json(ds.invites.findBy("channel_snowflake", c.req.param("channelId")).map((i) => toAPIInvite(i, ds)));
   });
 
   app.get("/api/v:version/guilds/:guildId/invites", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     return c.json(ds.invites.findBy("guild_snowflake", c.req.param("guildId")).map((i) => toAPIInvite(i, ds)));
   });
 
@@ -400,9 +378,7 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/invites/:code", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const invite = ds.invites.findOneBy("code", c.req.param("code"));
     if (!invite) return unknownInvite(c);
     const payload = toAPIInvite(invite, ds);

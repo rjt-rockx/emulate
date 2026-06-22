@@ -6,7 +6,6 @@ import type {
 } from "discord-api-types/v10";
 import { getDiscordStore, type DiscordStore } from "../store.js";
 import {
-  getAuth,
   unauthorized,
   notFound,
   snowflake,
@@ -19,6 +18,7 @@ import {
   auditReason,
   invalidFormBody,
   unknownScheduledEvent,
+  requireBot,
 } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 import type { Context, AppEnv, Store } from "@emulators/core";
@@ -230,16 +230,12 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
 
   // ----- Stickers -----
   app.get("/api/v:version/guilds/:guildId/stickers", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     return c.json(ds.stickers.findBy("guild_snowflake", c.req.param("guildId")).map((s) => toAPISticker(s, ds)));
   });
 
   app.get("/api/v:version/guilds/:guildId/stickers/:stickerId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const sticker = ds.stickers.findOneBy("snowflake", c.req.param("stickerId"));
     if (!sticker || sticker.guild_snowflake !== c.req.param("guildId")) return notFound(c);
     return c.json(toAPISticker(sticker, ds));
@@ -265,9 +261,7 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
     });
 
   app.post("/api/v:version/guilds/:guildId/stickers", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     if (!ds.guilds.findOneBy("snowflake", guildId)) return notFound(c);
     const body = (await c.req.parseBody().catch(() => ({}))) as Record<string, unknown>;
@@ -330,9 +324,7 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.patch("/api/v:version/guilds/:guildId/stickers/:stickerId", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const sticker = ds.stickers.findOneBy("snowflake", c.req.param("stickerId"));
     if (!sticker || sticker.guild_snowflake !== c.req.param("guildId")) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -373,9 +365,7 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/guilds/:guildId/stickers/:stickerId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const sticker = ds.stickers.findOneBy("snowflake", c.req.param("stickerId"));
     if (!sticker || sticker.guild_snowflake !== c.req.param("guildId")) return notFound(c);
     const guildId = sticker.guild_snowflake;
@@ -399,9 +389,7 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
   };
 
   app.get("/api/v:version/guilds/:guildId/scheduled-events", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const withCount = boolQuery(c, "with_user_count");
     return c.json(
       ds.scheduledEvents.findBy("guild_snowflake", c.req.param("guildId")).map((e) => {
@@ -413,9 +401,7 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.post("/api/v:version/guilds/:guildId/scheduled-events", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     if (!ds.guilds.findOneBy("snowflake", guildId)) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -461,9 +447,7 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.get("/api/v:version/guilds/:guildId/scheduled-events/:eventId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const event = ds.scheduledEvents.findOneBy("snowflake", c.req.param("eventId"));
     if (!event || event.guild_snowflake !== c.req.param("guildId")) return unknownScheduledEvent(c);
     const payload = serializeEvent(event, ds);
@@ -472,9 +456,7 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.patch("/api/v:version/guilds/:guildId/scheduled-events/:eventId", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const event = ds.scheduledEvents.findOneBy("snowflake", c.req.param("eventId"));
     if (!event || event.guild_snowflake !== c.req.param("guildId")) return unknownScheduledEvent(c);
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -562,9 +544,7 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/guilds/:guildId/scheduled-events/:eventId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const event = ds.scheduledEvents.findOneBy("snowflake", c.req.param("eventId"));
     if (!event || event.guild_snowflake !== c.req.param("guildId")) return unknownScheduledEvent(c);
     const payload = serializeEvent(event, ds);
@@ -592,9 +572,7 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
 
   // ----- Get Guild Scheduled Event Users -----
   app.get("/api/v:version/guilds/:guildId/scheduled-events/:eventId/users", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
     const event = ds.scheduledEvents.findOneBy("snowflake", c.req.param("eventId"));
     if (!event || event.guild_snowflake !== guildId) return unknownScheduledEvent(c);
@@ -629,9 +607,7 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
 
   // ----- Subscribe / unsubscribe (PUT/DELETE .../users/@me) -----
   app.put("/api/v:version/guilds/:guildId/scheduled-events/:eventId/users/@me", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     const event = ds.scheduledEvents.findOneBy("snowflake", c.req.param("eventId"));
     if (!event || event.guild_snowflake !== guildId) return unknownScheduledEvent(c);
@@ -659,9 +635,7 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/guilds/:guildId/scheduled-events/:eventId/users/@me", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     const event = ds.scheduledEvents.findOneBy("snowflake", c.req.param("eventId"));
     if (!event || event.guild_snowflake !== guildId) return unknownScheduledEvent(c);

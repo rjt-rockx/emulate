@@ -1,6 +1,5 @@
 import type { DiscordRouteContext } from "../context.js";
-import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, invalidFormBody, discordError } from "../helpers.js";
+import { notFound, invalidFormBody, discordError, requireBot, requireUser } from "../helpers.js";
 import type { Context, AppEnv, Store } from "@emulators/core";
 import type { DiscordAuth } from "../helpers.js";
 
@@ -65,18 +64,14 @@ export function roleConnectionsRoutes(ctx: DiscordRouteContext): void {
 
   // Application role-connection metadata records.
   app.get("/api/v:version/applications/:appId/role-connections/metadata", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const application = ds.applications.findOneBy("snowflake", c.req.param("appId")) ?? ds.applications.all()[0];
     if (!application) return notFound(c);
     return c.json(application.role_connection_metadata ?? []);
   });
 
   app.put("/api/v:version/applications/:appId/role-connections/metadata", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const application = ds.applications.findOneBy("snowflake", c.req.param("appId")) ?? ds.applications.all()[0];
     if (!application) return notFound(c);
     const body = (await c.req.json().catch(() => [])) as unknown[];
@@ -89,11 +84,9 @@ export function roleConnectionsRoutes(ctx: DiscordRouteContext): void {
 
   // The authed user's application role connection.
   app.get("/api/v:version/users/@me/applications/:appId/role-connection", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
+    const g = requireUser(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const scopeErr = requireScope(c, store, auth, "role_connections.write");
     if (scopeErr) return scopeErr;
-    const ds = getDiscordStore(store);
     const appId = c.req.param("appId");
     const existing = ds.roleConnections
       .findBy("application_snowflake", appId)
@@ -106,11 +99,9 @@ export function roleConnectionsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.put("/api/v:version/users/@me/applications/:appId/role-connection", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
+    const g = requireUser(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const scopeErr = requireScope(c, store, auth, "role_connections.write");
     if (scopeErr) return scopeErr;
-    const ds = getDiscordStore(store);
     const appId = c.req.param("appId");
     const body = (await c.req.json().catch(() => ({}))) as {
       platform_name?: string;
@@ -129,7 +120,7 @@ export function roleConnectionsRoutes(ctx: DiscordRouteContext): void {
     } else {
       ds.roleConnections.insert({
         application_snowflake: appId,
-        user_snowflake: auth.user.snowflake,
+        user_snowflake: auth.user!.snowflake,
         platform_name: body.platform_name ?? null,
         platform_username: body.platform_username ?? null,
         metadata: body.metadata ?? {},

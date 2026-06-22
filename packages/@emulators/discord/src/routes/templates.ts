@@ -2,12 +2,12 @@ import { randomBytes } from "node:crypto";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore, type DiscordStore } from "../store.js";
 import {
-  getAuth,
-  unauthorized,
   notFound,
   invalidFormBody,
   toAPIUser,
   toAPIGuild,
+  requireBot,
+  requireUser,
 } from "../helpers.js";
 import { createGuild, createChannel, createRole } from "../factories.js";
 import type { APITemplate } from "discord-api-types/v10";
@@ -131,18 +131,14 @@ export function templatesRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.get("/api/v:version/guilds/:guildId/templates", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     return c.json(
       ds.guildTemplates.findBy("source_guild_snowflake", c.req.param("guildId")).map((t) => toAPITemplate(t, ds)),
     );
   });
 
   app.post("/api/v:version/guilds/:guildId/templates", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     if (!ds.guilds.findOneBy("snowflake", guildId)) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as { name?: string; description?: string };
@@ -166,9 +162,7 @@ export function templatesRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.put("/api/v:version/guilds/:guildId/templates/:code", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const template = ds.guildTemplates.findOneBy("code", c.req.param("code"));
     if (!template || template.source_guild_snowflake !== c.req.param("guildId")) return notFound(c);
     // Sync re-snapshots the source guild and records the sync time on updated_at.
@@ -177,9 +171,7 @@ export function templatesRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.patch("/api/v:version/guilds/:guildId/templates/:code", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const template = ds.guildTemplates.findOneBy("code", c.req.param("code"));
     if (!template || template.source_guild_snowflake !== c.req.param("guildId")) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as { name?: string; description?: string | null };
@@ -203,9 +195,7 @@ export function templatesRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/guilds/:guildId/templates/:code", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const template = ds.guildTemplates.findOneBy("code", c.req.param("code"));
     if (!template || template.source_guild_snowflake !== c.req.param("guildId")) return notFound(c);
     const payload = toAPITemplate(template, ds);
@@ -215,15 +205,13 @@ export function templatesRoutes(ctx: DiscordRouteContext): void {
 
   // Create a new guild from a template.
   app.post("/api/v:version/guilds/templates/:code", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.user == null) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireUser(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const template = ds.guildTemplates.findOneBy("code", c.req.param("code"));
     if (!template) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as { name?: string };
     const guild = createGuild(ds, {
       name: typeof body.name === "string" ? body.name : template.name,
-      ownerSnowflake: auth.user.snowflake,
+      ownerSnowflake: auth.user!.snowflake,
     });
     // Seed a couple of default structures so the new guild is usable.
     createRole(ds, guild.snowflake, { name: "Member" });

@@ -1,11 +1,7 @@
 import type { DiscordRouteContext } from "../context.js";
-import { getDiscordStore } from "../store.js";
 import {
-  getAuth,
-  unauthorized,
   notFound,
   unknownChannel,
-  unknownGuild,
   unknownStageInstance,
   invalidFormBody,
   toAPIStageInstance,
@@ -13,6 +9,8 @@ import {
   recordAudit,
   AuditLogEvent,
   auditReason,
+  requireBot,
+  requireGuild,
 } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 import type { APIAutoModerationRule } from "discord-api-types/v10";
@@ -187,9 +185,7 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
 
   // ----- Stage instances -----
   app.post("/api/v:version/stage-instances", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
 
     // channel_id and topic (1-120) are required per the create JSON params.
@@ -233,18 +229,14 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.get("/api/v:version/stage-instances/:channelId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const stage = ds.stageInstances.findOneBy("channel_snowflake", c.req.param("channelId"));
     if (!stage) return unknownStageInstance(c);
     return c.json(toAPIStageInstance(stage));
   });
 
   app.patch("/api/v:version/stage-instances/:channelId", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const stage = ds.stageInstances.findOneBy("channel_snowflake", c.req.param("channelId"));
     if (!stage) return unknownStageInstance(c);
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -281,9 +273,7 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/stage-instances/:channelId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const stage = ds.stageInstances.findOneBy("channel_snowflake", c.req.param("channelId"));
     if (!stage) return unknownStageInstance(c);
     const payload = toAPIStageInstance(stage);
@@ -302,27 +292,21 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
 
   // ----- Auto-moderation rules -----
   app.get("/api/v:version/guilds/:guildId/auto-moderation/rules", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     return c.json(ds.autoModRules.findBy("guild_snowflake", c.req.param("guildId")).map(toAPIAutoMod));
   });
 
   app.get("/api/v:version/guilds/:guildId/auto-moderation/rules/:ruleId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const rule = ds.autoModRules.findOneBy("snowflake", c.req.param("ruleId"));
     if (!rule || rule.guild_snowflake !== c.req.param("guildId")) return notFound(c);
     return c.json(toAPIAutoMod(rule));
   });
 
   app.post("/api/v:version/guilds/:guildId/auto-moderation/rules", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
-    if (!ds.guilds.findOneBy("snowflake", guildId)) return unknownGuild(c);
+    { const _g = requireGuild(c, ds, guildId); if (_g instanceof Response) return _g; }
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
 
     const triggerType = typeof body.trigger_type === "number" ? body.trigger_type : NaN;
@@ -369,9 +353,7 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.patch("/api/v:version/guilds/:guildId/auto-moderation/rules/:ruleId", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const rule = ds.autoModRules.findOneBy("snowflake", c.req.param("ruleId"));
     if (!rule || rule.guild_snowflake !== c.req.param("guildId")) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -410,9 +392,7 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/guilds/:guildId/auto-moderation/rules/:ruleId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const rule = ds.autoModRules.findOneBy("snowflake", c.req.param("ruleId"));
     if (!rule || rule.guild_snowflake !== c.req.param("guildId")) return notFound(c);
     const payload = toAPIAutoMod(rule);

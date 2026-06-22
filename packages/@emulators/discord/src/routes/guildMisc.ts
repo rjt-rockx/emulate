@@ -1,13 +1,14 @@
 import type { DiscordRouteContext } from "../context.js";
-import { getDiscordStore, type DiscordStore } from "../store.js";
+import type { DiscordStore } from "../store.js";
 import {
   getAuth,
   unauthorized,
-  unknownGuild,
   toAPIUser,
   recordAudit,
   AuditLogEvent,
   auditReason,
+  requireBot,
+  requireGuild,
 } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 import type { DiscordGuildMember } from "../entities.js";
@@ -64,19 +65,15 @@ export function guildMiscRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.get("/api/v:version/guilds/:guildId/regions", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
+    const _g = requireBot(c, store); if (_g instanceof Response) return _g;
     return c.json(VOICE_REGIONS);
   });
 
   // Get Guild Prune Count: report (don't remove) the number of role-less inactive members.
   app.get("/api/v:version/guilds/:guildId/prune", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
     const includeRoles = parseIncludeRoles(c.req.query("include_roles"));
     const daysRaw = Number(c.req.query("days"));
     const days = Number.isFinite(daysRaw) && daysRaw > 0 ? daysRaw : 7;
@@ -88,12 +85,9 @@ export function guildMiscRoutes(ctx: DiscordRouteContext): void {
   // removed member and recording a single MEMBER_PRUNE audit entry with delete_member_days /
   // members_removed in its options. `compute_prune_count: false` forces `pruned` to null.
   app.post("/api/v:version/guilds/:guildId/prune", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
     const body = (await c.req.json().catch(() => ({}))) as {
       days?: number;
       compute_prune_count?: boolean;
@@ -135,12 +129,9 @@ export function guildMiscRoutes(ctx: DiscordRouteContext): void {
   // Get Guild Vanity URL: a partial invite object ({ code, uses }). `code` is null when no vanity
   // url is set; `uses` reflects the stored vanity usage count.
   app.get("/api/v:version/guilds/:guildId/vanity-url", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
     // The emulator does not track vanity-invite redemptions, so uses is always 0.
     return c.json({ code: guild.vanity_url_code ?? null, uses: 0 });
   });
@@ -150,11 +141,9 @@ export function guildMiscRoutes(ctx: DiscordRouteContext): void {
   // referenced actor/target users hydrated and the documented entity arrays populated. Supports
   // the action_type / user_id / before / after / limit query filters.
   app.get("/api/v:version/guilds/:guildId/audit-logs", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
-    if (!ds.guilds.findOneBy("snowflake", guildId)) return unknownGuild(c);
+    { const _g = requireGuild(c, ds, guildId); if (_g instanceof Response) return _g; }
 
     const actionTypeFilter = c.req.query("action_type");
     const userIdFilter = c.req.query("user_id");
