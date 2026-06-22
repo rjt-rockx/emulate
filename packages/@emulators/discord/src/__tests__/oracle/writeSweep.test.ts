@@ -53,6 +53,17 @@ describe("OpenAPI WRITE sweep (POST/PATCH responses)", () => {
     const sound = await postFull(`/guilds/${ids.guild}/soundboard-sounds`, { name: "ws-sound", sound: "data:audio/ogg;base64,AAAA" });
     const template = await postFull(`/guilds/${ids.guild}/templates`, { name: "ws-template" });
     const stageChannelId = await postId(`/guilds/${ids.guild}/channels`, { name: "ws-stage", type: 13 });
+    // Stickers are created via multipart/form-data (a `file` part), not JSON.
+    const stickerForm = new FormData();
+    stickerForm.set("name", "ws-sticker");
+    stickerForm.set("tags", "smile");
+    stickerForm.set("file", new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "s.png", { type: "image/png" }));
+    const stickerRes = await app.request(api(`/guilds/${ids.guild}/stickers`), {
+      method: "POST",
+      headers: { Authorization: botHeaders().Authorization },
+      body: stickerForm,
+    });
+    const stickerId = ((await stickerRes.json().catch(() => ({}))) as { id?: string }).id;
     const scheduledEventId = await postId(`/guilds/${ids.guild}/scheduled-events`, {
       name: "WS Event",
       privacy_level: 2,
@@ -85,6 +96,7 @@ describe("OpenAPI WRITE sweep (POST/PATCH responses)", () => {
       lobby_id: await postId(`/lobbies`, {}),
       guild_scheduled_event_id: scheduledEventId,
       exception_id: exceptionId,
+      sticker_id: stickerId,
       thread_id: await postId(`/channels/${ids.general}/threads`, { name: "ws-thread", type: 11, auto_archive_duration: 1440 }),
     };
     // Resolve id-shaped body fields (recipient_id, channel_id, ...) to real ids when we have them.
