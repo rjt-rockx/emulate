@@ -339,25 +339,25 @@ until that page's suite is green. A page is **done** only when its spec suite pa
 
 | Doc page | Spec suite | Status |
 |---|---|---|
-| `developers/resources/application-role-connection-metadata.mdx` | `spec/application-role-connection-metadata.spec.test.ts` | [ ] not started |
+| `developers/resources/application-role-connection-metadata.mdx` | `spec/application-role-connection-metadata.spec.test.ts` | [x] green (25 cases) |
 | `developers/resources/application.mdx` | `spec/application.spec.test.ts` | [ ] not started |
 | `developers/resources/audit-log.mdx` | `spec/audit-log.spec.test.ts` | [ ] not started |
-| `developers/resources/auto-moderation.mdx` | `spec/auto-moderation.spec.test.ts` | [ ] not started |
+| `developers/resources/auto-moderation.mdx` | `spec/auto-moderation.spec.test.ts` | [x] green (38 cases) |
 | `developers/resources/channel.mdx` | `spec/channel.spec.test.ts` | [ ] not started |
 | `developers/resources/emoji.mdx` | `spec/emoji.spec.test.ts` | [ ] not started |
-| `developers/resources/entitlement.mdx` | `spec/entitlement.spec.test.ts` | [ ] not started |
-| `developers/resources/guild-scheduled-event.mdx` | `spec/guild-scheduled-event.spec.test.ts` | [ ] not started |
-| `developers/resources/guild-template.mdx` | `spec/guild-template.spec.test.ts` | [ ] not started |
+| `developers/resources/entitlement.mdx` | `spec/entitlement.spec.test.ts` | [x] green (25 cases) |
+| `developers/resources/guild-scheduled-event.mdx` | `spec/guild-scheduled-event.spec.test.ts` | [x] green (29 cases) |
+| `developers/resources/guild-template.mdx` | `spec/guild-template.spec.test.ts` | [x] green (23 cases) |
 | `developers/resources/guild.mdx` | `spec/guild.spec.test.ts` | [ ] not started |
 | `developers/resources/invite.mdx` | `spec/invite.spec.test.ts` | [ ] not started |
-| `developers/resources/lobby.mdx` | `spec/lobby.spec.test.ts` | [ ] not started |
-| `developers/resources/message.mdx` | `spec/message.spec.test.ts` | [ ] not started |
-| `developers/resources/poll.mdx` | `spec/poll.spec.test.ts` | [ ] not started |
-| `developers/resources/sku.mdx` | `spec/sku.spec.test.ts` | [ ] not started |
-| `developers/resources/soundboard.mdx` | `spec/soundboard.spec.test.ts` | [ ] not started |
-| `developers/resources/stage-instance.mdx` | `spec/stage-instance.spec.test.ts` | [ ] not started |
-| `developers/resources/sticker.mdx` | `spec/sticker.spec.test.ts` | [ ] not started |
-| `developers/resources/subscription.mdx` | `spec/subscription.spec.test.ts` | [ ] not started |
+| `developers/resources/lobby.mdx` | `spec/lobby.spec.test.ts` | [x] green (27 cases) |
+| `developers/resources/message.mdx` | `spec/message.spec.test.ts` | [x] green (55 cases) |
+| `developers/resources/poll.mdx` | `spec/poll.spec.test.ts` | [x] green (19 cases) |
+| `developers/resources/sku.mdx` | `spec/sku.spec.test.ts` | [x] green |
+| `developers/resources/soundboard.mdx` | `spec/soundboard.spec.test.ts` | [x] green (21 cases) |
+| `developers/resources/stage-instance.mdx` | `spec/stage-instance.spec.test.ts` | [x] green (22 cases) |
+| `developers/resources/sticker.mdx` | `spec/sticker.spec.test.ts` | [x] green (24 cases) |
+| `developers/resources/subscription.mdx` | `spec/subscription.spec.test.ts` | [x] green (12 cases) |
 | `developers/resources/user.mdx` | `spec/user.spec.test.ts` | [x] green (16 assertions) |
 | `developers/resources/voice.mdx` | `spec/voice.spec.test.ts` | [ ] not started |
 | `developers/resources/webhook.mdx` | `spec/webhook.spec.test.ts` | [ ] not started |
@@ -365,7 +365,7 @@ until that page's suite is green. A page is **done** only when its spec suite pa
 | `developers/interactions/overview.mdx` | `spec/overview.spec.test.ts` | [ ] not started |
 | `developers/interactions/receiving-and-responding.mdx` | `spec/receiving-and-responding.spec.test.ts` | [ ] not started |
 | `developers/topics/certified-devices.mdx` | `spec/certified-devices.spec.test.ts` | [ ] not started |
-| `developers/topics/oauth2.mdx` | `spec/oauth2.spec.test.ts` | [ ] not started |
+| `developers/topics/oauth2.mdx` | `spec/oauth2.spec.test.ts` | [x] green (30 cases) |
 | `developers/topics/opcodes-and-status-codes.mdx` | `spec/opcodes-and-status-codes.spec.test.ts` | [ ] not started |
 | `developers/topics/permissions.mdx` | `spec/permissions.spec.test.ts` | [ ] not started |
 | `developers/topics/rate-limits.mdx` | `spec/rate-limits.spec.test.ts` | [ ] not started |
