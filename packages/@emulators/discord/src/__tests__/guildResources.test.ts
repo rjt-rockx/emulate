@@ -47,6 +47,7 @@ describe("discord scheduled events", () => {
       headers: botHeaders(),
       body: JSON.stringify({
         name: "Launch Party",
+        privacy_level: 2,
         scheduled_start_time: "2030-01-01T00:00:00.000Z",
         scheduled_end_time: "2030-01-01T02:00:00.000Z",
         entity_type: 3,

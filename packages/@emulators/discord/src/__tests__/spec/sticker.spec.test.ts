@@ -62,17 +62,31 @@ describe("sticker.mdx — Sticker object & types", () => {
     expect(s.type).toBe(2);
   });
 
-  it("Format Types are inferred from the uploaded file: PNG=1, APNG=2, LOTTIE=3, GIF=4", async () => {
+  it("Format Types are inferred from the uploaded file: PNG=1, APNG=2, GIF=4 (non-Lottie)", async () => {
     const { app, store } = createDiscordTestApp();
     const guild = guildId(store);
     const png = await createSticker(app, guild, { name: "png-one", filename: "a.png", fileType: "image/png" });
     expect(png.json.format_type).toBe(1);
     const apng = await createSticker(app, guild, { name: "apng-one", filename: "a.apng", fileType: "image/apng" });
     expect(apng.json.format_type).toBe(2);
-    const lottie = await createSticker(app, guild, { name: "lottie-one", filename: "a.json", fileType: "application/json" });
-    expect(lottie.json.format_type).toBe(3);
     const gif = await createSticker(app, guild, { name: "gif-one", filename: "a.gif", fileType: "image/gif" });
     expect(gif.json.format_type).toBe(4);
+  });
+
+  it("Lottie (format_type=3) requires VERIFIED or PARTNERED guild feature (50035 otherwise)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const ds = getDiscordStore(store);
+    const guild = guildId(store);
+    // Regular guild (no features) — should reject Lottie.
+    const reject = await createSticker(app, guild, { name: "lottie-fail", filename: "a.json", fileType: "application/json" });
+    expect(reject.res.status).toBe(400);
+    expect(reject.json.code).toBe(50035);
+    // VERIFIED guild — should accept Lottie.
+    const guildRow = ds.guilds.findOneBy("snowflake", guild)!;
+    ds.guilds.update(guildRow.id, { features: ["VERIFIED"] } as Parameters<typeof ds.guilds.update>[1]);
+    const accept = await createSticker(app, guild, { name: "lottie-ok", filename: "a.json", fileType: "application/json" });
+    expect(accept.res.status).toBe(201);
+    expect(accept.json.format_type).toBe(3);
   });
 });
 
@@ -333,5 +347,65 @@ describe("sticker.mdx — auth", () => {
     form.set("file", new File(["x"], "a.png", { type: "image/png" }));
     const res = await app.request(api(`/guilds/${guild}/stickers`), { method: "POST", body: form });
     expect(res.status).toBe(401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S1: Permission-gated user field
+// ---------------------------------------------------------------------------
+describe("sticker.mdx — S1: user field is gated on expression permissions", () => {
+  it("omits user field when enforcement is on and caller lacks expression permissions", async () => {
+    const { app, store } = createDiscordTestApp();
+    const ds = getDiscordStore(store);
+    const guild = guildId(store);
+    // Create a sticker to test with (before stripping permissions).
+    const { json: created } = await createSticker(app, guild, { name: "perm-test" });
+    // Strip CreateGuildExpressions from the @everyone role so the bot has no expression perms.
+    // @everyone role has snowflake == guild snowflake.
+    const everyoneRole = ds.roles.findOneBy("snowflake", guild)!;
+    const perm = BigInt(everyoneRole.permissions ?? "0");
+    const CREATE_GUILD_EXPRESSIONS = 1n << 43n;
+    const MANAGE_GUILD_EXPRESSIONS = 1n << 30n;
+    const stripped = perm & ~CREATE_GUILD_EXPRESSIONS & ~MANAGE_GUILD_EXPRESSIONS;
+    ds.roles.update(everyoneRole.id, { permissions: String(stripped) });
+    // Enable permission enforcement.
+    store.setData("discord.enforce_permissions", true);
+    const res = await app.request(api(`/guilds/${guild}/stickers/${created.id}`), { headers: botHeaders() });
+    expect(res.status).toBe(200);
+    const s = await res.json() as Record<string, unknown>;
+    // Without the permission, user field should be absent.
+    expect("user" in s).toBe(false);
+    // Cleanup.
+    store.setData("discord.enforce_permissions", false);
+  });
+
+  it("includes user field when enforcement is off (lenient default)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const guild = guildId(store);
+    const { json: created } = await createSticker(app, guild, { name: "user-present" });
+    const res = await app.request(api(`/guilds/${guild}/stickers/${created.id}`), { headers: botHeaders() });
+    const s = await res.json() as Record<string, unknown>;
+    expect((s.user as Record<string, unknown>).id).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S3: Per-guild sticker slot cap
+// ---------------------------------------------------------------------------
+describe("sticker.mdx — S3: per-guild sticker slot cap", () => {
+  it("returns 30039 when guild sticker slots are exhausted", async () => {
+    const { app, store } = createDiscordTestApp();
+    const ds = getDiscordStore(store);
+    const guild = guildId(store);
+    // Tier 0 guilds have 5 free slots. Fill them.
+    for (let i = 0; i < 5; i++) {
+      const { res } = await createSticker(app, guild, { name: `slot-${i}` });
+      expect(res.status).toBe(201);
+    }
+    // 6th sticker should exceed the cap.
+    const { res, json: body } = await createSticker(app, guild, { name: "overflow" });
+    expect(res.status).toBe(400);
+    expect(body.code).toBe(30039);
+    void ds;
   });
 });

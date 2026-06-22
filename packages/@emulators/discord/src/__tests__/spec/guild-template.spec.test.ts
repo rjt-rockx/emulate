@@ -397,4 +397,172 @@ describe("guild-template.mdx — Create Guild from Template", () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it("T3: Created guild reproduces the template's channels and roles from the snapshot", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const ds = getDiscordStore(store);
+
+    // Add an extra role and channel to the source guild before creating a template.
+    ds.roles.insert({
+      snowflake: "950000000000000099",
+      guild_snowflake: guild,
+      name: "Moderator",
+      color: 5,
+      hoist: true,
+      position: 2,
+      permissions: "0",
+      managed: false,
+      mentionable: true,
+      icon: null,
+      unicode_emoji: null,
+      flags: 0,
+      tags: null,
+    });
+    const { template: tmpl } = await createTemplate(app, guild, { name: "Full Template" });
+
+    // Now create a guild from the template.
+    const res = await app.request(api(`/guilds/templates/${tmpl.code}`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "Cloned Guild" }),
+    });
+    expect(res.status).toBe(201);
+    const newGuild = await json<{ id: string; name: string }>(res);
+
+    // The new guild must have the channels from the source.
+    const newGuildChannels = ds.channels.findBy("guild_snowflake", newGuild.id);
+    expect(newGuildChannels.length).toBeGreaterThan(0);
+    // Source guild has a "general" channel — it should appear in the clone.
+    const hasGeneral = newGuildChannels.some((ch) => ch.name === "general");
+    expect(hasGeneral).toBe(true);
+
+    // The new guild must have the "Moderator" role from the source.
+    const newGuildRoles = ds.roles.findBy("guild_snowflake", newGuild.id);
+    const hasModerator = newGuildRoles.some((r) => r.name === "Moderator");
+    expect(hasModerator).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T1: is_dirty reflects unsynced guild changes
+// ---------------------------------------------------------------------------
+describe("guild-template.mdx — T1: is_dirty reflects unsynced source guild changes", () => {
+  it("is_dirty is null for a freshly created template", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const { template: t } = await createTemplate(app, guild);
+    expect(t.is_dirty).toBeNull();
+  });
+
+  it("is_dirty becomes true when the source guild changes after template creation", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const ds = getDiscordStore(store);
+    const { template: t } = await createTemplate(app, guild);
+    // Wait a tick to ensure the guild's updated_at is strictly after the template's synced_at.
+    await new Promise((r) => setTimeout(r, 20));
+    // Touch the source guild (bump its updated_at by updating it).
+    const guildRow = ds.guilds.findOneBy("snowflake", guild)!;
+    ds.guilds.update(guildRow.id, { name: guildRow.name }); // forces updated_at bump
+    // Re-fetch the template.
+    const refetched = (await (
+      await app.request(api(`/guilds/templates/${t.code}`), { headers: botHeaders() })
+    ).json()) as { is_dirty: boolean | null };
+    expect(refetched.is_dirty).toBe(true);
+  });
+
+  it("is_dirty is cleared to null after Sync", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const ds = getDiscordStore(store);
+    const { template: t } = await createTemplate(app, guild);
+    // Dirty the source guild.
+    const guildRow = ds.guilds.findOneBy("snowflake", guild)!;
+    ds.guilds.update(guildRow.id, { name: guildRow.name });
+    // Sync the template.
+    await app.request(api(`/guilds/${guild}/templates/${t.code}`), { method: "PUT", headers: botHeaders() });
+    const refetched = (await (
+      await app.request(api(`/guilds/templates/${t.code}`), { headers: botHeaders() })
+    ).json()) as { is_dirty: boolean | null };
+    expect(refetched.is_dirty).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T2: updated_at is not bumped by Modify, only by Sync
+// ---------------------------------------------------------------------------
+describe("guild-template.mdx — T2: updated_at is only bumped by Sync, not Modify", () => {
+  it("Modify (PATCH) does not change updated_at", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const { template: created } = await createTemplate(app, guild);
+    const beforeUpdatedAt = created.updated_at as string;
+
+    // Wait a tick then rename the template.
+    await new Promise((r) => setTimeout(r, 10));
+    const patched = (await (await app.request(api(`/guilds/${guild}/templates/${created.code}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "Renamed" }),
+    })).json()) as { updated_at: string };
+
+    expect(patched.updated_at).toBe(beforeUpdatedAt);
+  });
+
+  it("Sync (PUT) advances updated_at", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const { template: created } = await createTemplate(app, guild);
+    const beforeUpdatedAt = created.updated_at as string;
+
+    await new Promise((r) => setTimeout(r, 20));
+    const synced = (await (await app.request(api(`/guilds/${guild}/templates/${created.code}`), {
+      method: "PUT",
+      headers: botHeaders(),
+    })).json()) as { updated_at: string };
+
+    expect(synced.updated_at > beforeUpdatedAt).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T6: MANAGE_GUILD permission gating
+// ---------------------------------------------------------------------------
+describe("guild-template.mdx — T6: MANAGE_GUILD required on template endpoints", () => {
+  it("List Guild Templates returns 50013 when caller lacks MANAGE_GUILD (enforcement on)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const ds = getDiscordStore(store);
+
+    // Create a second user with no permissions.
+    const unprivUser = ds.users.insert({
+      snowflake: "800000000000000001",
+      username: "unpriv",
+      discriminator: "0",
+      global_name: "unpriv",
+      avatar: null,
+      bot: true,
+      system: false,
+      mfa_enabled: false,
+      email: null,
+      verified: false,
+      flags: 0,
+      public_flags: 0,
+      premium_type: 0,
+      accent_color: null,
+      banner: null,
+      locale: "en-US",
+    });
+    ds.tokens.insert({ token: "unpriv_token", type: "bot", user_snowflake: unprivUser.snowflake, application_snowflake: null, scopes: [], expires_at: null, refresh_token: null });
+
+    store.setData("discord.enforce_permissions", true);
+    const res = await app.request(api(`/guilds/${guild}/templates`), {
+      headers: { Authorization: "Bot unpriv_token", "Content-Type": "application/json" },
+    });
+    store.setData("discord.enforce_permissions", false);
+    expect(res.status).toBe(403);
+    const body = await res.json() as { code: number };
+    expect(body.code).toBe(50013);
+  });
 });

@@ -12,17 +12,20 @@ import { describe, it, expect } from "vitest";
 import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 import { getDiscordRuntime } from "../../runtime.js";
-import { createUser, addGuildMember } from "../../factories.js";
+import { createUser, addGuildMember, createChannel } from "../../factories.js";
 import type { GatewayEvent } from "../../gateway/dispatcher.js";
 
 function ctx(store: ReturnType<typeof createDiscordTestApp>["store"]) {
   const s = seededIds(store);
   const ds = getDiscordStore(store);
+  // Create a stage channel (type 13) for STAGE_INSTANCE events.
+  const stageChannel = createChannel(ds, { name: "Stage", type: 13, guildSnowflake: s.guild });
   return {
     ds,
     developer: s.developer,
     guild: s.guild,
     voiceChannel: s.voice, // type 2 (voice)
+    stageChannel: stageChannel.snowflake, // type 13 (stage)
     textChannel: s.general, // type 0
   };
 }
@@ -129,8 +132,9 @@ describe("guild-scheduled-event.mdx — enumerations", () => {
 
   it("entity types are STAGE_INSTANCE=1, VOICE=2, EXTERNAL=3", async () => {
     const { app, store } = createDiscordTestApp();
-    const { guild, voiceChannel } = ctx(store);
-    const stage = await createEvent(app, guild, { ...voiceBody(voiceChannel), entity_type: 1 });
+    const { guild, voiceChannel, stageChannel } = ctx(store);
+    // STAGE_INSTANCE requires a stage channel (type 13).
+    const stage = await createEvent(app, guild, { ...voiceBody(voiceChannel), entity_type: 1, channel_id: stageChannel });
     expect(stage.json.entity_type).toBe(1);
     const voice = await createEvent(app, guild, voiceBody(voiceChannel));
     expect(voice.json.entity_type).toBe(2);
@@ -594,5 +598,227 @@ describe("guild-scheduled-event.mdx — auth", () => {
       body: JSON.stringify(externalBody()),
     });
     expect(res.status).toBe(401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// G1: Required field validation
+// ---------------------------------------------------------------------------
+describe("guild-scheduled-event.mdx — G1: Required field validation on Create", () => {
+  it("rejects missing name with 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ctx(store);
+    const { res, json: body } = await createEvent(app, guild, externalBody({ name: undefined }));
+    expect(res.status).toBe(400);
+    expect(body.code).toBe(50035);
+  });
+
+  it("rejects name longer than 100 chars with 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ctx(store);
+    const { res, json: body } = await createEvent(app, guild, externalBody({ name: "x".repeat(101) }));
+    expect(res.status).toBe(400);
+    expect(body.code).toBe(50035);
+  });
+
+  it("rejects description longer than 1000 chars with 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ctx(store);
+    const { res, json: body } = await createEvent(app, guild, externalBody({ description: "d".repeat(1001) }));
+    expect(res.status).toBe(400);
+    expect(body.code).toBe(50035);
+  });
+
+  it("rejects missing privacy_level with 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ctx(store);
+    const { res, json: body } = await createEvent(app, guild, externalBody({ privacy_level: undefined }));
+    expect(res.status).toBe(400);
+    expect(body.code).toBe(50035);
+  });
+
+  it("rejects missing entity_type with 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ctx(store);
+    const { res, json: body } = await createEvent(app, guild, externalBody({ entity_type: undefined }));
+    expect(res.status).toBe(400);
+    expect(body.code).toBe(50035);
+  });
+
+  it("rejects missing scheduled_start_time with 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ctx(store);
+    const { res, json: body } = await createEvent(app, guild, externalBody({ scheduled_start_time: undefined }));
+    expect(res.status).toBe(400);
+    expect(body.code).toBe(50035);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// G2: Strip non-settable recurrence_rule fields
+// ---------------------------------------------------------------------------
+describe("guild-scheduled-event.mdx — G2: recurrence_rule non-settable fields are stripped", () => {
+  it("strips count, end, and by_year_day from recurrence_rule on create", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ctx(store);
+    const { res, json: e } = await createEvent(app, guild, externalBody({
+      recurrence_rule: {
+        start: START,
+        frequency: 2,
+        interval: 1,
+        by_weekday: [2],
+        count: 5,
+        end: END,
+        by_year_day: [1, 2, 3],
+      },
+    }));
+    expect(res.status).toBe(201);
+    const rule = e.recurrence_rule as Record<string, unknown>;
+    expect("count" in rule).toBe(false);
+    expect("end" in rule).toBe(false);
+    expect("by_year_day" in rule).toBe(false);
+    // Allowed fields preserved.
+    expect(rule.frequency).toBe(2);
+    expect(rule.by_weekday).toEqual([2]);
+  });
+
+  it("strips non-settable fields from recurrence_rule on patch", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ctx(store);
+    const { json: e } = await createEvent(app, guild, externalBody());
+    const patched = (await (await app.request(api(`/guilds/${guild}/scheduled-events/${e.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({
+        recurrence_rule: { start: START, frequency: 3, interval: 1, by_weekday: [0], count: 99, by_year_day: [7] },
+      }),
+    })).json()) as Record<string, unknown>;
+    const rule = patched.recurrence_rule as Record<string, unknown>;
+    expect("count" in rule).toBe(false);
+    expect("by_year_day" in rule).toBe(false);
+    expect(rule.frequency).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// G3: 100-event cap
+// ---------------------------------------------------------------------------
+describe("guild-scheduled-event.mdx — G3: 100 SCHEDULED+ACTIVE event cap", () => {
+  it("rejects the 101st SCHEDULED/ACTIVE event with 30038", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { ds, guild } = ctx(store);
+    // Insert 100 events directly (faster than 100 API calls).
+    for (let i = 0; i < 100; i++) {
+      ds.scheduledEvents.insert({
+        snowflake: `9${String(i).padStart(17, "0")}`,
+        guild_snowflake: guild,
+        channel_snowflake: null,
+        creator_snowflake: null,
+        name: `Event ${i}`,
+        description: null,
+        scheduled_start_time: START,
+        scheduled_end_time: END,
+        privacy_level: 2,
+        status: 1, // SCHEDULED
+        entity_type: 3,
+        user_count: 0,
+        entity_snowflake: null,
+        entity_metadata: { location: "somewhere" },
+        recurrence_rule: null,
+        image: null,
+      });
+    }
+    const { res, json: body } = await createEvent(app, guild, externalBody());
+    expect(res.status).toBe(400);
+    expect(body.code).toBe(30038);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// G4: channel_id existence and type validation
+// ---------------------------------------------------------------------------
+describe("guild-scheduled-event.mdx — G4: channel_id validation for STAGE/VOICE events", () => {
+  it("rejects VOICE event with non-existent channel_id (10003)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ctx(store);
+    const { res, json: body } = await createEvent(app, guild, voiceBody("000000000000000001"));
+    expect(res.status).toBe(404);
+    expect(body.code).toBe(10003);
+  });
+
+  it("rejects VOICE event with a text channel (type 0) as channel_id (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild, textChannel } = ctx(store);
+    const { res, json: body } = await createEvent(app, guild, voiceBody(textChannel));
+    expect(res.status).toBe(400);
+    expect(body.code).toBe(50035);
+  });
+
+  it("rejects STAGE_INSTANCE event with a voice channel (type 2) as channel_id (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild, voiceChannel } = ctx(store);
+    const { res, json: body } = await createEvent(app, guild, { ...voiceBody(voiceChannel), entity_type: 1 });
+    expect(res.status).toBe(400);
+    expect(body.code).toBe(50035);
+  });
+
+  it("accepts STAGE_INSTANCE event with a stage channel (type 13)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild, stageChannel } = ctx(store);
+    const { res, json: e } = await createEvent(app, guild, { ...voiceBody(stageChannel), entity_type: 1, channel_id: stageChannel });
+    expect(res.status).toBe(201);
+    expect(e.entity_type).toBe(1);
+  });
+
+  it("accepts VOICE event with a voice channel (type 2)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild, voiceChannel } = ctx(store);
+    const { res, json: e } = await createEvent(app, guild, voiceBody(voiceChannel));
+    expect(res.status).toBe(201);
+    expect(e.entity_type).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// G6: PATCH validation
+// ---------------------------------------------------------------------------
+describe("guild-scheduled-event.mdx — G6: PATCH field validation", () => {
+  it("rejects a name longer than 100 chars on PATCH (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ctx(store);
+    const { json: e } = await createEvent(app, guild, externalBody());
+    const res = await app.request(api(`/guilds/${guild}/scheduled-events/${e.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "x".repeat(101) }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("rejects invalid privacy_level on PATCH (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ctx(store);
+    const { json: e } = await createEvent(app, guild, externalBody());
+    const res = await app.request(api(`/guilds/${guild}/scheduled-events/${e.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ privacy_level: 99 }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("rejects a non-ISO timestamp for scheduled_start_time on PATCH (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ctx(store);
+    const { json: e } = await createEvent(app, guild, externalBody());
+    const res = await app.request(api(`/guilds/${guild}/scheduled-events/${e.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ scheduled_start_time: "not-a-date" }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });

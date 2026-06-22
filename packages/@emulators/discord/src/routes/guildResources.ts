@@ -17,9 +17,12 @@ import {
   AuditLogEvent,
   auditReason,
   invalidFormBody,
+  discordError,
   unknownScheduledEvent,
   requireBot,
+  permissionsEnforced,
 } from "../helpers.js";
+import { computeGuildPermissions, hasPermission, PermissionFlags } from "../permissions.js";
 import { Intents } from "../gateway/intents.js";
 import type { Context, AppEnv, Store } from "@emulators/core";
 import type { DiscordScheduledEvent, DiscordSticker } from "../entities.js";
@@ -204,10 +207,65 @@ function eventUserCount(ds: DiscordStore, eventSnowflake: string): number {
   return ds.scheduledEventUsers.findBy("event_snowflake", eventSnowflake).length;
 }
 
+/**
+ * Determine whether the caller holds CREATE_GUILD_EXPRESSIONS or MANAGE_GUILD_EXPRESSIONS.
+ * When permission enforcement is OFF, returns true (lenient / include user by default).
+ */
+function callerHasExpressionPermission(
+  userSnowflake: string | undefined,
+  guildId: string,
+  ds: DiscordStore,
+  store: Store,
+): boolean {
+  if (!permissionsEnforced(store)) return true;
+  if (!userSnowflake) return false;
+  const perms = computeGuildPermissions(ds, userSnowflake, guildId);
+  return hasPermission(perms, PermissionFlags.CreateGuildExpressions) ||
+         hasPermission(perms, PermissionFlags.ManageGuildExpressions);
+}
+
 /** Serialize an event, refreshing user_count from the subscriber model. */
 function serializeEvent(e: DiscordScheduledEvent, ds: DiscordStore): APIGuildScheduledEvent {
   const payload = toAPIScheduledEvent({ ...e, user_count: eventUserCount(ds, e.snowflake) }, ds);
   return payload;
+}
+
+/**
+ * G4: Validate that the channel exists and has the correct type for the entity_type.
+ * VOICE (entity_type=2) requires a voice channel (type 2).
+ * STAGE_INSTANCE (entity_type=1) requires a stage channel (type 13).
+ */
+function validateScheduledEventChannel(
+  c: Context<AppEnv>,
+  ds: DiscordStore,
+  channelSnowflake: string,
+  entityType: number,
+): Response | null {
+  const channel = ds.channels.findOneBy("snowflake", channelSnowflake);
+  if (!channel) {
+    // 10003 Unknown Channel
+    return discordError(c, 404, "Unknown Channel", 10003);
+  }
+  if (entityType === ENTITY_VOICE && channel.type !== 2) {
+    return invalidFormBody(c, { channel_id: "Channel must be a voice channel (type 2) for VOICE events." });
+  }
+  if (entityType === ENTITY_STAGE && channel.type !== 13) {
+    return invalidFormBody(c, { channel_id: "Channel must be a stage channel (type 13) for STAGE_INSTANCE events." });
+  }
+  return null;
+}
+
+/**
+ * G2: Strip non-settable fields from a recurrence_rule object (count, end, by_year_day).
+ * Returns null if the input is not an object.
+ */
+function sanitizeRecurrenceRule(raw: unknown): Record<string, unknown> | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rule = { ...(raw as Record<string, unknown>) };
+  delete rule.count;
+  delete rule.end;
+  delete rule.by_year_day;
+  return rule;
 }
 
 export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
@@ -230,15 +288,19 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
 
   // ----- Stickers -----
   app.get("/api/v:version/guilds/:guildId/stickers", (c) => {
-    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
-    return c.json(ds.stickers.findBy("guild_snowflake", c.req.param("guildId")).map((s) => toAPISticker(s, ds)));
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const guildId = c.req.param("guildId");
+    const includeUser = callerHasExpressionPermission(auth.user?.snowflake, guildId, ds, store);
+    return c.json(ds.stickers.findBy("guild_snowflake", guildId).map((s) => toAPISticker(s, ds, includeUser)));
   });
 
   app.get("/api/v:version/guilds/:guildId/stickers/:stickerId", (c) => {
-    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const guildId = c.req.param("guildId");
     const sticker = ds.stickers.findOneBy("snowflake", c.req.param("stickerId"));
-    if (!sticker || sticker.guild_snowflake !== c.req.param("guildId")) return notFound(c);
-    return c.json(toAPISticker(sticker, ds));
+    if (!sticker || sticker.guild_snowflake !== guildId) return notFound(c);
+    const includeUser = callerHasExpressionPermission(auth.user?.snowflake, guildId, ds, store);
+    return c.json(toAPISticker(sticker, ds, includeUser));
   });
 
   app.get("/api/v:version/stickers/:stickerId", (c) => {
@@ -298,6 +360,25 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
         return invalidFormBody(c, { file: "File must be smaller than 512 KiB." });
       }
       formatType = inferred.formatType;
+    }
+
+    // S2: Lottie stickers can only be uploaded on VERIFIED or PARTNERED guilds.
+    if (formatType === 3) {
+      const guild = ds.guilds.findOneBy("snowflake", guildId)!;
+      const features: string[] = guild.features ?? [];
+      if (!features.includes("VERIFIED") && !features.includes("PARTNERED")) {
+        return invalidFormBody(c, { file: "Lottie stickers can only be used on VERIFIED or PARTNERED guilds." });
+      }
+    }
+
+    // S3: per-guild sticker slot cap (5 free + boost tier slots → enforce ≥5).
+    const guild = ds.guilds.findOneBy("snowflake", guildId)!;
+    const premiumTier: number = (guild as unknown as Record<string, unknown>).premium_tier as number ?? 0;
+    const SLOT_CAPS = [5, 15, 30, 60];
+    const slotCap = SLOT_CAPS[Math.min(premiumTier, 3)];
+    const existingStickers = ds.stickers.findBy("guild_snowflake", guildId);
+    if (existingStickers.length >= slotCap) {
+      return discordError(c, 400, "Maximum number of stickers reached", 30039);
     }
 
     const sticker = ds.stickers.insert({
@@ -406,31 +487,72 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
     if (!ds.guilds.findOneBy("snowflake", guildId)) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
 
-    const entityType = typeof body.entity_type === "number" ? body.entity_type : ENTITY_EXTERNAL;
+    // G1: Required fields — reject with 50035 when absent.
+    if (typeof body.name !== "string" || body.name.length === 0) {
+      return invalidFormBody(c, { name: "This field is required." });
+    }
+    if (body.name.length < 1 || body.name.length > 100) {
+      return invalidFormBody(c, { name: "Must be between 1 and 100 in length." });
+    }
+    if (typeof body.description === "string" && body.description.length > 1000) {
+      return invalidFormBody(c, { description: "Must be 1000 or fewer in length." });
+    }
+    if (typeof body.privacy_level !== "number") {
+      return invalidFormBody(c, { privacy_level: "This field is required." });
+    }
+    if (body.privacy_level !== 2) {
+      return invalidFormBody(c, { privacy_level: "Must be 2 (GUILD_ONLY)." });
+    }
+    if (typeof body.entity_type !== "number") {
+      return invalidFormBody(c, { entity_type: "This field is required." });
+    }
+    if (typeof body.scheduled_start_time !== "string") {
+      return invalidFormBody(c, { scheduled_start_time: "This field is required." });
+    }
+
+    const entityType = body.entity_type;
     const matrixError = validateEntityMatrix(c, entityType, body);
     if (matrixError) return matrixError;
 
+    // G3: 100-event SCHEDULED+ACTIVE cap.
+    const activeAndScheduled = ds.scheduledEvents
+      .findBy("guild_snowflake", guildId)
+      .filter((e) => e.status === STATUS_SCHEDULED || e.status === STATUS_ACTIVE);
+    if (activeAndScheduled.length >= 100) {
+      return discordError(c, 400, "Maximum number of guild scheduled events reached", 30038);
+    }
+
     const isExternal = entityType === ENTITY_EXTERNAL;
     const channelSnowflake = isExternal ? null : typeof body.channel_id === "string" ? body.channel_id : null;
+
+    // G4: channel_id must exist and be the right type for STAGE/VOICE.
+    if (!isExternal && channelSnowflake) {
+      const channelErr = validateScheduledEventChannel(c, ds, channelSnowflake, entityType);
+      if (channelErr) return channelErr;
+    }
+
     // STAGE/VOICE force entity_metadata to null; EXTERNAL keeps the provided location metadata.
     const entityMetadata = isExternal && isExternalLocation(body.entity_metadata) ? { location: body.entity_metadata.location } : null;
+
+    // G2: Strip non-settable recurrence_rule fields.
+    const sanitizedRecurrenceRule = sanitizeRecurrenceRule(body.recurrence_rule);
 
     const event = ds.scheduledEvents.insert({
       snowflake: snowflake(),
       guild_snowflake: guildId,
       channel_snowflake: channelSnowflake,
       creator_snowflake: auth.user?.snowflake ?? null,
-      name: typeof body.name === "string" ? body.name : "Event",
+      name: body.name,
       description: typeof body.description === "string" ? body.description : null,
-      scheduled_start_time: typeof body.scheduled_start_time === "string" ? body.scheduled_start_time : new Date().toISOString(),
+      scheduled_start_time: body.scheduled_start_time,
       scheduled_end_time: typeof body.scheduled_end_time === "string" ? body.scheduled_end_time : null,
-      privacy_level: typeof body.privacy_level === "number" ? body.privacy_level : 2,
+      privacy_level: body.privacy_level,
       status: STATUS_SCHEDULED,
       entity_type: entityType,
       user_count: 0,
       entity_snowflake: null,
       entity_metadata: entityMetadata,
-      recurrence_rule: body.recurrence_rule ?? null,
+      recurrence_rule: sanitizedRecurrenceRule,
       image: typeof body.image === "string" ? body.image : null,
     });
     const payload = serializeEvent(event, ds);
@@ -483,6 +605,11 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
       } else {
         // STAGE or VOICE: channel_id from request or existing
         const channelId = typeof body.channel_id === "string" ? body.channel_id : event.channel_snowflake;
+        // G4: Validate channel type when entity_type changes to STAGE/VOICE.
+        if (channelId) {
+          const channelErr = validateScheduledEventChannel(c, ds, channelId, body.entity_type);
+          if (channelErr) return channelErr;
+        }
         patch.channel_snowflake = channelId;
         patch.entity_metadata = null;
       }
@@ -497,16 +624,44 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
       patch.status = body.status;
     }
 
-    if (typeof body.name === "string") patch.name = body.name;
+    // G6: Validate PATCH fields.
+    if (typeof body.name === "string") {
+      if (body.name.length < 1 || body.name.length > 100) {
+        return invalidFormBody(c, { name: "Must be between 1 and 100 in length." });
+      }
+      patch.name = body.name;
+    }
     if (body.description !== undefined) patch.description = body.description;
-    if (typeof body.scheduled_start_time === "string") patch.scheduled_start_time = body.scheduled_start_time;
-    if (typeof body.scheduled_end_time === "string") patch.scheduled_end_time = body.scheduled_end_time;
-    if (typeof body.privacy_level === "number") patch.privacy_level = body.privacy_level;
+    if (typeof body.scheduled_start_time === "string") {
+      if (isNaN(Date.parse(body.scheduled_start_time))) {
+        return invalidFormBody(c, { scheduled_start_time: "Must be a valid ISO8601 timestamp." });
+      }
+      patch.scheduled_start_time = body.scheduled_start_time;
+    }
+    if (typeof body.scheduled_end_time === "string") {
+      if (isNaN(Date.parse(body.scheduled_end_time))) {
+        return invalidFormBody(c, { scheduled_end_time: "Must be a valid ISO8601 timestamp." });
+      }
+      patch.scheduled_end_time = body.scheduled_end_time;
+    }
+    if (typeof body.privacy_level === "number") {
+      if (body.privacy_level !== 2) {
+        return invalidFormBody(c, { privacy_level: "Must be 2 (GUILD_ONLY)." });
+      }
+      patch.privacy_level = body.privacy_level;
+    }
     if (typeof body.entity_type === "number") patch.entity_type = body.entity_type;
     // channel_id / entity_metadata are only directly patched when entity_type is NOT changing (handled above).
     if (typeof body.entity_type !== "number" || body.entity_type === event.entity_type) {
-      if (typeof body.channel_id === "string") patch.channel_snowflake = body.channel_id;
-      else if (body.channel_id === null) patch.channel_snowflake = null;
+      if (typeof body.channel_id === "string") {
+        // G4: Validate channel for current (or unchanged) entity type.
+        const currentEntityType = typeof body.entity_type === "number" ? body.entity_type : event.entity_type;
+        if (currentEntityType !== ENTITY_EXTERNAL) {
+          const channelErr = validateScheduledEventChannel(c, ds, body.channel_id, currentEntityType);
+          if (channelErr) return channelErr;
+        }
+        patch.channel_snowflake = body.channel_id;
+      } else if (body.channel_id === null) patch.channel_snowflake = null;
       // entity_metadata is silently discarded for non-EXTERNAL events when no type change.
       if (body.entity_metadata !== undefined) {
         patch.entity_metadata = targetEntityType === ENTITY_EXTERNAL && isExternalLocation(body.entity_metadata)
@@ -515,7 +670,8 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
       }
     }
     if (typeof body.image === "string") patch.image = body.image;
-    if (body.recurrence_rule !== undefined) patch.recurrence_rule = body.recurrence_rule;
+    // G2: Strip non-settable recurrence_rule fields on PATCH too.
+    if (body.recurrence_rule !== undefined) patch.recurrence_rule = sanitizeRecurrenceRule(body.recurrence_rule);
 
     const eventChanges = Object.keys(patch).map((key) => ({
       key,
