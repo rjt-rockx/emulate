@@ -50,7 +50,7 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
     // scope is also present (bot tokens are exempt — they see all self fields).
     const strict = store.getData<boolean>("discord.strict_scopes") === true;
     if (strict && auth.type !== "bot" && !auth.scopes.includes("email")) {
-      delete (userObj as Record<string, unknown>).email;
+      delete userObj.email;
     }
     return c.json(userObj);
   });

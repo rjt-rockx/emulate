@@ -1,3 +1,4 @@
+import type { APIUser, UserFlags, UserPremiumType } from "discord-api-types/v10";
 import { type Context, type AppEnv, type ContentfulStatusCode, type Store } from "@emulators/core";
 import { getDiscordStore, type DiscordStore } from "./store.js";
 import { computePermissions, computeGuildPermissions, hasPermission } from "./permissions.js";
@@ -515,8 +516,8 @@ export function recordAudit(
 // Serializers (store entity -> Discord wire object)
 // ---------------------------------------------------------------------------
 
-export function toAPIUser(u: DiscordUser, self = false): Record<string, unknown> {
-  const base: Record<string, unknown> = {
+export function toAPIUser(u: DiscordUser, self = false): APIUser {
+  const base: APIUser = {
     id: u.snowflake,
     username: u.username,
     discriminator: u.discriminator,
@@ -526,18 +527,19 @@ export function toAPIUser(u: DiscordUser, self = false): Record<string, unknown>
     system: u.system,
     banner: u.banner,
     accent_color: u.accent_color,
-    public_flags: u.public_flags,
+    // Stored as plain numbers; discord-api-types brands the flag/premium fields as enums.
+    public_flags: u.public_flags as UserFlags,
     avatar_decoration_data: null,
     collectibles: null,
     primary_guild: null,
   };
   if (self) {
     base.mfa_enabled = u.mfa_enabled;
-    base.locale = u.locale;
+    base.locale = u.locale as APIUser["locale"];
     base.verified = u.verified;
     base.email = u.email;
-    base.flags = u.flags;
-    base.premium_type = u.premium_type;
+    base.flags = u.flags as UserFlags;
+    base.premium_type = u.premium_type as UserPremiumType;
   }
   return base;
 }
