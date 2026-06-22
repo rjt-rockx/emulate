@@ -12,10 +12,11 @@ import {
 } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, toAPIUser, toAPIGuild } from "../helpers.js";
+import { getAuth, unauthorized, toAPIUser, toAPIGuild, snowflake } from "../helpers.js";
 import { createToken } from "../factories.js";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
+const TOKEN_TTL_SECONDS = 604800;
 const SERVICE = "Discord";
 
 interface PendingCode {
@@ -23,6 +24,8 @@ interface PendingCode {
   clientId: string;
   redirectUri: string;
   scope: string;
+  permissions: string;
+  guildId: string;
   createdAt: number;
 }
 
@@ -36,7 +39,7 @@ function getPendingCodes(store: Store): Map<string, PendingCode> {
 }
 
 export function oauthRoutes(ctx: DiscordRouteContext): void {
-  const { app, store } = ctx;
+  const { app, store, baseUrl } = ctx;
 
   app.get("/oauth2/authorize", (c) => {
     const ds = getDiscordStore(store);
@@ -44,6 +47,9 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
     const redirectUri = c.req.query("redirect_uri") ?? "";
     const scope = c.req.query("scope") ?? "";
     const state = c.req.query("state") ?? "";
+    const responseType = c.req.query("response_type") ?? "";
+    const permissions = c.req.query("permissions") ?? "";
+    const guildId = c.req.query("guild_id") ?? "";
 
     const apps = ds.oauthApps.all();
     const oauthApp = clientId ? ds.oauthApps.findOneBy("client_id", clientId) : undefined;
@@ -63,7 +69,16 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
           name: u.global_name ?? u.username,
           email: u.email ?? undefined,
           formAction: "/oauth2/authorize/callback",
-          hiddenFields: { client_id: clientId, redirect_uri: redirectUri, scope, state, user_id: u.snowflake },
+          hiddenFields: {
+            client_id: clientId,
+            redirect_uri: redirectUri,
+            scope,
+            state,
+            response_type: responseType,
+            permissions,
+            guild_id: guildId,
+            user_id: u.snowflake,
+          },
         }),
       )
       .join("\n");
@@ -71,19 +86,63 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.post("/oauth2/authorize/callback", async (c) => {
+    const ds = getDiscordStore(store);
     const form = await c.req.parseBody();
     const userId = bodyStr(form.user_id);
     const clientId = bodyStr(form.client_id);
     const redirectUri = bodyStr(form.redirect_uri);
     const scope = bodyStr(form.scope);
     const state = bodyStr(form.state);
+    const responseType = bodyStr(form.response_type);
+    const permissions = bodyStr(form.permissions);
+    const guildId = bodyStr(form.guild_id);
     if (!redirectUri) return c.html(renderErrorPage("Missing redirect", "No redirect_uri.", SERVICE), 400);
 
+    // Implicit grant (response_type=token): issue the access token directly and return it in the
+    // URL *fragment* (access_token/token_type/expires_in/scope/state). No refresh token is issued.
+    if (responseType === "token") {
+      const oauthApp = clientId ? ds.oauthApps.findOneBy("client_id", clientId) : undefined;
+      const application = oauthApp ? ds.applications.findOneBy("snowflake", oauthApp.application_snowflake) : ds.applications.all()[0];
+      const scopes = scope.split(/[ ,]+/).filter(Boolean);
+      const accessToken = `disc_at_${randomBytes(16).toString("hex")}`;
+      createToken(ds, {
+        token: accessToken,
+        type: "bearer",
+        userSnowflake: userId,
+        applicationSnowflake: application?.snowflake ?? null,
+        scopes,
+        expiresAt: new Date(Date.now() + TOKEN_TTL_SECONDS * 1000).toISOString(),
+        refreshToken: null,
+      });
+      const fragment = new URLSearchParams();
+      fragment.set("access_token", accessToken);
+      fragment.set("token_type", "Bearer");
+      fragment.set("expires_in", String(TOKEN_TTL_SECONDS));
+      fragment.set("scope", scopes.join(" "));
+      if (state) fragment.set("state", state);
+      const target = new URL(redirectUri);
+      target.hash = fragment.toString();
+      return c.redirect(target.toString(), 302);
+    }
+
     const code = randomBytes(20).toString("hex");
-    getPendingCodes(store).set(code, { userId, clientId, redirectUri, scope, createdAt: Date.now() });
+    getPendingCodes(store).set(code, {
+      userId,
+      clientId,
+      redirectUri,
+      scope,
+      permissions,
+      guildId,
+      createdAt: Date.now(),
+    });
     const url = new URL(redirectUri);
     url.searchParams.set("code", code);
     if (state) url.searchParams.set("state", state);
+    // Bot authorization echoes guild_id/permissions back to the redirect as a relationship hint.
+    if (scope.split(/[ ,]+/).includes("bot")) {
+      if (guildId) url.searchParams.set("guild_id", guildId);
+      if (permissions) url.searchParams.set("permissions", permissions);
+    }
     return c.redirect(url.toString(), 302);
   });
 
@@ -100,7 +159,7 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
     }
 
     const application = oauthApp ? ds.applications.findOneBy("snowflake", oauthApp.application_snowflake) : ds.applications.all()[0];
-    const issue = (userSnowflake: string, scope: string, opts: { refresh?: boolean } = {}) => {
+    const issue = (userSnowflake: string, scope: string, opts: { refresh?: boolean; guildId?: string } = {}) => {
       const withRefresh = opts.refresh !== false;
       const accessToken = `disc_at_${randomBytes(16).toString("hex")}`;
       const refreshToken = withRefresh ? `disc_rt_${randomBytes(16).toString("hex")}` : null;
@@ -111,13 +170,13 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
         userSnowflake,
         applicationSnowflake: application?.snowflake ?? null,
         scopes,
-        expiresAt: new Date(Date.now() + 604800 * 1000).toISOString(),
+        expiresAt: new Date(Date.now() + TOKEN_TTL_SECONDS * 1000).toISOString(),
         refreshToken,
       });
       const result: Record<string, unknown> = {
         access_token: accessToken,
         token_type: "Bearer",
-        expires_in: 604800,
+        expires_in: TOKEN_TTL_SECONDS,
         scope: scopes.join(" "),
       };
       // client_credentials does not issue a refresh token.
@@ -125,6 +184,35 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
       if (scopes.includes("bot")) {
         const guild = ds.guilds.all()[0];
         if (guild) result.guild = toAPIGuild(guild, ds);
+      }
+      // webhook.incoming creates a fresh webhook and returns it in the token response.
+      if (scopes.includes("webhook.incoming")) {
+        const guild = opts.guildId ? ds.guilds.findOneBy("snowflake", opts.guildId) : ds.guilds.all()[0];
+        const channel = ds.channels
+          .all()
+          .find((ch) => ch.guild_snowflake === (guild?.snowflake ?? null) && (ch.type === 0 || ch.type === 5));
+        const webhook = ds.webhooks.insert({
+          snowflake: snowflake(),
+          type: 1,
+          guild_snowflake: channel?.guild_snowflake ?? guild?.snowflake ?? null,
+          channel_snowflake: channel?.snowflake ?? "",
+          user_snowflake: userSnowflake || null,
+          name: oauthApp?.name ?? application?.name ?? "Webhook",
+          avatar: null,
+          token: `whk_${snowflake()}_${randomBytes(12).toString("hex")}`,
+          application_snowflake: application?.snowflake ?? null,
+        });
+        result.webhook = {
+          id: webhook.snowflake,
+          type: webhook.type,
+          name: webhook.name,
+          avatar: webhook.avatar,
+          channel_id: webhook.channel_snowflake,
+          guild_id: webhook.guild_snowflake,
+          application_id: webhook.application_snowflake,
+          token: webhook.token,
+          url: `${baseUrl}/api/v10/webhooks/${webhook.snowflake}/${webhook.token}`,
+        };
       }
       return c.json(result);
     };
@@ -138,7 +226,7 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
       if (redirectUri && pending.redirectUri && redirectUri !== pending.redirectUri)
         return c.json({ error: "invalid_grant" }, 400);
       getPendingCodes(store).delete(code);
-      return issue(pending.userId, pending.scope);
+      return issue(pending.userId, pending.scope, { guildId: pending.guildId });
     }
 
     if (grantType === "client_credentials") {
@@ -173,25 +261,38 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
   app.post("/api/oauth2/token/revoke", revokeHandler);
   app.post("/api/v:version/oauth2/token/revoke", revokeHandler);
 
-  app.get("/api/v:version/oauth2/@me", (c) => {
+  const currentAuthHandler = (c: Context<AppEnv>): Response => {
     const auth = getAuth(c, store);
     if (!auth) return unauthorized(c);
     const ds = getDiscordStore(store);
     const app0 = auth.application ?? ds.applications.all()[0];
     const tokenRecord = ds.tokens.findOneBy("token", auth.token);
     const result: Record<string, unknown> = {
-      application: app0 ? { id: app0.snowflake, name: app0.name, verify_key: app0.verify_key, bot_public: true } : undefined,
+      // Partial application object (per the Response Structure table).
+      application: app0
+        ? {
+            id: app0.snowflake,
+            name: app0.name,
+            icon: app0.icon,
+            description: app0.description,
+            bot_public: true,
+            bot_require_code_grant: false,
+            verify_key: app0.verify_key,
+          }
+        : undefined,
       scopes: auth.scopes,
-      expires: tokenRecord?.expires_at ?? new Date(Date.now() + 604800 * 1000).toISOString(),
+      expires: tokenRecord?.expires_at ?? new Date(Date.now() + TOKEN_TTL_SECONDS * 1000).toISOString(),
     };
     // The user object is only included when the token was granted the `identify` scope.
     if (auth.user && auth.scopes.includes("identify")) {
       result.user = toAPIUser(auth.user, auth.scopes.includes("email"));
     }
     return c.json(result);
-  });
+  };
+  app.get("/api/oauth2/@me", currentAuthHandler);
+  app.get("/api/v:version/oauth2/@me", currentAuthHandler);
 
-  app.get("/api/v:version/oauth2/applications/@me", (c) => {
+  const currentApplicationHandler = (c: Context<AppEnv>): Response => {
     const auth = getAuth(c, store);
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
@@ -216,5 +317,8 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
       flags: application.flags,
       bot: botUser ? toAPIUser(botUser) : undefined,
     });
-  });
+  };
+  // The unversioned alias is documented alongside the versioned route.
+  app.get("/api/oauth2/applications/@me", currentApplicationHandler);
+  app.get("/api/v:version/oauth2/applications/@me", currentApplicationHandler);
 }

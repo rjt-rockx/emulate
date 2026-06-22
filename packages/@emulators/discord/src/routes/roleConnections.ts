@@ -1,6 +1,45 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound } from "../helpers.js";
+import { getAuth, unauthorized, notFound, invalidFormBody } from "../helpers.js";
+
+// Documented Application Role Connection Metadata Type enum (1-8 inclusive).
+const MIN_METADATA_TYPE = 1;
+const MAX_METADATA_TYPE = 8;
+const MAX_METADATA_RECORDS = 5;
+const METADATA_KEY_RE = /^[a-z0-9_]{1,50}$/;
+
+/**
+ * Validate a metadata record array against the documented constraints. Returns a field-error map
+ * (suitable for `invalidFormBody`) when something is wrong, or null when the records are valid.
+ */
+function validateMetadataRecords(records: unknown[]): Record<string, string> | null {
+  if (records.length > MAX_METADATA_RECORDS) {
+    return { "": `An application can have a maximum of ${MAX_METADATA_RECORDS} metadata records.` };
+  }
+  for (let i = 0; i < records.length; i++) {
+    const rec = records[i] as Record<string, unknown> | null;
+    if (!rec || typeof rec !== "object") {
+      return { [`${i}`]: "This field is required." };
+    }
+    const type = rec.type;
+    if (typeof type !== "number" || !Number.isInteger(type) || type < MIN_METADATA_TYPE || type > MAX_METADATA_TYPE) {
+      return { [`${i}.type`]: `Value must be one of ${MIN_METADATA_TYPE} to ${MAX_METADATA_TYPE}.` };
+    }
+    const key = rec.key;
+    if (typeof key !== "string" || !METADATA_KEY_RE.test(key)) {
+      return { [`${i}.key`]: "Must match the regex ^[a-z0-9_]{1,50}$." };
+    }
+    const name = rec.name;
+    if (typeof name !== "string" || name.length < 1 || name.length > 100) {
+      return { [`${i}.name`]: "Must be between 1 and 100 in length." };
+    }
+    const description = rec.description;
+    if (typeof description !== "string" || description.length < 1 || description.length > 200) {
+      return { [`${i}.description`]: "Must be between 1 and 200 in length." };
+    }
+  }
+  return null;
+}
 
 export function roleConnectionsRoutes(ctx: DiscordRouteContext): void {
   const { app, store } = ctx;
@@ -23,6 +62,8 @@ export function roleConnectionsRoutes(ctx: DiscordRouteContext): void {
     if (!application) return notFound(c);
     const body = (await c.req.json().catch(() => [])) as unknown[];
     const records = Array.isArray(body) ? body : [];
+    const errors = validateMetadataRecords(records);
+    if (errors) return invalidFormBody(c, errors);
     ds.applications.update(application.id, { role_connection_metadata: records });
     return c.json(records);
   });
