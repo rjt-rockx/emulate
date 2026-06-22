@@ -34,9 +34,13 @@ Coverage:
 - Real per-route + global **rate limiting** with Discord-shaped `X-RateLimit-*` headers and
   429/`Retry-After` responses (generous by default; tunable via `setRateLimitConfig`).
 
-Not emulated: real-time **voice audio transport** (the voice WebSocket/UDP/RTP media plane).
-The voice signaling/state plane is fully emulated, so bots that track voice presence, move or
-mute members, and manage stage speakers work; streaming actual audio does not.
+Voice: the full control plane is emulated — the gateway Voice State Update (op 4) produces
+`VOICE_STATE_UPDATE` + `VOICE_SERVER_UPDATE`, the REST voice-state endpoints work, and a voice
+gateway WebSocket (advertised at `/voice`) completes the documented Identify → Ready → Select
+Protocol → Session Description → Heartbeat handshake. The only unemulated part is the **UDP/RTP
+Opus media transport** (there is no real audio to relay); bots that track voice presence, move/
+mute members, manage stage speakers, and establish a voice connection work — streaming actual
+audio does not.
 
 ## Start
 
