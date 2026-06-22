@@ -84,6 +84,8 @@ export interface DiscordSeedConfig {
   strict_scopes?: boolean;
   /** Enforce Discord permissions on mutations (50013 when the bot lacks them). Default off. */
   enforce_permissions?: boolean;
+  /** Verify an interactions endpoint with a PING/PONG when it is set. Default off. */
+  validate_interactions_endpoint?: boolean;
 }
 
 const DEFAULT_BOT_TOKEN = "test_bot_token";
@@ -132,6 +134,9 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: DiscordSe
 
   if (typeof config.enforce_permissions === "boolean") {
     store.setData("discord.enforce_permissions", config.enforce_permissions);
+  }
+  if (typeof config.validate_interactions_endpoint === "boolean") {
+    store.setData("discord.validate_interactions_endpoint", config.validate_interactions_endpoint);
   }
   if (typeof config.strict_scopes === "boolean") {
     store.setData("discord.strict_scopes", config.strict_scopes);

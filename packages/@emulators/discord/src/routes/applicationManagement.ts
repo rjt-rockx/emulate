@@ -1,7 +1,31 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, toAPIUser, snowflake } from "../helpers.js";
+import { getAuth, unauthorized, notFound, discordError, toAPIUser, snowflake } from "../helpers.js";
+import { signInteraction } from "../interactions/ed25519.js";
 import type { DiscordApplication, DiscordApplicationEmoji } from "../entities.js";
+
+/**
+ * Validate an interactions endpoint by sending a signed PING (type 1) and expecting a PONG
+ * (type 1), as Discord does before accepting the URL. Unreachable endpoints are treated
+ * leniently (accepted) so configs/tests without a live server still work; a reachable endpoint
+ * that fails to PONG is rejected.
+ */
+async function validateInteractionsEndpoint(url: string, app: DiscordApplication): Promise<{ ok: boolean; reachable: boolean }> {
+  const payload = JSON.stringify({ type: 1, application_id: app.snowflake });
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signature = signInteraction(timestamp, payload, app.private_key);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Signature-Ed25519": signature, "X-Signature-Timestamp": timestamp },
+      body: payload,
+    });
+    const data = (await res.json().catch(() => null)) as { type?: number } | null;
+    return { ok: res.ok && data?.type === 1, reachable: true };
+  } catch {
+    return { ok: false, reachable: false };
+  }
+}
 
 function toAPIApplication(application: DiscordApplication, ds: ReturnType<typeof getDiscordStore>): Record<string, unknown> {
   const botUser = ds.users.findOneBy("snowflake", application.bot_user_snowflake);
@@ -63,8 +87,24 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
     const body = await c.req.json<Record<string, unknown>>();
     const patch: Partial<DiscordApplication> = {};
     if (body.description !== undefined) patch.description = body.description as string;
-    if (body.interactions_endpoint_url !== undefined)
-      patch.interactions_endpoint_url = body.interactions_endpoint_url as string | null;
+    if (body.interactions_endpoint_url !== undefined) {
+      const url = body.interactions_endpoint_url as string | null;
+      // Setting a non-empty URL triggers Discord's PING/PONG verification, gated behind a flag
+      // (default off) so it stays deterministic regardless of the sandbox's network policy.
+      if (url && store.getData<boolean>("discord.validate_interactions_endpoint") === true) {
+        const result = await validateInteractionsEndpoint(url, appRecord);
+        if (result.reachable && !result.ok) {
+          return discordError(c, 400, "Invalid Form Body", 50035, {
+            errors: {
+              interactions_endpoint_url: {
+                _errors: [{ code: "INTERACTIONS_ENDPOINT_URL_VALIDATION", message: "The specified interactions endpoint URL could not be verified." }],
+              },
+            },
+          });
+        }
+      }
+      patch.interactions_endpoint_url = url;
+    }
     if (body.icon !== undefined) patch.icon = body.icon as string | null;
     if (body.flags !== undefined) patch.flags = body.flags as number;
     if (body.name !== undefined) patch.name = body.name as string;
