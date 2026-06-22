@@ -1,7 +1,8 @@
 import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, unknownMessage, toAPIUser, toAPIMember } from "../helpers.js";
+import type { DiscordStore } from "../store.js";
+import { getAuth, unauthorized, unknownMessage, discordError, toAPIUser, toAPIMember } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 
 interface ParsedEmoji {
@@ -10,12 +11,17 @@ interface ParsedEmoji {
   animated: boolean;
 }
 
-/** Parse the URL-encoded `:emoji` path param: unicode emoji or custom `name:id`. */
-function parseEmoji(raw: string): ParsedEmoji {
+/**
+ * Parse the URL-encoded `:emoji` path param: unicode emoji or custom `name:id`. For a custom
+ * emoji, the `animated` flag is resolved from the stored emoji entity so the serialized reaction
+ * reflects the real emoji.
+ */
+function parseEmoji(raw: string, ds: DiscordStore): ParsedEmoji {
   const decoded = decodeURIComponent(raw);
   if (decoded.includes(":")) {
     const [name, id] = decoded.split(":");
-    return { name, id: id ?? null, animated: false };
+    const stored = id ? ds.emojis.findOneBy("snowflake", id) : undefined;
+    return { name, id: id ?? null, animated: stored?.animated ?? false };
   }
   return { name: decoded, id: null, animated: false };
 }
@@ -23,6 +29,8 @@ function parseEmoji(raw: string): ParsedEmoji {
 function emojiPayload(e: ParsedEmoji): Record<string, unknown> {
   return { id: e.id, name: e.name, animated: e.animated };
 }
+
+const MAX_DISTINCT_EMOJI = 20;
 
 export function reactionsRoutes(ctx: DiscordRouteContext): void {
   const { app, store, bus } = ctx;
@@ -34,6 +42,8 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
     return message;
   };
 
+  const reactionKey = (name: string, id: string | null) => (id ? `${name}:${id}` : name);
+
   // Add the authed user's reaction.
   app.put("/api/v:version/channels/:channelId/messages/:messageId/reactions/:emoji/@me", (c) => {
     const auth = getAuth(c, store);
@@ -43,11 +53,18 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
     const messageId = c.req.param("messageId");
     const message = resolveMessage(channelId, messageId);
     if (!message) return unknownMessage(c);
-    const emoji = parseEmoji(c.req.param("emoji"));
+    const emoji = parseEmoji(c.req.param("emoji"), ds);
 
-    const already = ds.reactions
-      .findBy("message_snowflake", messageId)
-      .some((r) => r.user_snowflake === auth.user!.snowflake && r.emoji_name === emoji.name && r.emoji_snowflake === emoji.id);
+    const existingReactions = ds.reactions.findBy("message_snowflake", messageId);
+    const distinctEmoji = new Set(existingReactions.map((r) => reactionKey(r.emoji_name, r.emoji_snowflake)));
+    const already = existingReactions.some(
+      (r) => r.user_snowflake === auth.user!.snowflake && r.emoji_name === emoji.name && r.emoji_snowflake === emoji.id,
+    );
+    // A message may carry at most 20 distinct emoji. Adding a NEW distinct emoji past that cap is
+    // rejected; reacting with an emoji already present on the message is always allowed.
+    if (!already && !distinctEmoji.has(reactionKey(emoji.name, emoji.id)) && distinctEmoji.size >= MAX_DISTINCT_EMOJI) {
+      return discordError(c, 400, "Maximum number of reactions reached (20)", 30010);
+    }
     if (!already) {
       ds.reactions.insert({
         message_snowflake: messageId,
@@ -57,6 +74,7 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
         emoji_name: emoji.name,
         emoji_snowflake: emoji.id,
         emoji_animated: emoji.animated,
+        burst: false,
       });
     }
     const reactingMember = message.guild_snowflake
@@ -87,7 +105,7 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
     const messageId = c.req.param("messageId");
     const message = resolveMessage(channelId, messageId);
     if (!message) return unknownMessage(c);
-    const emoji = parseEmoji(c.req.param("emoji"));
+    const emoji = parseEmoji(c.req.param("emoji"), ds);
     const row = ds.reactions
       .findBy("message_snowflake", messageId)
       .find((r) => r.user_snowflake === userSnowflake && r.emoji_name === emoji.name && r.emoji_snowflake === emoji.id);
@@ -121,18 +139,23 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
     return removeUserReaction(c, c.req.param("userId"));
   });
 
-  // List users who reacted with a given emoji.
+  // List users who reacted with a given emoji. Honors `type` (0 NORMAL / 1 BURST), `after`, `limit`.
   app.get("/api/v:version/channels/:channelId/messages/:messageId/reactions/:emoji", (c) => {
     const auth = getAuth(c, store);
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const messageId = c.req.param("messageId");
     if (!resolveMessage(c.req.param("channelId"), messageId)) return unknownMessage(c);
-    const emoji = parseEmoji(c.req.param("emoji"));
+    const emoji = parseEmoji(c.req.param("emoji"), ds);
     const limit = Math.min(Number(c.req.query("limit") ?? 25) || 25, 100);
+    const type = Number(c.req.query("type") ?? 0) || 0; // 0 NORMAL, 1 BURST
+    const after = c.req.query("after");
     const users = ds.reactions
       .findBy("message_snowflake", messageId)
       .filter((r) => r.emoji_name === emoji.name && r.emoji_snowflake === emoji.id)
+      .filter((r) => (type === 1 ? r.burst === true : r.burst !== true))
+      .filter((r) => (after ? BigInt(r.user_snowflake) > BigInt(after) : true))
+      .sort((a, b) => (BigInt(a.user_snowflake) < BigInt(b.user_snowflake) ? -1 : 1))
       .slice(0, limit)
       .map((r) => ds.users.findOneBy("snowflake", r.user_snowflake))
       .filter((u): u is NonNullable<typeof u> => !!u)
@@ -149,7 +172,7 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
     const messageId = c.req.param("messageId");
     const message = resolveMessage(channelId, messageId);
     if (!message) return unknownMessage(c);
-    const emoji = parseEmoji(c.req.param("emoji"));
+    const emoji = parseEmoji(c.req.param("emoji"), ds);
     for (const r of ds.reactions
       .findBy("message_snowflake", messageId)
       .filter((row) => row.emoji_name === emoji.name && row.emoji_snowflake === emoji.id)) {

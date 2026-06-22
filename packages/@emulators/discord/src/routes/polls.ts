@@ -6,7 +6,7 @@ import { Intents } from "../gateway/intents.js";
 export function pollsRoutes(ctx: DiscordRouteContext): void {
   const { app, store, bus } = ctx;
 
-  // List the users who voted for a given poll answer.
+  // List the users who voted for a given poll answer. Honors `after` and `limit` (1-100, default 25).
   app.get("/api/v:version/channels/:channelId/polls/:messageId/answers/:answerId", (c) => {
     const auth = getAuth(c, store);
     if (!auth || auth.type !== "bot") return unauthorized(c);
@@ -14,9 +14,14 @@ export function pollsRoutes(ctx: DiscordRouteContext): void {
     const messageId = c.req.param("messageId");
     if (!ds.messages.findOneBy("snowflake", messageId)) return notFound(c);
     const answerId = Number(c.req.param("answerId"));
+    const limit = Math.min(Number(c.req.query("limit") ?? 25) || 25, 100);
+    const after = c.req.query("after");
     const users = ds.pollVotes
       .findBy("message_snowflake", messageId)
       .filter((v) => v.answer_id === answerId)
+      .filter((v) => (after ? BigInt(v.user_snowflake) > BigInt(after) : true))
+      .sort((a, b) => (BigInt(a.user_snowflake) < BigInt(b.user_snowflake) ? -1 : 1))
+      .slice(0, limit)
       .map((v) => ds.users.findOneBy("snowflake", v.user_snowflake))
       .filter((u): u is NonNullable<typeof u> => !!u)
       .map((u) => toAPIUser(u));
@@ -64,12 +69,18 @@ export function pollsRoutes(ctx: DiscordRouteContext): void {
     if (!user) return notFound(c);
     const answerId = Number(body.answer_id ?? 0);
 
-    const existing = ds.pollVotes
+    const userVotes = ds.pollVotes
       .findBy("message_snowflake", message.snowflake)
-      .find((v) => v.answer_id === answerId && v.user_snowflake === user.snowflake);
+      .filter((v) => v.user_snowflake === user.snowflake);
+    const existing = userVotes.find((v) => v.answer_id === answerId);
     if (body.remove) {
       if (existing) ds.pollVotes.delete(existing.id);
     } else if (!existing) {
+      // A single-select poll (allow_multiselect:false) only permits one vote per user: casting a
+      // new vote clears the voter's other-answer votes first.
+      if (!message.poll.allow_multiselect) {
+        for (const v of userVotes) ds.pollVotes.delete(v.id);
+      }
       ds.pollVotes.insert({
         message_snowflake: message.snowflake,
         channel_snowflake: message.channel_snowflake,
