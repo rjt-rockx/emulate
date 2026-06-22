@@ -653,9 +653,7 @@ describe("lobby.mdx — Channel invites (membership + linked channel)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // L1 / L2 / L3 / L4 / L8 / L10 — conformance negative tests
-// ---------------------------------------------------------------------------
 
 describe("lobby.mdx — L1: PUT /members/:userId preserves flags when omitted", () => {
   it("L1: second PUT without flags preserves the flags set on the first PUT", async () => {

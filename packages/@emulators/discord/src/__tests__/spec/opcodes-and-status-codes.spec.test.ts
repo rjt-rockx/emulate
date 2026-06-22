@@ -28,9 +28,7 @@ import { Intents } from "../../gateway/intents.js";
 import { createUser, createToken } from "../../factories.js";
 import { setRateLimitConfig } from "../../rateLimiter.js";
 
-// ---------------------------------------------------------------------------
 // Helpers shared across describes
-// ---------------------------------------------------------------------------
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
   const ds = getDiscordStore(store);
@@ -94,10 +92,8 @@ async function identifyAndGetSession(
   }
 }
 
-// ---------------------------------------------------------------------------
 // Category 1: HTTP Response Codes
 // opcodes-and-status-codes.mdx #http-http-response-codes
-// ---------------------------------------------------------------------------
 
 describe("opcodes-and-status-codes.mdx -- HTTP Response Codes", () => {
   // 200 OK: The request completed successfully.
@@ -191,10 +187,8 @@ describe("opcodes-and-status-codes.mdx -- HTTP Response Codes", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Category 2: JSON Error Codes
 // opcodes-and-status-codes.mdx #json-json-error-codes
-// ---------------------------------------------------------------------------
 
 describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Unknown-resource codes", () => {
   // 10003 Unknown Channel
@@ -532,10 +526,8 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Permission / validat
   });
 });
 
-// ---------------------------------------------------------------------------
 // Category 3: Gateway Close Event Codes (4000-4014)
 // opcodes-and-status-codes.mdx #gateway-gateway-close-event-codes
-// ---------------------------------------------------------------------------
 
 describe("opcodes-and-status-codes.mdx -- Gateway Close Event Codes (4000-4014): constant values", () => {
   // Verify every documented code maps to the correct numeric value.
@@ -740,10 +732,8 @@ describe("opcodes-and-status-codes.mdx -- Gateway Close Event Codes: live close-
   // the gateway emulator under test.
 });
 
-// ---------------------------------------------------------------------------
 // Gateway Opcode table: documented opcodes at their numeric values
 // opcodes-and-status-codes.mdx #gateway-gateway-opcodes
-// ---------------------------------------------------------------------------
 
 describe("opcodes-and-status-codes.mdx -- Gateway Opcodes: documented numeric values", () => {
   it("GatewayOpcodes exports every documented send/receive opcode at its exact value", () => {

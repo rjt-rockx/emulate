@@ -26,9 +26,7 @@ function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
   };
 }
 
-// ---------------------------------------------------------------------------
 // Channel pins
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — pinned messages", () => {
   it("Pin Message returns 204 and the message shows up in Get Pinned Messages", async () => {
@@ -92,9 +90,7 @@ describe("channel.mdx — pinned messages", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // GitHub / Slack webhook compatibility execute endpoints
-// ---------------------------------------------------------------------------
 
 describe("webhook.mdx — GitHub / Slack compatible execute", () => {
   function seedWebhook(store: ReturnType<typeof createDiscordTestApp>["store"]) {
@@ -163,9 +159,7 @@ describe("webhook.mdx — GitHub / Slack compatible execute", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Guild message search
-// ---------------------------------------------------------------------------
 
 describe("guild message search", () => {
   it("returns grouped matches and a total_results count, filtered by content", async () => {
@@ -229,9 +223,7 @@ describe("guild message search", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Guild incident actions
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — incident actions", () => {
   it("PUT incident-actions echoes invites_disabled_until / dms_disabled_until and includes detection fields", async () => {
@@ -279,9 +271,7 @@ describe("guild.mdx — incident actions", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Guild widget image
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — widget image", () => {
   it("GET widget.png returns image/png bytes for a known guild", async () => {
@@ -302,9 +292,7 @@ describe("guild.mdx — widget image", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Embedded activity instance
-// ---------------------------------------------------------------------------
 
 describe("application — get activity instance", () => {
   it("returns an activity instance with application_id, instance_id, location and users", async () => {
@@ -327,9 +315,7 @@ describe("application — get activity instance", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Delete application role connection
-// ---------------------------------------------------------------------------
 
 describe("user.mdx — delete application role connection (misc.ts)", () => {
   it("DELETE /users/@me/applications/{app}/role-connection returns 204", async () => {
@@ -350,9 +336,7 @@ describe("user.mdx — delete application role connection (misc.ts)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Scheduled event subscribers (misc.ts variant returns an empty roster)
-// ---------------------------------------------------------------------------
 
 describe("scheduled event subscribers", () => {
   it("unknown event returns 404", async () => {
@@ -365,9 +349,7 @@ describe("scheduled event subscribers", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // B1: GET /guilds/:id/bans?limit=0 must return an empty array (not 1000 bans)
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Get Guild Bans limit=0 (B1 conformance)", () => {
   it("B1: limit=0 returns an empty array of bans, not the full ban list", async () => {
@@ -390,9 +372,7 @@ describe("guild.mdx — Get Guild Bans limit=0 (B1 conformance)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // B6: CHANNEL_PINS_UPDATE last_pin_timestamp is null after the last pin is removed
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — CHANNEL_PINS_UPDATE last_pin_timestamp (B6 conformance)", () => {
   it("B6: unpinning the last message sends CHANNEL_PINS_UPDATE with null last_pin_timestamp", async () => {

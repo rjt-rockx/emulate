@@ -49,9 +49,7 @@ async function vote(app: ReturnType<typeof createDiscordTestApp>["app"], message
   });
 }
 
-// ---------------------------------------------------------------------------
 // Poll object structure
-// ---------------------------------------------------------------------------
 
 describe("poll.mdx — Poll object structure", () => {
   it("a created poll exposes question, answers, expiry, allow_multiselect, layout_type, results", async () => {
@@ -99,9 +97,7 @@ describe("poll.mdx — Poll object structure", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Poll Create Request
-// ---------------------------------------------------------------------------
 
 describe("poll.mdx — Poll Create Request", () => {
   it("duration is converted to an expiry timestamp", async () => {
@@ -180,9 +176,7 @@ describe("poll.mdx — Poll Create Request", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // allow_multiselect:false clears prior votes
-// ---------------------------------------------------------------------------
 
 describe("poll.mdx — voting semantics", () => {
   it("allow_multiselect:false clears a voter's other-answer votes on a new vote", async () => {
@@ -215,9 +209,7 @@ describe("poll.mdx — voting semantics", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Get Answer Voters
-// ---------------------------------------------------------------------------
 
 describe("poll.mdx — Get Answer Voters", () => {
   it("returns a { users } object of the voters for the answer", async () => {
@@ -268,9 +260,7 @@ describe("poll.mdx — Get Answer Voters", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // End Poll
-// ---------------------------------------------------------------------------
 
 describe("poll.mdx — End Poll", () => {
   it("expiring a poll finalizes its results and returns the message", async () => {
@@ -318,9 +308,7 @@ describe("poll.mdx — End Poll", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Get Answer Voters — P2 and P3
-// ---------------------------------------------------------------------------
 
 describe("poll.mdx — Get Answer Voters parameter validation", () => {
   it("P2: limit=0 is clamped to 1, not passed through as-is", async () => {

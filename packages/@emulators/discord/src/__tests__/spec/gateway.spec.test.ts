@@ -909,10 +909,8 @@ describe("gateway spec: MESSAGE_CONTENT redaction (gateway.mdx Message Content I
   });
 });
 
-// ---------------------------------------------------------------------------
 // GET /gateway — no auth required (gateway.mdx:717-733)
 // GET /gateway/bot — bot auth, returns url/shards/session_start_limit (gateway.mdx:738-779)
-// ---------------------------------------------------------------------------
 
 describe("gateway spec: GET /gateway and GET /gateway/bot REST shapes (gateway.mdx:717-779)", () => {
   it("GET /gateway returns 200 with a url string and requires no auth", async () => {

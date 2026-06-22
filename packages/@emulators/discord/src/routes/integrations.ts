@@ -49,9 +49,7 @@ function toAPIIntegration(integ: DiscordIntegration, ds: DiscordStore): APIGuild
 export function integrationsRoutes(ctx: DiscordRouteContext): void {
   const { app, store, bus } = ctx;
 
-  // -------------------------------------------------------------------------
   // GET /guilds/:guildId/integrations
-  // -------------------------------------------------------------------------
 
   app.get("/api/v:version/guilds/:guildId/integrations", (c) => {
     const g = requireBot(c, store);
@@ -69,9 +67,7 @@ export function integrationsRoutes(ctx: DiscordRouteContext): void {
     return c.json(integrations);
   });
 
-  // -------------------------------------------------------------------------
   // POST /guilds/:guildId/integrations  (create an integration)
-  // -------------------------------------------------------------------------
 
   app.post("/api/v:version/guilds/:guildId/integrations", async (c) => {
     const g = requireBot(c, store);
@@ -136,9 +132,7 @@ export function integrationsRoutes(ctx: DiscordRouteContext): void {
     return c.json(toAPIIntegration(integ, ds), 201);
   });
 
-  // -------------------------------------------------------------------------
   // GET /guilds/:guildId/integrations/:integrationId
-  // -------------------------------------------------------------------------
 
   app.get("/api/v:version/guilds/:guildId/integrations/:integrationId", (c) => {
     const g = requireBot(c, store);
@@ -152,9 +146,7 @@ export function integrationsRoutes(ctx: DiscordRouteContext): void {
     return c.json(toAPIIntegration(integ, ds));
   });
 
-  // -------------------------------------------------------------------------
   // PATCH /guilds/:guildId/integrations/:integrationId  (modify an integration)
-  // -------------------------------------------------------------------------
 
   app.patch("/api/v:version/guilds/:guildId/integrations/:integrationId", async (c) => {
     const g = requireBot(c, store);
@@ -204,9 +196,7 @@ export function integrationsRoutes(ctx: DiscordRouteContext): void {
     return c.json(toAPIIntegration(updated, ds));
   });
 
-  // -------------------------------------------------------------------------
   // DELETE /guilds/:guildId/integrations/:integrationId
-  // -------------------------------------------------------------------------
 
   app.delete("/api/v:version/guilds/:guildId/integrations/:integrationId", (c) => {
     const g = requireBot(c, store);
@@ -248,9 +238,7 @@ export function integrationsRoutes(ctx: DiscordRouteContext): void {
     return new Response(null, { status: 204 });
   });
 
-  // -------------------------------------------------------------------------
   // GET /users/@me/connections
-  // -------------------------------------------------------------------------
 
   app.get("/api/v:version/users/@me/connections", (c) => {
     const g = requireUser(c, store);

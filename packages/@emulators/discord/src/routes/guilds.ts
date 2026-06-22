@@ -92,10 +92,8 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     });
   };
 
-  // ---------------------------------------------------------------------------
   // Literal routes that must be registered before their `:param` siblings, since
   // the router matches in registration order (e.g. /members/search vs /members/:userId).
-  // ---------------------------------------------------------------------------
 
   // Modify the current member (nick/avatar/banner/bio).
   app.patch("/api/v:version/guilds/:guildId/members/@me", async (c) => {
@@ -175,9 +173,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     return c.json(counts);
   });
 
-  // ---------------------------------------------------------------------------
   // Guild core
-  // ---------------------------------------------------------------------------
 
   app.get("/api/v:version/guilds/:guildId", (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
@@ -386,9 +382,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     return new Response(null, { status: 204 });
   });
 
-  // ---------------------------------------------------------------------------
   // Roles
-  // ---------------------------------------------------------------------------
 
   app.get("/api/v:version/guilds/:guildId/roles", (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
@@ -583,9 +577,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     return new Response(null, { status: 204 });
   });
 
-  // ---------------------------------------------------------------------------
   // Members
-  // ---------------------------------------------------------------------------
 
   app.get("/api/v:version/guilds/:guildId/members", (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
@@ -839,9 +831,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     return new Response(null, { status: 204 });
   });
 
-  // ---------------------------------------------------------------------------
   // Emojis
-  // ---------------------------------------------------------------------------
 
   app.get("/api/v:version/guilds/:guildId/emojis", (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;

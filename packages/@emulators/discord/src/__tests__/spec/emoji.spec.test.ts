@@ -14,9 +14,7 @@ function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
   return { guildId: s.guild, appId: s.app };
 }
 
-// ---------------------------------------------------------------------------
 // Emoji object shape
-// ---------------------------------------------------------------------------
 
 describe("emoji.mdx — Emoji object shape", () => {
   it("guild emoji has the documented fields (id/name/roles/require_colons/managed/animated/available)", async () => {
@@ -58,9 +56,7 @@ describe("emoji.mdx — Emoji object shape", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // List Guild Emojis
-// ---------------------------------------------------------------------------
 
 describe("emoji.mdx — List Guild Emojis", () => {
   it("GET /guilds/:id/emojis returns an array of emoji objects", async () => {
@@ -80,9 +76,7 @@ describe("emoji.mdx — List Guild Emojis", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Get Guild Emoji
-// ---------------------------------------------------------------------------
 
 describe("emoji.mdx — Get Guild Emoji", () => {
   it("GET /guilds/:id/emojis/:emojiId returns the emoji", async () => {
@@ -111,9 +105,7 @@ describe("emoji.mdx — Get Guild Emoji", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Create Guild Emoji — validation
-// ---------------------------------------------------------------------------
 
 describe("emoji.mdx — Create Guild Emoji validation", () => {
   it("name shorter than 2 characters returns 400 Invalid Form Body (50035)", async () => {
@@ -204,9 +196,7 @@ describe("emoji.mdx — Create Guild Emoji validation", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Modify Guild Emoji
-// ---------------------------------------------------------------------------
 
 describe("emoji.mdx — Modify Guild Emoji", () => {
   it("PATCH /guilds/:id/emojis/:emojiId updates name and roles", async () => {
@@ -242,9 +232,7 @@ describe("emoji.mdx — Modify Guild Emoji", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Delete Guild Emoji
-// ---------------------------------------------------------------------------
 
 describe("emoji.mdx — Delete Guild Emoji", () => {
   it("DELETE /guilds/:id/emojis/:emojiId returns 204 and removes the emoji", async () => {
@@ -279,9 +267,7 @@ describe("emoji.mdx — Delete Guild Emoji", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Application Emojis
-// ---------------------------------------------------------------------------
 
 describe("emoji.mdx — Application Emoji endpoints", () => {
   it("List Application Emojis returns { items: [...] }", async () => {

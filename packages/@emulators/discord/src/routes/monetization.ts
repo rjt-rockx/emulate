@@ -18,9 +18,7 @@ import type { DiscordEntitlement, DiscordSubscription } from "../entities.js";
 /** SKU types per developers/resources/sku.mdx (SKU Types table). */
 const SKU_TYPE_CONSUMABLE = 3;
 
-// ---------------------------------------------------------------------------
 // Serializers
-// ---------------------------------------------------------------------------
 
 function toAPISKU(sku: {
   snowflake: string;
@@ -80,18 +78,14 @@ function toAPISubscription(s: DiscordSubscription): APISubscription {
   };
 }
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 function parseBool(value: string | undefined, defaultValue: boolean): boolean {
   if (value === undefined) return defaultValue;
   return value === "true" || value === "1";
 }
 
-// ---------------------------------------------------------------------------
 // Routes
-// ---------------------------------------------------------------------------
 
 export function monetizationRoutes(ctx: DiscordRouteContext): void {
   const { app, store, bus } = ctx;

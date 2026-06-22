@@ -350,9 +350,7 @@ describe("sticker.mdx — auth", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // S1: Permission-gated user field
-// ---------------------------------------------------------------------------
 describe("sticker.mdx — S1: user field is gated on expression permissions", () => {
   it("omits user field when enforcement is on and caller lacks expression permissions", async () => {
     const { app, store } = createDiscordTestApp();
@@ -389,9 +387,7 @@ describe("sticker.mdx — S1: user field is gated on expression permissions", ()
   });
 });
 
-// ---------------------------------------------------------------------------
 // S3: Per-guild sticker slot cap
-// ---------------------------------------------------------------------------
 describe("sticker.mdx — S3: per-guild sticker slot cap", () => {
   it("returns 30039 when guild sticker slots are exhausted", async () => {
     const { app, store } = createDiscordTestApp();

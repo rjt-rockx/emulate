@@ -12,16 +12,14 @@ function build() {
   const webhooks = new WebhookDispatcher();
   const app = new Hono<AppEnv>();
   discordPlugin.register(app, store, webhooks, TEST_BASE_URL);
-  const runtime = getDiscordRuntime(store, TEST_BASE_URL);
+  const runtime = getDiscordRuntime(store);
   integrationsRoutes({ app, store, webhooks, baseUrl: TEST_BASE_URL, bus: runtime.bus });
   discordPlugin.seed?.(store, TEST_BASE_URL);
   return { app, store };
 }
 
 describe("integrations routes", () => {
-  // -------------------------------------------------------------------------
   // GET /guilds/:guildId/integrations
-  // -------------------------------------------------------------------------
 
   it("lists integrations for a guild after inserting one", async () => {
     const { app, store } = build();
@@ -70,9 +68,7 @@ describe("integrations routes", () => {
     expect(res.status).toBe(404);
   });
 
-  // -------------------------------------------------------------------------
   // DELETE /guilds/:guildId/integrations/:integrationId
-  // -------------------------------------------------------------------------
 
   it("deletes an integration and returns 204", async () => {
     const { app, store } = build();
@@ -112,9 +108,7 @@ describe("integrations routes", () => {
     expect(res.status).toBe(404);
   });
 
-  // -------------------------------------------------------------------------
   // GET /users/@me/connections
-  // -------------------------------------------------------------------------
 
   it("lists connections for the current user after inserting one", async () => {
     const { app, store } = build();
@@ -155,9 +149,7 @@ describe("integrations routes", () => {
     expect(res.status).toBe(401);
   });
 
-  // -------------------------------------------------------------------------
   // GET /sticker-packs
-  // -------------------------------------------------------------------------
 
   it("returns at least one sticker pack", async () => {
     const { app } = build();
@@ -173,9 +165,7 @@ describe("integrations routes", () => {
     expect(Array.isArray(pack.stickers)).toBe(true);
   });
 
-  // -------------------------------------------------------------------------
   // GET /sticker-packs/:packId
-  // -------------------------------------------------------------------------
 
   it("returns a specific sticker pack by id", async () => {
     const { app } = build();

@@ -18,9 +18,7 @@ function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
   return { guildId: s.guild, developerSnowflake: s.developer };
 }
 
-// ---------------------------------------------------------------------------
 // Audit Log object shape
-// ---------------------------------------------------------------------------
 
 describe("audit-log.mdx — Audit Log object shape", () => {
   it("GET /guilds/:id/audit-logs returns the documented top-level arrays", async () => {
@@ -74,9 +72,7 @@ describe("audit-log.mdx — Audit Log object shape", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // A1: VIEW_AUDIT_LOG permission enforcement
-// ---------------------------------------------------------------------------
 
 describe("audit-log.mdx — VIEW_AUDIT_LOG permission enforcement", () => {
   it("A1 — GET audit-logs with enforcement on and no VIEW_AUDIT_LOG returns 403 (50013)", async () => {
@@ -111,9 +107,7 @@ describe("audit-log.mdx — VIEW_AUDIT_LOG permission enforcement", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // A2: Empty changes array is omitted from entries
-// ---------------------------------------------------------------------------
 
 describe("audit-log.mdx — changes key omitted when empty", () => {
   it("A2 — MEMBER_KICK entry does not include a changes key (no documented changes object)", async () => {
@@ -155,9 +149,7 @@ describe("audit-log.mdx — changes key omitted when empty", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Audit Log Events — real endpoint emission checks
-// ---------------------------------------------------------------------------
 // These tests verify that documented action_type values are actually emitted
 // by the corresponding endpoints AND that the changes array has the documented
 // key/new_value/old_value structure. Each test triggers an endpoint, then
@@ -335,9 +327,7 @@ describe("audit-log.mdx — Audit Log Events emitted by endpoints", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Optional Audit Entry Info
-// ---------------------------------------------------------------------------
 
 describe("audit-log.mdx — Optional Audit Entry Info", () => {
   it("MEMBER_PRUNE entry has options.delete_member_days and options.members_removed as strings", async () => {
@@ -399,9 +389,7 @@ describe("audit-log.mdx — Optional Audit Entry Info", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Get Guild Audit Log — query filters
-// ---------------------------------------------------------------------------
 
 describe("audit-log.mdx — Get Guild Audit Log query filters", () => {
   it("action_type filter returns only entries of that type", async () => {
@@ -531,9 +519,7 @@ describe("audit-log.mdx — Get Guild Audit Log query filters", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Hydrated entity arrays
-// ---------------------------------------------------------------------------
 
 describe("audit-log.mdx — Hydrated entity arrays", () => {
   it("users array includes actors and targets referenced in entries", async () => {

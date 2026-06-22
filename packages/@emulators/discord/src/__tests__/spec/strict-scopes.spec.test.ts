@@ -24,9 +24,7 @@
 import { describe, it, expect } from "vitest";
 import { createDiscordTestApp, api, botHeaders, bearerHeaders, json, seededIds } from "../helpers.js";
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 /** Seed shared by every strict-mode test: one oauth app plus pre-seeded bearer tokens. */
 const STRICT_SEED = {
@@ -70,9 +68,7 @@ function appId(store: ReturnType<typeof createDiscordTestApp>["store"]): string 
   return seededIds(store).app;
 }
 
-// ---------------------------------------------------------------------------
 // GET /users/@me -- requires `identify`
-// ---------------------------------------------------------------------------
 
 describe("strict_scopes -- GET /users/@me (identify)", () => {
   it("returns 403/50026 when the bearer token lacks `identify`", async () => {
@@ -104,9 +100,7 @@ describe("strict_scopes -- GET /users/@me (identify)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // GET /users/@me/guilds -- requires `guilds`
-// ---------------------------------------------------------------------------
 
 describe("strict_scopes -- GET /users/@me/guilds (guilds)", () => {
   it("returns 403/50026 when the bearer token lacks `guilds`", async () => {
@@ -130,9 +124,7 @@ describe("strict_scopes -- GET /users/@me/guilds (guilds)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // GET /users/@me/guilds/:id/member -- requires `guilds.members.read`
-// ---------------------------------------------------------------------------
 
 describe("strict_scopes -- GET /users/@me/guilds/:id/member (guilds.members.read)", () => {
   it("returns 403/50026 when the bearer token lacks `guilds.members.read`", async () => {
@@ -160,9 +152,7 @@ describe("strict_scopes -- GET /users/@me/guilds/:id/member (guilds.members.read
   });
 });
 
-// ---------------------------------------------------------------------------
 // Role connection routes -- require `role_connections.write`
-// ---------------------------------------------------------------------------
 
 describe("strict_scopes -- GET /users/@me/applications/:id/role-connection (role_connections.write)", () => {
   it("returns 403/50026 when the bearer token lacks `role_connections.write`", async () => {
@@ -232,9 +222,7 @@ describe("strict_scopes -- PUT /users/@me/applications/:id/role-connection (role
   });
 });
 
-// ---------------------------------------------------------------------------
 // GET /oauth2/@me -- user field gating on `identify`
-// ---------------------------------------------------------------------------
 
 describe("strict_scopes -- GET /oauth2/@me (user field requires identify)", () => {
   it("omits the user field when strict_scopes is on and bearer token lacks `identify`", async () => {
@@ -286,9 +274,7 @@ describe("strict_scopes -- GET /oauth2/@me (user field requires identify)", () =
   });
 });
 
-// ---------------------------------------------------------------------------
 // Leniency when strict_scopes is OFF (default)
-// ---------------------------------------------------------------------------
 
 describe("strict_scopes OFF -- all bearer endpoints are lenient", () => {
   it("GET /users/@me succeeds with a bearer token that has no scopes when strict_scopes is off", async () => {
@@ -341,9 +327,7 @@ describe("strict_scopes OFF -- all bearer endpoints are lenient", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // S4: GET /users/@me email field gating on the `email` scope (both modes)
-// ---------------------------------------------------------------------------
 
 describe("S4 -- GET /users/@me email field is gated on email scope for bearer tokens", () => {
   // S4: Bearer tokens without the `email` scope must NOT receive the email field even
@@ -378,9 +362,7 @@ describe("S4 -- GET /users/@me email field is gated on email scope for bearer to
   });
 });
 
-// ---------------------------------------------------------------------------
 // Multi-scope token succeeds on all strict endpoints
-// ---------------------------------------------------------------------------
 
 describe("strict_scopes -- multi-scope token passes all endpoint gates", () => {
   it("a token with all required scopes passes every guarded endpoint", async () => {

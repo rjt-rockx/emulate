@@ -48,7 +48,7 @@ export const discordPlugin: ServicePlugin = {
   name: "discord",
 
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, _tokenMap?: TokenMap): void {
-    const runtime = getDiscordRuntime(store, baseUrl);
+    const runtime = getDiscordRuntime(store);
     const ctx: DiscordRouteContext = { app, store, webhooks, baseUrl, bus: runtime.bus };
 
     // Discord-style rate limiting: real per-route buckets + a global budget. Every REST
@@ -122,7 +122,7 @@ export const discordPlugin: ServicePlugin = {
   },
 
   attach(server: Server, store: Store, baseUrl: string): PluginDisposer {
-    const runtime = getDiscordRuntime(store, baseUrl);
+    const runtime = getDiscordRuntime(store);
     const gateway = new GatewayServer(server, store, baseUrl, runtime.bus);
     return async () => {
       await gateway.close();

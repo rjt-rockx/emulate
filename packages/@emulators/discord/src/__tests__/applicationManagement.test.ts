@@ -10,7 +10,7 @@ function build() {
   const webhooks = new WebhookDispatcher();
   const app = new Hono<AppEnv>();
   discordPlugin.register(app, store, webhooks, TEST_BASE_URL);
-  const runtime = getDiscordRuntime(store, TEST_BASE_URL);
+  const runtime = getDiscordRuntime(store);
   applicationManagementRoutes({ app, store, webhooks, baseUrl: TEST_BASE_URL, bus: runtime.bus });
   discordPlugin.seed?.(store, TEST_BASE_URL);
   return { app, store };

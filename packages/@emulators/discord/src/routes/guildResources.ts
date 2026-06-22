@@ -27,9 +27,7 @@ import { Intents } from "../gateway/intents.js";
 import type { Context, AppEnv, Store } from "@emulators/core";
 import type { DiscordScheduledEvent, DiscordScheduledEventException, DiscordSticker } from "../entities.js";
 
-// ---------------------------------------------------------------------------
 // Standard sticker packs (read-only catalog)
-// ---------------------------------------------------------------------------
 
 interface StaticStickerPack {
   snowflake: string;
@@ -105,9 +103,7 @@ function toAPIStickerPack(pack: StaticStickerPack, ds: DiscordStore): APISticker
   return out as unknown as APIStickerPack;
 }
 
-// ---------------------------------------------------------------------------
 // Sticker file format inference & validation
-// ---------------------------------------------------------------------------
 
 const STICKER_MAX_BYTES = 512 * 1024;
 
@@ -122,9 +118,7 @@ function inferStickerFormat(file: File): { formatType: number; valid: boolean } 
   return { formatType: 1, valid: false };
 }
 
-// ---------------------------------------------------------------------------
 // Scheduled event helpers
-// ---------------------------------------------------------------------------
 
 const ENTITY_STAGE = 1;
 const ENTITY_VOICE = 2;

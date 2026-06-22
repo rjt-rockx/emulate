@@ -18,9 +18,7 @@ describe("guilds routes", () => {
     return seededIds(testApp.store).developer;
   }
 
-  // -------------------------------------------------------------------------
   // GET guild
-  // -------------------------------------------------------------------------
 
   it("GET /guilds/:guildId returns the guild with roles including @everyone", async () => {
     const id = guildId();
@@ -49,9 +47,7 @@ describe("guilds routes", () => {
     expect(typeof body.approximate_member_count).toBe("number");
   });
 
-  // -------------------------------------------------------------------------
   // POST guild
-  // -------------------------------------------------------------------------
 
   it("POST /guilds creates a new guild owned by the bot user", async () => {
     const res = await testApp.app.request(api("/guilds"), {
@@ -68,9 +64,7 @@ describe("guilds routes", () => {
     expect(Array.isArray(body.members)).toBe(true);
   });
 
-  // -------------------------------------------------------------------------
   // PATCH guild
-  // -------------------------------------------------------------------------
 
   it("PATCH /guilds/:guildId updates the guild name and returns updated guild", async () => {
     const id = guildId();
@@ -90,9 +84,7 @@ describe("guilds routes", () => {
     expect(guild?.name).toBe("Renamed Server");
   });
 
-  // -------------------------------------------------------------------------
   // Roles
-  // -------------------------------------------------------------------------
 
   it("POST /guilds/:guildId/roles creates a role and GET /roles lists it", async () => {
     const id = guildId();
@@ -142,9 +134,7 @@ describe("guilds routes", () => {
     expect(role).toBeUndefined();
   });
 
-  // -------------------------------------------------------------------------
   // Members
-  // -------------------------------------------------------------------------
 
   it("PUT /guilds/:guildId/members/:userId adds the developer user as a member", async () => {
     const devId = developerUserId();
@@ -187,9 +177,7 @@ describe("guilds routes", () => {
     expect(first.user).toBeDefined();
   });
 
-  // -------------------------------------------------------------------------
   // Emojis
-  // -------------------------------------------------------------------------
 
   it("POST /guilds/:guildId/emojis creates an emoji and GET /emojis lists it", async () => {
     const id = guildId();

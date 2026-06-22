@@ -19,9 +19,7 @@ import {
   type TeamData,
 } from "../../routes/applicationManagement.js";
 
-// ---------------------------------------------------------------------------
 // Enum value assertions (doc-driven constants)
-// ---------------------------------------------------------------------------
 
 describe("teams.mdx — Membership State Enum values", () => {
   it("INVITED is 1", () => {
@@ -47,9 +45,7 @@ describe("teams.mdx — Team Member Role string values", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 function appSnowflake(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
   return seededIds(store).app;
@@ -85,9 +81,7 @@ function buildTeam(overrides?: Partial<TeamData>): TeamData {
   };
 }
 
-// ---------------------------------------------------------------------------
 // Application `team` field — default (no team)
-// ---------------------------------------------------------------------------
 
 describe("teams.mdx — Application.team field — default (owner-held app)", () => {
   it("team is present on the application object", async () => {
@@ -103,9 +97,7 @@ describe("teams.mdx — Application.team field — default (owner-held app)", ()
   });
 });
 
-// ---------------------------------------------------------------------------
 // Application `team` field — configured via store side-channel
-// ---------------------------------------------------------------------------
 
 describe("teams.mdx — Application.team field — team-owned application", () => {
   it("team is a non-null object when a team is set via store side-channel", async () => {
@@ -180,9 +172,7 @@ describe("teams.mdx — Application.team field — team-owned application", () =
   });
 });
 
-// ---------------------------------------------------------------------------
 // Team Member Object shape
-// ---------------------------------------------------------------------------
 
 describe("teams.mdx — Team Member Object shape", () => {
   function teamWithMember(memberOverride?: Partial<TeamData["members"][0]>): TeamData {
@@ -335,9 +325,7 @@ describe("teams.mdx — Team Member Object shape", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Multi-member team
-// ---------------------------------------------------------------------------
 
 describe("teams.mdx — Team with multiple members", () => {
   it("all configured members appear in the response", async () => {
@@ -412,9 +400,7 @@ describe("teams.mdx — Team with multiple members", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Round-trip fidelity — team survives a PATCH /applications/@me
-// ---------------------------------------------------------------------------
 
 describe("teams.mdx — team field survives PATCH /applications/@me", () => {
   it("team is still populated after editing an unrelated application field", async () => {

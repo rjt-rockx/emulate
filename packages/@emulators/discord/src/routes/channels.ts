@@ -346,9 +346,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     return new Response(null, { status: 204 });
   });
 
-  // ---------------------------------------------------------------------------
   // Permission overwrites
-  // ---------------------------------------------------------------------------
 
   app.put("/api/v:version/channels/:channelId/permissions/:overwriteId", async (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
@@ -425,9 +423,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     return new Response(null, { status: 204 });
   });
 
-  // ---------------------------------------------------------------------------
   // Announcement channels: crosspost + follow
-  // ---------------------------------------------------------------------------
 
   app.post("/api/v:version/channels/:channelId/messages/:messageId/crosspost", (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
@@ -480,9 +476,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     return c.json({ channel_id: source.snowflake, webhook_id: webhook.snowflake });
   });
 
-  // ---------------------------------------------------------------------------
   // Pins (current API under /messages/pins)
-  // ---------------------------------------------------------------------------
 
   app.get("/api/v:version/channels/:channelId/messages/pins", (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
@@ -516,9 +510,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     setPinnedNew(c.req.param("channelId"), c.req.param("messageId"), false, c),
   );
 
-  // ---------------------------------------------------------------------------
   // Group DM recipients + voice channel status
-  // ---------------------------------------------------------------------------
 
   app.put("/api/v:version/channels/:channelId/recipients/:userId", (c) => {
     const auth = getAuth(c, store);

@@ -45,9 +45,7 @@ async function createInvite(
   return await json(res);
 }
 
-// ---------------------------------------------------------------------------
 // Invite object
-// ---------------------------------------------------------------------------
 
 describe("invite.mdx — Invite object", () => {
   it("Create Channel Invite returns an invite with code(string), type 0, channel, inviter, and metadata", async () => {
@@ -104,9 +102,7 @@ describe("invite.mdx — Invite object", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Invite Types & Invite Target Types
-// ---------------------------------------------------------------------------
 
 describe("invite.mdx — Invite Types & Target Types", () => {
   it("guild invites carry Invite Type GUILD (0)", async () => {
@@ -149,9 +145,7 @@ describe("invite.mdx — Invite Types & Target Types", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Create Channel Invite — params, defaults, range clamps, unique
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — Create Channel Invite params", () => {
   it("defaults: max_age 86400, max_uses 0, temporary false", async () => {
@@ -261,9 +255,7 @@ describe("channel.mdx — Create Channel Invite params", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Get Invite — with_counts, guild_scheduled_event_id
-// ---------------------------------------------------------------------------
 
 describe("invite.mdx — Get Invite", () => {
   it("GET /invites/{code} returns the invite object for a valid code (no auth required)", async () => {
@@ -348,9 +340,7 @@ describe("invite.mdx — Get Invite", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Delete Invite
-// ---------------------------------------------------------------------------
 
 describe("invite.mdx — Delete Invite", () => {
   it("DELETE /invites/{code} returns the deleted invite object and removes it", async () => {
@@ -382,9 +372,7 @@ describe("invite.mdx — Delete Invite", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Get Channel Invites & Get Guild Invites
-// ---------------------------------------------------------------------------
 
 describe("channel/guild — list invites", () => {
   it("Get Channel Invites returns the invites for that channel as an array", async () => {
@@ -419,9 +407,7 @@ describe("channel/guild — list invites", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Invite target-users endpoints (Social SDK) — live in misc.ts
-// ---------------------------------------------------------------------------
 
 describe("invite.mdx — target-users endpoints", () => {
   it("GET /invites/{code}/target-users requires authorization (401) and returns a body when authorized", async () => {
@@ -469,9 +455,7 @@ describe("invite.mdx — target-users endpoints", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Ban + delete_message_seconds (extras.ts owns the ban endpoints)
-// ---------------------------------------------------------------------------
 
 describe("guild — Create Guild Ban with delete_message_seconds", () => {
   it("deletes the banned user's recent messages within the window", async () => {
@@ -511,9 +495,7 @@ describe("guild — Create Guild Ban with delete_message_seconds", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // I1 / I4 conformance — target companion field validation + INVITE_CREATE event
-// ---------------------------------------------------------------------------
 
 describe("invite.mdx — I1: target companion field validation", () => {
   // I1: target_type 1 (STREAM) requires target_user_id; without it → 50035.

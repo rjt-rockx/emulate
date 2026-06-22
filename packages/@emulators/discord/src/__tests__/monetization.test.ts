@@ -11,7 +11,7 @@ function build() {
   const webhooks = new WebhookDispatcher();
   const app = new Hono<AppEnv>();
   discordPlugin.register(app, store, webhooks, TEST_BASE_URL);
-  const runtime = getDiscordRuntime(store, TEST_BASE_URL);
+  const runtime = getDiscordRuntime(store);
   monetizationRoutes({ app, store, webhooks, baseUrl: TEST_BASE_URL, bus: runtime.bus });
   discordPlugin.seed?.(store, TEST_BASE_URL);
   return { app, store };
@@ -37,9 +37,7 @@ describe("monetization routes", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // SKUs
-  // ---------------------------------------------------------------------------
 
   describe("GET /applications/:appId/skus", () => {
     it("returns seeded SKUs", async () => {
@@ -69,9 +67,7 @@ describe("monetization routes", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Entitlements CRUD lifecycle
-  // ---------------------------------------------------------------------------
 
   describe("entitlement lifecycle", () => {
     it("create, list, get, consume, delete", async () => {
@@ -192,9 +188,7 @@ describe("monetization routes", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Entitlement filtering
-  // ---------------------------------------------------------------------------
 
   describe("entitlement filters", () => {
     beforeEach(async () => {
@@ -249,9 +243,7 @@ describe("monetization routes", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Subscriptions
-  // ---------------------------------------------------------------------------
 
   describe("subscriptions", () => {
     const skuId = "100000000000000001";

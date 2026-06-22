@@ -22,9 +22,7 @@ import {
   ALL_PERMISSIONS,
 } from "../../permissions.js";
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 function setup() {
   const store = new Store();
@@ -37,12 +35,10 @@ function setup() {
   return { ds, store, owner, member, guild, channel };
 }
 
-// ---------------------------------------------------------------------------
 // Section 1: Bitwise Permission Flags table
 //
 // Each permission name, its documented hex value, and the bit-shift form are all
 // cross-checked here. The expected values come directly from the doc table.
-// ---------------------------------------------------------------------------
 
 describe("permissions.mdx -- Bitwise Permission Flags table", () => {
   it("CREATE_INSTANT_INVITE = 0x0000000000000001 (1 << 0)", () => {
@@ -313,7 +309,6 @@ describe("permissions.mdx -- Bitwise Permission Flags table", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Section 2: Guild-level permission computation (compute_base_permissions)
 //
 // Algorithm from the doc:
@@ -322,7 +317,6 @@ describe("permissions.mdx -- Bitwise Permission Flags table", () => {
 //   3. OR in each of the member's role permissions.
 //   4. If ADMINISTRATOR is set, return ALL.
 //   5. Return the accumulated base.
-// ---------------------------------------------------------------------------
 
 describe("permissions.mdx -- guild-level permission computation", () => {
   it("guild owner receives ALL_PERMISSIONS", () => {
@@ -401,7 +395,6 @@ describe("permissions.mdx -- guild-level permission computation", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Section 3: Channel overwrite computation (compute_overwrites)
 //
 // Algorithm from the doc:
@@ -410,7 +403,6 @@ describe("permissions.mdx -- guild-level permission computation", () => {
 //   3. Accumulate all role overwrites: allow |= role.allow, deny |= role.deny.
 //      Then: base &= ~deny, base |= allow.
 //   4. Apply member-specific overwrite last: base &= ~deny, base |= allow.
-// ---------------------------------------------------------------------------
 
 describe("permissions.mdx -- channel overwrite computation", () => {
   it("DM channels (no guild_snowflake) return ALL_PERMISSIONS", () => {
@@ -702,13 +694,11 @@ describe("permissions.mdx -- channel overwrite computation", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Section 4: Permissions For Timed Out Members (permissions.mdx:308-310)
 //
 // A member with communication_disabled_until in the future temporarily loses all
 // permissions except VIEW_CHANNEL and READ_MESSAGE_HISTORY. Guild owners and
 // ADMINISTRATOR holders are exempt.
-// ---------------------------------------------------------------------------
 
 describe("permissions.mdx -- Permissions For Timed Out Members", () => {
   /**
@@ -813,9 +803,7 @@ describe("permissions.mdx -- Permissions For Timed Out Members", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Section 5: hasPermission helper
-// ---------------------------------------------------------------------------
 
 describe("permissions.mdx -- hasPermission helper", () => {
   it("returns true when the exact flag is present", () => {
@@ -840,9 +828,7 @@ describe("permissions.mdx -- hasPermission helper", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Section 5: @everyone role id == guild id
-// ---------------------------------------------------------------------------
 
 describe("permissions.mdx -- @everyone role id equals guild id", () => {
   it("the @everyone role's snowflake matches the guild's snowflake", () => {

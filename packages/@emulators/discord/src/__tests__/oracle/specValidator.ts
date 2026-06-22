@@ -183,7 +183,6 @@ export function generateRequestBody(specPath: string, method: string, idFor?: Id
   return genFromSchema(schema, 0, undefined, idFor);
 }
 
-// ---------------------------------------------------------------------------
 // Over-emission audit
 //
 // The OpenAPI oracle catches MISSING/wrong fields, but not OVER-emission: Discord's response
@@ -191,7 +190,6 @@ export function generateRequestBody(specPath: string, method: string, idFor?: Id
 // DO enumerate every real field, so an emitted key absent from a schema's declared `properties`
 // is almost always a fidelity bug (a field real Discord never returns). This audit flags those,
 // while respecting explicit `additionalProperties` (genuine map types like `metadata`/`nicks`).
-// ---------------------------------------------------------------------------
 
 interface ObjectShape {
   props: Record<string, JsonSchema>;

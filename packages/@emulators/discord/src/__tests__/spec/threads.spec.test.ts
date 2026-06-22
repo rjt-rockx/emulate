@@ -27,9 +27,7 @@ function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
   };
 }
 
-// ---------------------------------------------------------------------------
 // Start Thread from Message
-// ---------------------------------------------------------------------------
 
 describe("threads.mdx — Start Thread from Message", () => {
   it("on a GUILD_TEXT (0) parent creates a PUBLIC_THREAD (11) sharing the source message id, status 201", async () => {
@@ -148,9 +146,7 @@ describe("threads.mdx — Start Thread from Message", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Start Thread without Message
-// ---------------------------------------------------------------------------
 
 describe("threads.mdx — Start Thread without Message", () => {
   it("defaults the thread type to PRIVATE_THREAD (12) when type is omitted", async () => {
@@ -237,9 +233,7 @@ describe("threads.mdx — Start Thread without Message", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Start Thread in Forum or Media Channel
-// ---------------------------------------------------------------------------
 
 describe("threads.mdx — Start Thread in Forum or Media Channel", () => {
   it("on a GUILD_FORUM (15) parent creates a PUBLIC_THREAD (11) with a nested message object", async () => {
@@ -304,9 +298,7 @@ describe("threads.mdx — Start Thread in Forum or Media Channel", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Thread Members — join/leave/add/remove/get/list
-// ---------------------------------------------------------------------------
 
 describe("threads.mdx — Thread Members", () => {
   async function newThread(app: ReturnType<typeof createDiscordTestApp>["app"], parent: string) {
@@ -410,9 +402,7 @@ describe("threads.mdx — Thread Members", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Archived thread enumeration
-// ---------------------------------------------------------------------------
 
 describe("threads.mdx — Archived thread enumeration", () => {
   async function newThread(app: ReturnType<typeof createDiscordTestApp>["app"], parent: string, type: number) {
@@ -472,9 +462,7 @@ describe("threads.mdx — Archived thread enumeration", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // List Active Guild Threads
-// ---------------------------------------------------------------------------
 
 describe("threads.mdx — List Active Guild Threads", () => {
   it("returns active threads in the guild and excludes archived ones", async () => {
@@ -504,9 +492,7 @@ describe("threads.mdx — List Active Guild Threads", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Thread archive_timestamp refresh (TH1)
-// ---------------------------------------------------------------------------
 
 describe("threads.mdx — archive_timestamp refreshes on archive/unarchive", () => {
   it("archive_timestamp is updated when a thread is archived", async () => {
@@ -599,9 +585,7 @@ describe("threads.mdx — archive_timestamp refreshes on archive/unarchive", () 
   });
 });
 
-// ---------------------------------------------------------------------------
 // Thread modify: applied_tags <= 5
-// ---------------------------------------------------------------------------
 
 describe("threads.mdx — Thread modify applied_tags limit", () => {
   it("rejects applied_tags with more than 5 entries on thread modify", async () => {
@@ -642,9 +626,7 @@ describe("threads.mdx — Thread modify applied_tags limit", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // T-3: auto_archive_duration validation on thread create and modify
-// ---------------------------------------------------------------------------
 
 describe("threads.mdx — T-3 auto_archive_duration validation", () => {
   it("rejects an invalid auto_archive_duration on thread create (50035)", async () => {
@@ -692,9 +674,7 @@ describe("threads.mdx — T-3 auto_archive_duration validation", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // T-4: Start Thread without Message: type must be 10, 11, or 12
-// ---------------------------------------------------------------------------
 
 describe("threads.mdx — T-4 Start Thread without Message type validation", () => {
   it("rejects type=0 (GUILD_TEXT) with 400/50035", async () => {
@@ -735,9 +715,7 @@ describe("threads.mdx — T-4 Start Thread without Message type validation", () 
   });
 });
 
-// ---------------------------------------------------------------------------
 // T-5: Forum thread creation — REQUIRE_TAG enforcement and applied_tags cap
-// ---------------------------------------------------------------------------
 
 describe("threads.mdx — T-5 Forum thread applied_tags validation", () => {
   it("rejects forum thread creation with >5 applied_tags (50035)", async () => {
@@ -783,9 +761,7 @@ describe("threads.mdx — T-5 Forum thread applied_tags validation", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // T-6: Thread member operations require channel to be a thread (and unarchived for mutations)
-// ---------------------------------------------------------------------------
 
 describe("threads.mdx — T-6 Thread member operations require a thread channel", () => {
   it("Join Thread (@me) on a non-thread channel returns 400/50035", async () => {
@@ -844,9 +820,7 @@ describe("threads.mdx — T-6 Thread member operations require a thread channel"
   });
 });
 
-// ---------------------------------------------------------------------------
 // T-1: Permission enforcement on thread operations
-// ---------------------------------------------------------------------------
 
 describe("threads.mdx — T-1 Permission enforcement on thread routes (enforce_permissions=true)", () => {
   /** Seed a non-privileged bot token with no guild roles. */

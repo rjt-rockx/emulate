@@ -26,9 +26,7 @@ import {
   WebhookEventType,
 } from "../../eventWebhooks.js";
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 /** Captured HTTP request from the remote capturing server. */
 interface CapturedRequest {
@@ -104,9 +102,7 @@ async function startCapturingServer(): Promise<{
   return { server, url, next, close };
 }
 
-// ---------------------------------------------------------------------------
 // Enum value tests (no network needed)
-// ---------------------------------------------------------------------------
 
 describe("webhook-events.mdx — EventWebhookStatus enum values", () => {
   it("DISABLED is 1 (default)", () => {
@@ -182,9 +178,7 @@ describe("webhook-events.mdx — WebhookEventType enum values", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Payload structure tests (via control endpoint + capturing server)
-// ---------------------------------------------------------------------------
 
 describe("webhook-events.mdx — Payload structure (outer)", () => {
   let capture: Awaited<ReturnType<typeof startCapturingServer>>;
@@ -259,9 +253,7 @@ describe("webhook-events.mdx — Payload structure (outer)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Signature header tests
-// ---------------------------------------------------------------------------
 
 describe("webhook-events.mdx — Signature headers (X-Signature-Ed25519, X-Signature-Timestamp)", () => {
   let capture: Awaited<ReturnType<typeof startCapturingServer>>;
@@ -362,9 +354,7 @@ describe("webhook-events.mdx — Signature headers (X-Signature-Ed25519, X-Signa
   });
 });
 
-// ---------------------------------------------------------------------------
 // Delivery gating tests
-// ---------------------------------------------------------------------------
 
 describe("webhook-events.mdx — Delivery gating (status + subscribed types)", () => {
   it("does not deliver when event_webhooks_status is DISABLED (1)", async () => {
@@ -480,9 +470,7 @@ describe("webhook-events.mdx — Delivery gating (status + subscribed types)", (
   });
 });
 
-// ---------------------------------------------------------------------------
 // Control endpoint validation
-// ---------------------------------------------------------------------------
 
 describe("webhook-events.mdx — Control endpoint /__emulate/event-webhook", () => {
   it("returns 400 when type is missing from the request body", async () => {
@@ -535,9 +523,7 @@ describe("webhook-events.mdx — Control endpoint /__emulate/event-webhook", () 
   });
 });
 
-// ---------------------------------------------------------------------------
 // PING handshake (type 0)
-// ---------------------------------------------------------------------------
 
 describe("webhook-events.mdx — PING handshake (type 0)", () => {
   it("sendPing delivers a signed payload with type=0 and no event field", async () => {
@@ -586,9 +572,7 @@ describe("webhook-events.mdx — PING handshake (type 0)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // End-to-end with a real listening emulator server
-// ---------------------------------------------------------------------------
 
 describe("webhook-events.mdx — end-to-end delivery via real emulator server", () => {
   it("delivery round-trip: configure, trigger, capture, verify signature", async () => {

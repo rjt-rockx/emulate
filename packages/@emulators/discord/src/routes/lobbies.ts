@@ -15,18 +15,14 @@ import {
 } from "../helpers.js";
 import type { DiscordLobby, DiscordLobbyMember, DiscordLobbyMessage, DiscordUser } from "../entities.js";
 
-// ---------------------------------------------------------------------------
 // Lobby member flags
-// ---------------------------------------------------------------------------
 
 /** Lobby member flags (doc: CanLinkLobby = 1<<0). */
 const LobbyMemberFlags = {
   CanLinkLobby: 1 << 0,
 } as const;
 
-// ---------------------------------------------------------------------------
 // Serializers
-// ---------------------------------------------------------------------------
 
 function toAPILobbyMember(m: DiscordLobbyMember): Record<string, unknown> {
   return {
@@ -51,9 +47,7 @@ function toAPILobby(lobby: DiscordLobby, ds: DiscordStore): Record<string, unkno
   };
 }
 
-// ---------------------------------------------------------------------------
 // Lobby validation helpers
-// ---------------------------------------------------------------------------
 
 /** L2: Validate that combined key+value length <= 1000 for metadata. Returns error message or null. */
 function validateMetadataSize(metadata: Record<string, string> | null | undefined): string | null {
@@ -100,9 +94,7 @@ function toAPILobbyMessage(
   };
 }
 
-// ---------------------------------------------------------------------------
 // Membership helpers
-// ---------------------------------------------------------------------------
 
 /** The user the caller is acting as (the bearer user, or the bot user for a Bot token). */
 function callerUser(ds: DiscordStore, auth: DiscordAuth): DiscordUser | null {
@@ -117,9 +109,7 @@ function lobbyMemberFor(
   return ds.lobbyMembers.findBy("lobby_snowflake", lobbySnowflake).find((m) => m.user_snowflake === userSnowflake);
 }
 
-// ---------------------------------------------------------------------------
 // Route module
-// ---------------------------------------------------------------------------
 
 export function lobbiesRoutes(ctx: DiscordRouteContext): void {
   const { app, store } = ctx;

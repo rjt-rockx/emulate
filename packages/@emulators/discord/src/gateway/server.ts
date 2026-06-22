@@ -66,9 +66,7 @@ export class GatewayServer {
     this.unsubscribe = bus.subscribe((event) => this.fanOut(event));
   }
 
-  // -------------------------------------------------------------------------
   // Connection lifecycle
-  // -------------------------------------------------------------------------
 
   /** Heartbeat interval advertised to clients (overridable via store data for testing). */
   private heartbeatInterval(): number {
@@ -527,9 +525,7 @@ export class GatewayServer {
     this.dispatch(session, "VOICE_SERVER_UPDATE", { token: `voice_${snowflake()}`, guild_id: guildId, endpoint });
   }
 
-  // -------------------------------------------------------------------------
   // Dispatch / fan-out
-  // -------------------------------------------------------------------------
 
   private fanOut(event: GatewayEvent): void {
     for (const session of this.sessions) {
@@ -668,9 +664,7 @@ export class GatewayServer {
     }
   }
 
-  // -------------------------------------------------------------------------
   // Teardown
-  // -------------------------------------------------------------------------
 
   async close(): Promise<void> {
     this.unsubscribe();

@@ -28,9 +28,7 @@ function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
   };
 }
 
-// ---------------------------------------------------------------------------
 // Channel Object — types & per-type field presence
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — Channel object: types & field presence", () => {
   it("GUILD_TEXT (0) carries guild_id/position/permission_overwrites/topic/nsfw/rate_limit_per_user/last_message_id", async () => {
@@ -174,9 +172,7 @@ describe("channel.mdx — Channel object: types & field presence", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Thread Metadata object shape
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — Thread Metadata object", () => {
   it("carries archived/auto_archive_duration/archive_timestamp/locked", async () => {
@@ -212,9 +208,7 @@ describe("channel.mdx — Thread Metadata object", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Get Channel
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — Get Channel", () => {
   it("returns the channel object", async () => {
@@ -250,9 +244,7 @@ describe("channel.mdx — Get Channel", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Modify Channel — persists all documented guild-channel params
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — Modify Channel (Guild channel)", () => {
   it("returns the channel and persists name/topic/nsfw/rate_limit_per_user", async () => {
@@ -371,9 +363,7 @@ describe("channel.mdx — Modify Channel (Thread)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Create Channel — persists all documented params (known gap fix)
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — Create Channel persists extended params", () => {
   it("persists rate_limit_per_user and permission_overwrites at creation time", async () => {
@@ -433,9 +423,7 @@ describe("channel.mdx — Create Channel persists extended params", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Delete/Close Channel
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — Delete/Close Channel", () => {
   it("returns the deleted channel object and removes it from the store", async () => {
@@ -462,9 +450,7 @@ describe("channel.mdx — Delete/Close Channel", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Edit / Delete Channel Permissions — 204 + audit
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — Edit/Delete Channel Permissions", () => {
   it("Edit Channel Permissions returns 204 and persists the overwrite", async () => {
@@ -516,9 +502,7 @@ describe("channel.mdx — Edit/Delete Channel Permissions", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Channel Invites
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — Get/Create Channel Invite", () => {
   it("Create Channel Invite returns an invite object with code/max_age/max_uses/temporary defaults", async () => {
@@ -567,9 +551,7 @@ describe("channel.mdx — Get/Create Channel Invite", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Follow Announcement Channel
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — Follow Announcement Channel", () => {
   it("returns a followed channel object {channel_id, webhook_id} and creates a channel-follower webhook in the target", async () => {
@@ -609,9 +591,7 @@ describe("channel.mdx — Follow Announcement Channel", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Trigger Typing Indicator
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — Trigger Typing Indicator", () => {
   it("returns a 204 empty response", async () => {
@@ -623,9 +603,7 @@ describe("channel.mdx — Trigger Typing Indicator", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Group DM recipients
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — Group DM Add/Remove Recipient", () => {
   it("Group DM Add Recipient adds the user and returns 204", async () => {
@@ -657,9 +635,7 @@ describe("channel.mdx — Group DM Add/Remove Recipient", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Pins
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — Pins", () => {
   it("pin then list then unpin a message", async () => {
@@ -689,9 +665,7 @@ describe("channel.mdx — Pins", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Modify Channel validation (50035)
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — Modify Channel validation (50035)", () => {
   it("rejects name shorter than 1 character", async () => {
@@ -858,9 +832,7 @@ describe("channel.mdx — Modify Channel validation (50035)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Create Channel validation (50035)
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — Create Channel validation (50035)", () => {
   it("rejects name longer than 100 characters", async () => {
@@ -912,9 +884,7 @@ describe("channel.mdx — Create Channel validation (50035)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Modify Channel type conversion
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — Modify Channel type conversion", () => {
   it("allows converting a GUILD_TEXT (0) to GUILD_ANNOUNCEMENT (5)", async () => {
@@ -961,9 +931,7 @@ describe("channel.mdx — Modify Channel type conversion", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Get Channel Pins / Pin / Unpin — response shape assertions (group-B 4.4)
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — Pins response shape", () => {
   it("Get Channel Pins returns {items, has_more} shape", async () => {
@@ -1034,9 +1002,7 @@ describe("channel.mdx — Pins response shape", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Set Voice Channel Status — 500-char limit and nullable
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — Set Voice Channel Status", () => {
   it("rejects status longer than 500 characters", async () => {
@@ -1074,9 +1040,7 @@ describe("channel.mdx — Set Voice Channel Status", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // P-1: Permission enforcement (MANAGE_CHANNELS / MANAGE_ROLES / MANAGE_THREADS)
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — P-1 Permission enforcement (enforce_permissions=true)", () => {
   /**
@@ -1166,9 +1130,7 @@ describe("channel.mdx — P-1 Permission enforcement (enforce_permissions=true)"
   });
 });
 
-// ---------------------------------------------------------------------------
 // C-3: Edit Channel Permissions: type is required
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — C-3 Edit Channel Permissions: type field is required", () => {
   it("PUT /channels/:id/permissions/:overwriteId without type returns 400/50035", async () => {
@@ -1195,9 +1157,7 @@ describe("channel.mdx — C-3 Edit Channel Permissions: type field is required",
   });
 });
 
-// ---------------------------------------------------------------------------
 // C-8: Set Voice Channel Status permission
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — C-8 Set Voice Channel Status permission enforcement", () => {
   it("returns 403/50013 when caller lacks SET_VOICE_CHANNEL_STATUS with enforce_permissions=true", async () => {
@@ -1226,9 +1186,7 @@ describe("channel.mdx — C-8 Set Voice Channel Status permission enforcement", 
   });
 });
 
-// ---------------------------------------------------------------------------
 // C-1: message_count / total_message_sent on forum thread creation
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — C-1 message_count / total_message_sent on forum thread", () => {
   it("forum thread has message_count=0 and total_message_sent=1 after creation", async () => {
@@ -1248,9 +1206,7 @@ describe("channel.mdx — C-1 message_count / total_message_sent on forum thread
   });
 });
 
-// ---------------------------------------------------------------------------
 // C-2: List Public Archived Threads picks correct type for announcement parent
-// ---------------------------------------------------------------------------
 
 describe("channel.mdx — C-2 List Public Archived Threads uses ANNOUNCEMENT_THREAD (10) for announcement parent", () => {
   it("returns archived ANNOUNCEMENT_THREAD (10) threads for a GUILD_ANNOUNCEMENT (5) parent", async () => {

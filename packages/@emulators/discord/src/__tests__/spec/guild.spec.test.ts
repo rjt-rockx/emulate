@@ -24,9 +24,7 @@ function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
   };
 }
 
-// ---------------------------------------------------------------------------
 // Guild object shape
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Guild object shape", () => {
   it("Get Guild returns all documented top-level fields", async () => {
@@ -146,9 +144,7 @@ describe("guild.mdx — Guild object shape", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Guild Member object shape
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Guild Member object shape", () => {
   it("Get Guild Member returns all documented fields", async () => {
@@ -222,9 +218,7 @@ describe("guild.mdx — Guild Member object shape", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Create Guild
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Create Guild", () => {
   it("POST /guilds creates a guild and returns 201 with the guild object", async () => {
@@ -241,9 +235,7 @@ describe("guild.mdx — Create Guild", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Modify Guild
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Modify Guild", () => {
   it("PATCH /guilds/:id updates name and returns the updated guild", async () => {
@@ -486,9 +478,7 @@ describe("guild.mdx — Modify Guild", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Delete Guild
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Delete Guild", () => {
   it("DELETE /guilds/:id returns 204 and removes the guild", async () => {
@@ -523,9 +513,7 @@ describe("guild.mdx — Delete Guild", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Guild Preview
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Get Guild Preview", () => {
   it("GET /guilds/:id/preview returns the documented preview shape", async () => {
@@ -548,9 +536,7 @@ describe("guild.mdx — Get Guild Preview", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Modify Guild Channel Positions (PATCH /guilds/:id/channels)
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Modify Guild Channel Positions", () => {
   it("PATCH /guilds/:id/channels returns 204", async () => {
@@ -569,9 +555,7 @@ describe("guild.mdx — Modify Guild Channel Positions", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // List Active Guild Threads
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — List Active Guild Threads", () => {
   it("GET /guilds/:id/threads/active returns threads and members arrays", async () => {
@@ -585,9 +569,7 @@ describe("guild.mdx — List Active Guild Threads", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // List Guild Members (pagination)
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — List Guild Members", () => {
   it("GET /guilds/:id/members returns an array of member objects", async () => {
@@ -631,9 +613,7 @@ describe("guild.mdx — List Guild Members", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Search Guild Members
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Search Guild Members", () => {
   it("GET /guilds/:id/members/search returns members matching a prefix", async () => {
@@ -657,9 +637,7 @@ describe("guild.mdx — Search Guild Members", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Bans
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Ban endpoints", () => {
   it("Create/Get/List/Remove ban lifecycle", async () => {
@@ -748,9 +726,7 @@ describe("guild.mdx — Ban endpoints", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Prune
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Prune endpoints", () => {
   it("Get Guild Prune Count returns { pruned: number }", async () => {
@@ -890,9 +866,7 @@ describe("guild.mdx — Prune endpoints", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Voice Regions
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Get Guild Voice Regions", () => {
   it("GET /guilds/:id/regions returns an array of voice region objects", async () => {
@@ -912,9 +886,7 @@ describe("guild.mdx — Get Guild Voice Regions", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Integrations
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Integration endpoints", () => {
   it("GET /guilds/:id/integrations returns up to 50 integrations", async () => {
@@ -991,9 +963,7 @@ describe("guild.mdx — Integration endpoints", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Widget Settings
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Widget Settings", () => {
   it("GET /guilds/:id/widget returns enabled and channel_id", async () => {
@@ -1020,9 +990,7 @@ describe("guild.mdx — Widget Settings", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Widget JSON (public)
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Get Guild Widget (widget.json)", () => {
   it("GET /guilds/:id/widget.json returns the documented widget fields", async () => {
@@ -1040,9 +1008,7 @@ describe("guild.mdx — Get Guild Widget (widget.json)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Vanity URL
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Vanity URL", () => {
   it("GET /guilds/:id/vanity-url returns code and uses", async () => {
@@ -1070,9 +1036,7 @@ describe("guild.mdx — Vanity URL", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Welcome Screen
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Welcome Screen", () => {
   it("GET /guilds/:id/welcome-screen returns the welcome screen object", async () => {
@@ -1099,9 +1063,7 @@ describe("guild.mdx — Welcome Screen", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Onboarding
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Onboarding", () => {
   it("GET /guilds/:id/onboarding returns the documented onboarding shape", async () => {
@@ -1132,9 +1094,7 @@ describe("guild.mdx — Onboarding", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Bulk Guild Ban — happy path (G4)
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Bulk Guild Ban", () => {
   it("POST /guilds/:id/bulk-ban with valid users returns 200 with banned_users/failed_users", async () => {
@@ -1184,9 +1144,7 @@ describe("guild.mdx — Bulk Guild Ban", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Add / Remove Guild Member (G5, G6)
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Add and Remove Guild Member", () => {
   it("PUT /guilds/:id/members/:userId returns 201 for a new member", async () => {
@@ -1263,9 +1221,7 @@ describe("guild.mdx — Add and Remove Guild Member", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Modify Current Member (G7)
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Modify Current Member", () => {
   it("PATCH /guilds/:id/members/@me updates nick and returns 200 with member object", async () => {
@@ -1297,9 +1253,7 @@ describe("guild.mdx — Modify Current Member", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Widget Image styles (G14 — implementation returns a PNG ignoring style; assert endpoint responds)
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Get Guild Widget Image", () => {
   it("GET /guilds/:id/widget.png returns a response for style=shield", async () => {
@@ -1317,9 +1271,7 @@ describe("guild.mdx — Get Guild Widget Image", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Ban pagination precedence (G15) — when both before and after are supplied
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Ban list before/after pagination precedence", () => {
   it("when both before and after are supplied only before is respected", async () => {
@@ -1365,9 +1317,7 @@ describe("guild.mdx — Ban list before/after pagination precedence", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Get Guild Role Member Counts excludes @everyone (G2)
-// ---------------------------------------------------------------------------
 
 describe("guild.mdx — Get Guild Role Member Counts", () => {
   it("GET /guilds/:id/roles/member-counts returns an object keyed by role id", async () => {

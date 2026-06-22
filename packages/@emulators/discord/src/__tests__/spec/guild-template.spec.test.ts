@@ -444,9 +444,7 @@ describe("guild-template.mdx — Create Guild from Template", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // T1: is_dirty reflects unsynced guild changes
-// ---------------------------------------------------------------------------
 describe("guild-template.mdx — T1: is_dirty reflects unsynced source guild changes", () => {
   it("is_dirty is null for a freshly created template", async () => {
     const { app, store } = createDiscordTestApp();
@@ -489,9 +487,7 @@ describe("guild-template.mdx — T1: is_dirty reflects unsynced source guild cha
   });
 });
 
-// ---------------------------------------------------------------------------
 // T2: updated_at is not bumped by Modify, only by Sync
-// ---------------------------------------------------------------------------
 describe("guild-template.mdx — T2: updated_at is only bumped by Sync, not Modify", () => {
   it("Modify (PATCH) does not change updated_at", async () => {
     const { app, store } = createDiscordTestApp();
@@ -526,9 +522,7 @@ describe("guild-template.mdx — T2: updated_at is only bumped by Sync, not Modi
   });
 });
 
-// ---------------------------------------------------------------------------
 // T6: MANAGE_GUILD permission gating
-// ---------------------------------------------------------------------------
 describe("guild-template.mdx — T6: MANAGE_GUILD required on template endpoints", () => {
   it("List Guild Templates returns 50013 when caller lacks MANAGE_GUILD (enforcement on)", async () => {
     const { app, store } = createDiscordTestApp();

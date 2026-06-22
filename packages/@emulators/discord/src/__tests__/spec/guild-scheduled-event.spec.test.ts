@@ -601,9 +601,7 @@ describe("guild-scheduled-event.mdx — auth", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // G1: Required field validation
-// ---------------------------------------------------------------------------
 describe("guild-scheduled-event.mdx — G1: Required field validation on Create", () => {
   it("rejects missing name with 50035", async () => {
     const { app, store } = createDiscordTestApp();
@@ -654,9 +652,7 @@ describe("guild-scheduled-event.mdx — G1: Required field validation on Create"
   });
 });
 
-// ---------------------------------------------------------------------------
 // G2: Strip non-settable recurrence_rule fields
-// ---------------------------------------------------------------------------
 describe("guild-scheduled-event.mdx — G2: recurrence_rule non-settable fields are stripped", () => {
   it("strips count, end, and by_year_day from recurrence_rule on create", async () => {
     const { app, store } = createDiscordTestApp();
@@ -700,9 +696,7 @@ describe("guild-scheduled-event.mdx — G2: recurrence_rule non-settable fields 
   });
 });
 
-// ---------------------------------------------------------------------------
 // G3: 100-event cap
-// ---------------------------------------------------------------------------
 describe("guild-scheduled-event.mdx — G3: 100 SCHEDULED+ACTIVE event cap", () => {
   it("rejects the 101st SCHEDULED/ACTIVE event with 30038", async () => {
     const { app, store } = createDiscordTestApp();
@@ -734,9 +728,7 @@ describe("guild-scheduled-event.mdx — G3: 100 SCHEDULED+ACTIVE event cap", () 
   });
 });
 
-// ---------------------------------------------------------------------------
 // G4: channel_id existence and type validation
-// ---------------------------------------------------------------------------
 describe("guild-scheduled-event.mdx — G4: channel_id validation for STAGE/VOICE events", () => {
   it("rejects VOICE event with non-existent channel_id (10003)", async () => {
     const { app, store } = createDiscordTestApp();
@@ -779,9 +771,7 @@ describe("guild-scheduled-event.mdx — G4: channel_id validation for STAGE/VOIC
   });
 });
 
-// ---------------------------------------------------------------------------
 // G6: PATCH validation
-// ---------------------------------------------------------------------------
 describe("guild-scheduled-event.mdx — G6: PATCH field validation", () => {
   it("rejects a name longer than 100 chars on PATCH (50035)", async () => {
     const { app, store } = createDiscordTestApp();

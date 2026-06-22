@@ -39,9 +39,7 @@ const DEFAULT_SOUNDS: Array<Record<string, unknown>> = [
   { name: "sad trombone", sound_id: "12", volume: 1, emoji_id: null, emoji_name: "\u{1F3BA}", available: true },
 ];
 
-// ---------------------------------------------------------------------------
 // Validation (name 2-32, sound data uri required, volume 0-1)
-// ---------------------------------------------------------------------------
 
 function validateName(name: unknown): string | null {
   if (typeof name !== "string") return "This field is required";

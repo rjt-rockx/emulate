@@ -15,9 +15,7 @@ import { createGuild, createChannel, createRole } from "../factories.js";
 import type { APITemplate } from "discord-api-types/v10";
 import type { DiscordGuildTemplate } from "../entities.js";
 
-// ---------------------------------------------------------------------------
 // Serialized source-guild snapshot
-// ---------------------------------------------------------------------------
 
 /**
  * Build the `serialized_source_guild` snapshot for a template's source guild. This is a
@@ -132,9 +130,7 @@ function toAPITemplate(t: DiscordGuildTemplate, ds: DiscordStore): APITemplate {
   } as unknown as APITemplate;
 }
 
-// ---------------------------------------------------------------------------
 // Validation (name 1-100, description 0-120)
-// ---------------------------------------------------------------------------
 
 function validateName(name: unknown): string | null {
   if (typeof name !== "string") return null;

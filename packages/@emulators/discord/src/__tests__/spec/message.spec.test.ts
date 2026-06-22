@@ -37,9 +37,7 @@ async function post(app: ReturnType<typeof createDiscordTestApp>["app"], channel
   return await json<Json>(res);
 }
 
-// ---------------------------------------------------------------------------
 // Message Object structure
-// ---------------------------------------------------------------------------
 
 describe("message.mdx — Message object structure", () => {
   it("a created message carries every required (non-optional) Message field", async () => {
@@ -89,9 +87,7 @@ describe("message.mdx — Message object structure", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Message Types & Message Flags
-// ---------------------------------------------------------------------------
 
 describe("message.mdx — Message Types & Flags values", () => {
   it("a reply is type 19 (REPLY)", async () => {
@@ -145,9 +141,7 @@ describe("message.mdx — Message Types & Flags values", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Message Reference Types & Forwarding (snapshots / HAS_SNAPSHOT)
-// ---------------------------------------------------------------------------
 
 describe("message.mdx — Message Reference Types", () => {
   it("a reply (DEFAULT type 0) echoes message_reference with type 0, channel_id, guild_id", async () => {
@@ -200,9 +194,7 @@ describe("message.mdx — Message Reference Types", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // sticker_ids -> sticker_items
-// ---------------------------------------------------------------------------
 
 describe("message.mdx — sticker_ids surfaced as sticker_items", () => {
   it("Create Message with sticker_ids stores them and surfaces sticker_items", async () => {
@@ -228,9 +220,7 @@ describe("message.mdx — sticker_ids surfaced as sticker_items", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Allowed Mentions
-// ---------------------------------------------------------------------------
 
 describe("message.mdx — Allowed Mentions", () => {
   it("with no allowed_mentions, all mentions in content are parsed (regular-message default)", async () => {
@@ -341,9 +331,7 @@ describe("message.mdx — Allowed Mentions", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // IS_COMPONENTS_V2
-// ---------------------------------------------------------------------------
 
 describe("message.mdx — IS_COMPONENTS_V2 (1<<15)", () => {
   it("rejects content alongside the IS_COMPONENTS_V2 flag with 50035", async () => {
@@ -384,9 +372,7 @@ describe("message.mdx — IS_COMPONENTS_V2 (1<<15)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // enforce_nonce
-// ---------------------------------------------------------------------------
 
 describe("message.mdx — enforce_nonce", () => {
   it("returns the existing message when enforce_nonce + a duplicate (author,nonce) exists", async () => {
@@ -417,9 +403,7 @@ describe("message.mdx — enforce_nonce", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Get Channel Messages / Get Channel Message
-// ---------------------------------------------------------------------------
 
 describe("message.mdx — Get Channel Message(s)", () => {
   it("Get Channel Messages returns newest-to-oldest", async () => {
@@ -498,9 +482,7 @@ describe("message.mdx — Get Channel Message(s)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Create Message validation
-// ---------------------------------------------------------------------------
 
 describe("message.mdx — Create Message validation", () => {
   it("rejects an empty message (no content/embeds/etc) with 50006", async () => {
@@ -602,9 +584,7 @@ describe("message.mdx — Create Message validation", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Edit Message
-// ---------------------------------------------------------------------------
 
 describe("message.mdx — Edit Message", () => {
   it("editing content sets edited_timestamp and rebuilds mentions/mention_everyone", async () => {
@@ -691,9 +671,7 @@ describe("message.mdx — Edit Message", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Delete / Bulk Delete
-// ---------------------------------------------------------------------------
 
 describe("message.mdx — Delete & Bulk Delete", () => {
   it("Delete Message returns a 204 empty response and removes the message", async () => {
@@ -819,9 +797,7 @@ describe("message.mdx — Delete & Bulk Delete", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Message Reference (fail_if_not_exists)
-// ---------------------------------------------------------------------------
 
 describe("message.mdx — message_reference fail_if_not_exists (M8)", () => {
   it("fails with 10008 when replying to a non-existent message (default fail_if_not_exists=true)", async () => {
@@ -857,9 +833,7 @@ describe("message.mdx — message_reference fail_if_not_exists (M8)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Reaction endpoints
-// ---------------------------------------------------------------------------
 
 const THUMBS = encodeURIComponent("\u{1F44D}"); // 👍
 

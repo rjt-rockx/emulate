@@ -13,9 +13,7 @@ import { describe, it, expect } from "vitest";
 import { createDiscordTestApp, api, botHeaders, json } from "../helpers.js";
 import { setRateLimitConfig, bucketFor } from "../../rateLimiter.js";
 
-// ---------------------------------------------------------------------------
 // Header format — normal (non-rate-limited) requests
-// ---------------------------------------------------------------------------
 
 describe("rate-limits.mdx — Header Format (normal requests)", () => {
   it("X-RateLimit-Limit is present and is a positive integer string", async () => {
@@ -141,9 +139,7 @@ describe("rate-limits.mdx — Header Format (normal requests)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Exceeding a per-route rate limit — 429 body and header contract
-// ---------------------------------------------------------------------------
 
 describe("rate-limits.mdx — Exceeding A Rate Limit (per-route / user scope)", () => {
   it("remaining reaches 0 on the last allowed request before the 429", async () => {
@@ -244,9 +240,7 @@ describe("rate-limits.mdx — Exceeding A Rate Limit (per-route / user scope)", 
   });
 });
 
-// ---------------------------------------------------------------------------
 // Global rate limit — X-RateLimit-Global: true, scope: global
-// ---------------------------------------------------------------------------
 
 describe("rate-limits.mdx — Global Rate Limit", () => {
   it("hitting the global budget returns 429 with X-RateLimit-Global: true", async () => {
@@ -302,9 +296,7 @@ describe("rate-limits.mdx — Global Rate Limit", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Bucket identity and reset behaviour
-// ---------------------------------------------------------------------------
 
 describe("rate-limits.mdx — Bucket identity and reset", () => {
   it("bucketFor() produces the same bucket hash for the same method + route", () => {
@@ -363,9 +355,7 @@ describe("rate-limits.mdx — Bucket identity and reset", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Rate-limit middleware bypasses non-API paths
-// ---------------------------------------------------------------------------
 
 describe("rate-limits.mdx — Middleware scope", () => {
   it("rate-limit headers are NOT attached to non-/api/ paths", async () => {
