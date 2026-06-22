@@ -26,8 +26,21 @@ export const Intents = {
 /** Intents that require dev-portal approval on real Discord. */
 export const PRIVILEGED_INTENTS = Intents.GuildMembers | Intents.GuildPresences | Intents.MessageContent;
 
+/** Every intent bit the v10 Gateway recognizes, ORed together. */
+export const ALL_INTENTS = Object.values(Intents).reduce((acc, bit) => acc | bit, 0);
+
 export function hasIntent(bitfield: number, intent: number): boolean {
   return (bitfield & intent) !== 0;
+}
+
+/**
+ * Privileged intents present in `requested` that are not permitted by `disallowed`.
+ * `disallowed` is a bitfield of privileged intents the app is NOT approved for (real
+ * Discord decides this from the developer portal; the emulator reads it from store data).
+ * Returns the offending bits, or 0 when every requested privileged intent is allowed.
+ */
+export function disallowedPrivilegedIntents(requested: number, disallowed: number): number {
+  return requested & disallowed & PRIVILEGED_INTENTS;
 }
 
 /** True when a session subscribed with `bitfield` should receive an event needing `required`. */

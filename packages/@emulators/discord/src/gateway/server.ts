@@ -5,7 +5,7 @@ import { type Store } from "@emulators/core";
 import { getDiscordStore } from "../store.js";
 import { snowflake, toAPIUser, toAPIGuild, toAPIMember, toAPIVoiceState, gatewayUrlFromBaseUrl } from "../helpers.js";
 import { GatewayOpcodes, GatewayCloseCodes, HEARTBEAT_INTERVAL, type GatewayPayload } from "./opcodes.js";
-import { Intents, hasIntent, intentsAllow } from "./intents.js";
+import { Intents, hasIntent, intentsAllow, disallowedPrivilegedIntents } from "./intents.js";
 import { type DiscordEventBus, type GatewayEvent } from "./dispatcher.js";
 import { ZlibCompressor } from "./compression.js";
 import { VoiceGatewayServer } from "./voice.js";
@@ -72,6 +72,39 @@ export class GatewayServer {
       limit: typeof limit === "number" && limit > 0 ? limit : 120,
       windowMs: typeof windowMs === "number" && windowMs > 0 ? windowMs : 60_000,
     };
+  }
+
+  /**
+   * Privileged-intent mask the app is NOT approved for (store-configurable, default 0 =
+   * allow all). Requesting any of these privileged intents closes the connection with 4014.
+   */
+  private disallowedIntents(): number {
+    const v = this.store.getData<number>("discord.gateway.disallowed_intents");
+    return typeof v === "number" && Number.isInteger(v) && v > 0 ? v : 0;
+  }
+
+  /**
+   * Validate the optional Identify `shard` field. Returns the normalized [shard_id, num_shards]
+   * pair when present and valid, `null` when absent, and `"invalid"` when malformed or out of
+   * range (a non-array, wrong length, non-integer, num_shards < 1, or shard_id outside
+   * `0 <= shard_id < num_shards`).
+   */
+  private validateShard(raw: unknown): [number, number] | null | "invalid" {
+    if (raw === undefined || raw === null) return null;
+    if (!Array.isArray(raw) || raw.length !== 2) return "invalid";
+    const [shardId, numShards] = raw;
+    if (
+      typeof shardId !== "number" ||
+      typeof numShards !== "number" ||
+      !Number.isInteger(shardId) ||
+      !Number.isInteger(numShards) ||
+      numShards < 1 ||
+      shardId < 0 ||
+      shardId >= numShards
+    ) {
+      return "invalid";
+    }
+    return [shardId, numShards];
   }
 
   private onConnection(ws: WebSocket, req: IncomingMessage): void {
@@ -204,7 +237,13 @@ export class GatewayServer {
       this.closeSession(session, GatewayCloseCodes.AlreadyAuthenticated, "Already authenticated");
       return;
     }
-    const d = (data ?? {}) as { token?: unknown; intents?: unknown };
+    const d = (data ?? {}) as {
+      token?: unknown;
+      intents?: unknown;
+      shard?: unknown;
+      large_threshold?: unknown;
+      compress?: unknown;
+    };
     const rawToken = typeof d.token === "string" ? d.token : "";
     const token = rawToken.replace(/^Bot\s+/i, "").trim();
     const intents = typeof d.intents === "number" && Number.isInteger(d.intents) && d.intents >= 0 ? d.intents : null;
@@ -213,6 +252,35 @@ export class GatewayServer {
       this.closeSession(session, GatewayCloseCodes.InvalidIntents, "Invalid intents");
       return;
     }
+
+    // Sharding: `shard` is an optional [shard_id, num_shards] pair. Validate the bounds
+    // (0 <= shard_id < num_shards, both non-negative integers) and reject with 4010 otherwise.
+    const shard = this.validateShard(d.shard);
+    if (shard === "invalid") {
+      this.closeSession(session, GatewayCloseCodes.InvalidShard, "Invalid shard");
+      return;
+    }
+
+    // Privileged intents the app is not approved for close the connection with 4014. The
+    // emulator reads the disallowed-privileged mask from store data (default 0 = allow all).
+    const disallowedMask = this.disallowedIntents();
+    if (disallowedPrivilegedIntents(intents, disallowedMask) !== 0) {
+      this.closeSession(session, GatewayCloseCodes.DisallowedIntents, "Disallowed intents");
+      return;
+    }
+
+    // large_threshold (50-250, default 50) is read and clamped to the documented range. The
+    // emulator always sends the full member list, so the value is accepted for parity but not
+    // otherwise acted upon.
+    const _largeThreshold =
+      typeof d.large_threshold === "number" && Number.isInteger(d.large_threshold)
+        ? Math.min(250, Math.max(50, d.large_threshold))
+        : 50;
+    void _largeThreshold;
+
+    // Honor Identify-level payload compression (compress: true) when no transport
+    // compression was negotiated on the URL.
+    if (d.compress === true && !session.compressor) session.compressor = new ZlibCompressor();
 
     const ds = getDiscordStore(this.store);
     const tokenRecord = ds.tokens.findOneBy("token", token);
@@ -256,7 +324,10 @@ export class GatewayServer {
       guilds: [...guildIds].map((id) => ({ id, unavailable: true })),
       session_id: session.sessionId,
       resume_gateway_url: gatewayUrlFromBaseUrl(this.baseUrl),
+      // `shard` is echoed back only when the client supplied it when identifying.
+      ...(shard ? { shard } : {}),
       application: application ? { id: application.snowflake, flags: application.flags } : { id: "0", flags: 0 },
+      geo_ordered_rtc_regions: [],
     });
 
     // One GUILD_CREATE per guild the bot is in.
