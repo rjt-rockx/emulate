@@ -39,6 +39,15 @@ export interface DiscordApplication extends Entity {
   private_key: string;
   interactions_endpoint_url: string | null;
   flags: number;
+  role_connection_metadata?: unknown[];
+}
+
+export interface DiscordRoleConnection extends Entity {
+  application_snowflake: string;
+  user_snowflake: string;
+  platform_name: string | null;
+  platform_username: string | null;
+  metadata: Record<string, string>;
 }
 
 export interface DiscordOAuthApp extends Entity {
