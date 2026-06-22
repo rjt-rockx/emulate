@@ -57,7 +57,7 @@ export function buildInteraction(ds: DiscordStore, input: TriggerInput): BuiltIn
   const token = `disc_int_${randomBytes(24).toString("hex")}`;
 
   let data: Record<string, unknown> | undefined;
-  if (input.type === InteractionType.ApplicationCommand) {
+  if (input.type === InteractionType.ApplicationCommand || input.type === InteractionType.ApplicationCommandAutocomplete) {
     const command = input.commandName
       ? ds.commands.all().find((cmd) => cmd.name === input.commandName)
       : undefined;
@@ -68,7 +68,9 @@ export function buildInteraction(ds: DiscordStore, input: TriggerInput): BuiltIn
       options: input.commandOptions ?? [],
     };
   } else if (input.type === InteractionType.MessageComponent) {
-    data = { custom_id: input.customId ?? "", component_type: input.componentType ?? 2, values: input.values };
+    data = { custom_id: input.customId ?? "", component_type: input.componentType ?? 2 };
+    // Select menus carry resolved values; buttons do not.
+    if (input.values !== undefined) (data as Record<string, unknown>).values = input.values;
   } else if (input.type === InteractionType.ModalSubmit) {
     data = { custom_id: input.customId ?? "", components: input.modalComponents ?? [] };
   }
