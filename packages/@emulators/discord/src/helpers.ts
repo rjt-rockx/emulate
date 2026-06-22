@@ -81,6 +81,64 @@ export const unknownEmoji = (c: Context<AppEnv>): Response => discordError(c, 40
 export const unknownWebhook = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Webhook", 10015);
 
 // ---------------------------------------------------------------------------
+// Multipart-aware body parsing (file uploads)
+// ---------------------------------------------------------------------------
+
+export interface ParsedMessageBody {
+  body: Record<string, unknown>;
+  attachments: Array<Record<string, unknown>>;
+}
+
+/**
+ * Read a message-create body that may be plain JSON or `multipart/form-data`. For multipart,
+ * the JSON payload is taken from the `payload_json` part and each `files[n]`/`file` part is
+ * turned into a synthesized attachment object (the emulator does not persist the bytes, but
+ * surfaces a faithful attachment object so clients that send files get a real attachment back).
+ */
+export async function parseMessageBody(c: Context<AppEnv>, baseUrl: string, channelId: string): Promise<ParsedMessageBody> {
+  const contentType = c.req.header("content-type") ?? "";
+  if (!contentType.includes("multipart/form-data")) {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    return { body, attachments: [] };
+  }
+  const form = await c.req.raw.formData();
+  let body: Record<string, unknown> = {};
+  const payloadJson = form.get("payload_json");
+  if (typeof payloadJson === "string") {
+    try {
+      body = JSON.parse(payloadJson) as Record<string, unknown>;
+    } catch {
+      body = {};
+    }
+  }
+  // The client may pass attachment metadata (id -> filename/description) in payload_json.
+  const meta = new Map<string, Record<string, unknown>>();
+  for (const a of (body.attachments as Array<Record<string, unknown>> | undefined) ?? []) {
+    if (a && a.id != null) meta.set(String(a.id), a);
+  }
+  const attachments: Array<Record<string, unknown>> = [];
+  let idx = 0;
+  for (const [key, value] of form.entries()) {
+    if (key !== "file" && !key.startsWith("files[")) continue;
+    const file = value as { name?: string; size?: number; type?: string };
+    const id = key.startsWith("files[") ? key.slice(6, -1) : String(idx);
+    const m = meta.get(id) ?? {};
+    const filename = (m.filename as string | undefined) ?? file.name ?? `file_${idx}`;
+    attachments.push({
+      id,
+      filename,
+      size: file.size ?? 0,
+      url: `${baseUrl}/attachments/${channelId}/${snowflake()}/${encodeURIComponent(filename)}`,
+      proxy_url: `${baseUrl}/attachments/${channelId}/${snowflake()}/${encodeURIComponent(filename)}`,
+      content_type: file.type || "application/octet-stream",
+      ...(m.description !== undefined ? { description: m.description } : {}),
+    });
+    idx++;
+  }
+  return { body, attachments };
+}
+
+// ---------------------------------------------------------------------------
 // Auth (Bot <token> and Bearer <token>)
 // ---------------------------------------------------------------------------
 

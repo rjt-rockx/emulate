@@ -1,6 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, unknownChannel, unknownMessage, toAPIMessage, redactMessageContent, isEphemeral } from "../helpers.js";
+import { getAuth, unauthorized, unknownChannel, unknownMessage, discordError, toAPIMessage, redactMessageContent, isEphemeral, parseMessageBody } from "../helpers.js";
 import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import type { DiscordMessage } from "../entities.js";
@@ -42,7 +42,7 @@ function applyAllowedMentions(
 }
 
 export function messagesRoutes(ctx: DiscordRouteContext): void {
-  const { app, store, bus } = ctx;
+  const { app, store, bus, baseUrl } = ctx;
 
   const messageIntents = (guildSnowflake: string | null) =>
     guildSnowflake ? Intents.GuildMessages : Intents.DirectMessages;
@@ -82,12 +82,8 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
     const channelId = c.req.param("channelId");
     const channel = ds.channels.findOneBy("snowflake", channelId);
     if (!channel) return unknownChannel(c);
-    let body: Record<string, unknown> = {};
-    try {
-      body = await c.req.json();
-    } catch {
-      // no-op
-    }
+    // Accept JSON or multipart/form-data (file uploads -> synthesized attachment objects).
+    const { body, attachments: uploaded } = await parseMessageBody(c, baseUrl, channelId);
     const content = typeof body.content === "string" ? body.content : "";
     const mentions = applyAllowedMentions(parseMentions(content), body.allowed_mentions as AllowedMentions | undefined);
     // A message_reference with a message_id makes this a reply (type 19) that hydrates
@@ -100,6 +96,16 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
       const hours = (body.poll as { duration: number }).duration;
       poll = { ...poll, expiry: new Date(Date.now() + hours * 3600_000).toISOString() };
     }
+    // A message must carry at least one of: content, embeds, attachments, components, poll,
+    // sticker_ids -> otherwise 50006 Cannot send an empty message.
+    const isEmpty =
+      content.length === 0 &&
+      !(Array.isArray(body.embeds) && body.embeds.length > 0) &&
+      uploaded.length === 0 &&
+      !(Array.isArray(body.components) && body.components.length > 0) &&
+      !poll &&
+      !(Array.isArray(body.sticker_ids) && body.sticker_ids.length > 0);
+    if (isEmpty) return discordError(c, 400, "Cannot send an empty message", 50006);
     const message = createMessage(ds, {
       channelSnowflake: channelId,
       guildSnowflake: channel.guild_snowflake,
@@ -109,6 +115,7 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
       type: isReply ? 19 : 0,
       embeds: (body.embeds as unknown[] | undefined) ?? [],
       components: (body.components as unknown[] | undefined) ?? [],
+      attachments: uploaded.length > 0 ? uploaded : ((body.attachments as unknown[] | undefined) ?? []),
       nonce: typeof body.nonce === "string" ? body.nonce : typeof body.nonce === "number" ? String(body.nonce) : null,
       messageReference: (body.message_reference as never) ?? null,
       referencedMessageSnowflake: isReply ? ref!.message_id! : null,

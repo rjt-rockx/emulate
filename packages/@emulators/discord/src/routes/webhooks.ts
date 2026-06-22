@@ -1,7 +1,7 @@
 import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore, type DiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, unknownChannel, unknownWebhook, snowflake, toAPIUser, toAPIMessage, redactMessageContent, recordAudit, AuditLogEvent, isEphemeral } from "../helpers.js";
+import { getAuth, unauthorized, notFound, unknownChannel, unknownWebhook, snowflake, toAPIUser, toAPIMessage, redactMessageContent, recordAudit, AuditLogEvent, isEphemeral, parseMessageBody } from "../helpers.js";
 import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import { getOriginalResponse, setOriginalResponse } from "../interactions/dispatch.js";
@@ -152,7 +152,8 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const id = c.req.param("id");
     const token = c.req.param("token");
-    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    // Accept JSON or multipart/form-data (file uploads).
+    const { body, attachments: uploaded } = await parseMessageBody(c, baseUrl, id);
 
     // Interaction followup: the token matches a stored interaction.
     const interaction = ds.interactions.findOneBy("token", token);
@@ -166,6 +167,7 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
         content: typeof body.content === "string" ? body.content : "",
         embeds: (body.embeds as unknown[]) ?? [],
         components: (body.components as unknown[]) ?? [],
+        attachments: uploaded,
         flags: typeof body.flags === "number" ? body.flags : 0,
       });
       if (!getOriginalResponse(store, token)) setOriginalResponse(store, token, message.snowflake);
@@ -197,6 +199,7 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
       content: typeof body.content === "string" ? body.content : "",
       embeds: (body.embeds as unknown[]) ?? [],
       components: (body.components as unknown[]) ?? [],
+      attachments: uploaded,
       tts: body.tts === true,
       flags: typeof body.flags === "number" ? body.flags : 0,
       webhookSnowflake: webhook.snowflake,

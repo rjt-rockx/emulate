@@ -54,6 +54,35 @@ describe("message fidelity", () => {
     expect(new Date(poll.expiry!).getTime()).toBeGreaterThan(Date.now());
   });
 
+  it("accepts a multipart upload and synthesizes an attachment object", async () => {
+    const { app, store } = createDiscordTestApp();
+    const channel = chan(store);
+    const form = new FormData();
+    form.append("payload_json", JSON.stringify({ content: "see attached", attachments: [{ id: "0", description: "a greeting" }] }));
+    form.append("files[0]", new Blob(["hello world"], { type: "text/plain" }), "hello.txt");
+    const res = await app.request(api(`/channels/${channel}/messages`), {
+      method: "POST",
+      headers: { Authorization: "Bot test_bot_token" },
+      body: form,
+    });
+    expect(res.status).toBe(200);
+    const msg = (await res.json()) as { content: string; attachments: Array<{ id: string; filename: string; content_type: string; description?: string; url: string }> };
+    expect(msg.content).toBe("see attached");
+    expect(msg.attachments).toHaveLength(1);
+    expect(msg.attachments[0].filename).toBe("hello.txt");
+    expect(msg.attachments[0].content_type).toContain("text/plain");
+    expect(msg.attachments[0].description).toBe("a greeting");
+    expect(msg.attachments[0].url).toContain("hello.txt");
+  });
+
+  it("rejects an empty message with 50006", async () => {
+    const { app, store } = createDiscordTestApp();
+    const channel = chan(store);
+    const res = await app.request(api(`/channels/${channel}/messages`), { method: "POST", headers: botHeaders(), body: JSON.stringify({}) });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50006);
+  });
+
   it("webhook execute honors a custom username and avatar", async () => {
     const { app, store } = createDiscordTestApp();
     const channel = chan(store);
