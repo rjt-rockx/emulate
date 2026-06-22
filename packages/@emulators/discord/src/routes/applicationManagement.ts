@@ -27,25 +27,84 @@ async function validateInteractionsEndpoint(url: string, app: DiscordApplication
   }
 }
 
-function toAPIApplication(application: DiscordApplication, ds: ReturnType<typeof getDiscordStore>): Record<string, unknown> {
+/**
+ * Editable application properties documented by the Application Resource page that have no
+ * dedicated column on the {@link DiscordApplication} entity. They are kept in the store's
+ * key/value side-channel (keyed by application snowflake) so PATCH /applications/@me can
+ * round-trip them without touching the shared entity definitions.
+ */
+interface ApplicationExtras {
+  custom_install_url?: string;
+  role_connections_verification_url?: string | null;
+  install_params?: unknown;
+  integration_types_config?: Record<string, unknown>;
+  tags?: string[];
+  event_webhooks_url?: string | null;
+  event_webhooks_status?: number;
+  event_webhooks_types?: string[];
+}
+
+const APP_EXTRAS_KEY = (snowflake: string): string => `discord.application_extras.${snowflake}`;
+
+function getApplicationExtras(application: DiscordApplication, store: DiscordRouteContext["store"]): ApplicationExtras {
+  return store.getData<ApplicationExtras>(APP_EXTRAS_KEY(application.snowflake)) ?? {};
+}
+
+function setApplicationExtras(application: DiscordApplication, store: DiscordRouteContext["store"], extras: ApplicationExtras): void {
+  store.setData<ApplicationExtras>(APP_EXTRAS_KEY(application.snowflake), extras);
+}
+
+// Application Event Webhook Status: `1` (default) means disabled.
+const EVENT_WEBHOOK_STATUS_DISABLED = 1;
+
+// Application Flags. Only the "limited" intent flags may be updated via the API
+// (GATEWAY_PRESENCE_LIMITED, GATEWAY_GUILD_MEMBERS_LIMITED, GATEWAY_MESSAGE_CONTENT_LIMITED).
+const GATEWAY_PRESENCE_LIMITED = 1 << 13;
+const GATEWAY_GUILD_MEMBERS_LIMITED = 1 << 15;
+const GATEWAY_MESSAGE_CONTENT_LIMITED = 1 << 19;
+const EDITABLE_FLAGS_MASK = GATEWAY_PRESENCE_LIMITED | GATEWAY_GUILD_MEMBERS_LIMITED | GATEWAY_MESSAGE_CONTENT_LIMITED;
+
+function toAPIApplication(
+  application: DiscordApplication,
+  ds: ReturnType<typeof getDiscordStore>,
+  store: DiscordRouteContext["store"],
+): Record<string, unknown> {
   const botUser = ds.users.findOneBy("snowflake", application.bot_user_snowflake);
   const owner =
     (application.owner_snowflake && ds.users.findOneBy("snowflake", application.owner_snowflake)) ||
     ds.users.all().find((u) => !u.bot) ||
     botUser;
+  const extras = getApplicationExtras(application, store);
+  // Approximate count of guilds the bot user is a member of.
+  const approximateGuildCount = botUser
+    ? ds.members.findBy("user_snowflake", botUser.snowflake).length
+    : 0;
   return {
     id: application.snowflake,
     name: application.name,
-    description: application.description,
     icon: application.icon,
+    description: application.description,
     rpc_origins: [],
     bot_public: true,
     bot_require_code_grant: false,
+    bot: botUser ? toAPIUser(botUser) : undefined,
+    terms_of_service_url: undefined,
+    privacy_policy_url: undefined,
     owner: owner ? toAPIUser(owner) : null,
     verify_key: application.verify_key,
     team: null,
     flags: application.flags,
-    bot: botUser ? toAPIUser(botUser) : undefined,
+    approximate_guild_count: approximateGuildCount,
+    redirect_uris: [],
+    interactions_endpoint_url: application.interactions_endpoint_url ?? null,
+    role_connections_verification_url: extras.role_connections_verification_url ?? null,
+    event_webhooks_url: extras.event_webhooks_url ?? null,
+    event_webhooks_status: extras.event_webhooks_status ?? EVENT_WEBHOOK_STATUS_DISABLED,
+    event_webhooks_types: extras.event_webhooks_types ?? [],
+    tags: extras.tags ?? [],
+    install_params: extras.install_params,
+    integration_types_config: extras.integration_types_config ?? { "0": {} },
+    custom_install_url: extras.custom_install_url,
   };
 }
 
@@ -73,7 +132,7 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const appRecord = auth.application ?? ds.applications.all()[0];
     if (!appRecord) return unauthorized(c);
-    return c.json(toAPIApplication(appRecord, ds));
+    return c.json(toAPIApplication(appRecord, ds, store));
   });
 
   // PATCH /api/v:version/applications/@me
@@ -106,12 +165,29 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
       patch.interactions_endpoint_url = url;
     }
     if (body.icon !== undefined) patch.icon = body.icon as string | null;
-    if (body.flags !== undefined) patch.flags = body.flags as number;
+    if (body.flags !== undefined) {
+      // Only the limited intent flags can be updated via the API; mask out everything else.
+      patch.flags = (body.flags as number) & EDITABLE_FLAGS_MASK;
+    }
     if (body.name !== undefined) patch.name = body.name as string;
+
+    // Editable properties without a dedicated entity column live in the store side-channel.
+    const extras = getApplicationExtras(appRecord, store);
+    if (body.custom_install_url !== undefined) extras.custom_install_url = body.custom_install_url as string;
+    if (body.role_connections_verification_url !== undefined)
+      extras.role_connections_verification_url = body.role_connections_verification_url as string | null;
+    if (body.install_params !== undefined) extras.install_params = body.install_params;
+    if (body.integration_types_config !== undefined)
+      extras.integration_types_config = body.integration_types_config as Record<string, unknown>;
+    if (body.tags !== undefined) extras.tags = body.tags as string[];
+    if (body.event_webhooks_url !== undefined) extras.event_webhooks_url = body.event_webhooks_url as string | null;
+    if (body.event_webhooks_status !== undefined) extras.event_webhooks_status = body.event_webhooks_status as number;
+    if (body.event_webhooks_types !== undefined) extras.event_webhooks_types = body.event_webhooks_types as string[];
+    setApplicationExtras(appRecord, store, extras);
 
     ds.applications.update(appRecord.id, patch);
     const updated = ds.applications.findOneBy("snowflake", appRecord.snowflake)!;
-    return c.json(toAPIApplication(updated, ds));
+    return c.json(toAPIApplication(updated, ds, store));
   });
 
   // GET /api/v:version/applications/:appId/emojis
