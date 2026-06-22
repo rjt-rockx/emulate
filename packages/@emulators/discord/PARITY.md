@@ -368,9 +368,9 @@ until that page's suite is green. A page is **done** only when its spec suite pa
 | `developers/topics/oauth2.mdx` | `spec/oauth2.spec.test.ts` | [x] green (30 cases) |
 | `developers/topics/opcodes-and-status-codes.mdx` | `spec/opcodes-and-status-codes.spec.test.ts` | [ ] not started |
 | `developers/topics/permissions.mdx` | `spec/permissions.spec.test.ts` | [ ] not started |
-| `developers/topics/rate-limits.mdx` | `spec/rate-limits.spec.test.ts` | [ ] not started |
+| `developers/topics/rate-limits.mdx` | `spec/rate-limits.spec.test.ts` | [x] green (31 cases) |
 | `developers/topics/rpc.mdx` | `spec/rpc.spec.test.ts` | [ ] not started |
-| `developers/topics/teams.mdx` | `spec/teams.spec.test.ts` | [ ] not started |
+| `developers/topics/teams.mdx` | `spec/teams.spec.test.ts` | [x] green (29 cases) |
 | `developers/topics/threads.mdx` | `spec/threads.spec.test.ts` | [x] green (threads.spec) |
 | `developers/topics/voice-connections.mdx` | `spec/voice-connections.spec.test.ts` | [x] green |
 | `developers/events/gateway-events.mdx` | `spec/gateway-events.spec.test.ts` | [x] green (shared gateway.spec) |
