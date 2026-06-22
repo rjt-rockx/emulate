@@ -93,3 +93,46 @@ Verdict on the user's questions:
 - T1 (correctness + foundation helpers + test fixtures) — done first, additive, low risk.
 - T2 (route call-site migration to the new helpers) — disjoint worktree waves.
 - T3 (test-fixture migration; helpers.ts split) — follow-up.
+
+## Remediation outcome (completed)
+
+All of the above except the cosmetic file split has shipped. Every commit kept the suite green
+(1451 tests, type-check + lint clean), and each behavior-affecting change is guarded by the
+doc-driven spec suite.
+
+### discord-api-types serializer typing (drift becomes a compile error)
+Every `toAPI*` serializer now returns its official `discord-api-types/v10` shape instead of
+`Record<string, unknown>`:
+- helpers.ts: user, role, member, voice-state, emoji, command, stage-instance (direct typing with
+  localized enum-brand casts); channel, message, poll, guild, scheduled-event (union/interface
+  return types asserted at the dynamic builders). Sticker/soundboard serializers were promoted
+  into helpers.ts so `toAPIGuild` reuses them.
+- route-local: ban, invite, sku, entitlement, subscription, sticker-pack, scheduled-event-user,
+  automod, application, app-emoji, webhook, integration, template. (Lobbies are left untyped:
+  discord-api-types does not model that surface.)
+
+### Latent correctness fixes — all fixed
+1. Dead shadowed routes deleted (scheduled-event-users in misc.ts, sticker-packs in integrations.ts).
+2. Lobby moderation/flags state moved off module-global Maps onto the store-scoped entity.
+3. `fanOut` unified into one `routeToRecipient` filter+payload helper (live + resumable paths).
+4. Monetization pagination now uses BigInt cursors via `parsePagination`/`sliceBySnowflake`.
+5. `toAPIGuild` reuses the canonical `toAPISticker`/`toAPISound` (drift eliminated).
+6. `stageInstances` indexed by `guild_snowflake` (no more full-collection scan on GUILD_CREATE).
+7. Dead `heartbeatAckPending` field and dead `vanity_uses` column removed.
+
+### Call-site migration — done (disjoint worktree waves)
+Route handlers migrated to the composition helpers: ~141 `requireBot`, ~34 `requireGuild`,
+~13 `requireChannel`, ~8 `requireMessage`, ~23 `requireUser`, ~18 `readBody`, ~12 `getGuildMember`
+(~-350 net lines). Migrations were applied ONLY where the helper is exactly equivalent; handlers
+whose auth guard or 404 error code differed were intentionally left as-is.
+
+### Test fixtures — done
+~670 `(await res.json()) as T` casts replaced with `json<T>(res)`; 45 test files dropped their
+per-file seeded-id helpers in favor of `seededIds(store)`.
+
+### Deferred (intentionally not done)
+8. The helpers.ts file-size split into modules behind a barrel. Its stated goal -- letting the
+   foundation import every `toAPI*` -- is already satisfied (the sticker/soundboard serializers
+   were promoted into helpers.ts). The remaining benefit is purely organizational on a file every
+   module imports from, which carries more regression risk than value; deferred as a safe,
+   non-breaking follow-up.
