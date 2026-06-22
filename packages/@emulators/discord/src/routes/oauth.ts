@@ -284,8 +284,13 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
       expires: tokenRecord?.expires_at ?? new Date(Date.now() + TOKEN_TTL_SECONDS * 1000).toISOString(),
     };
     // The user object is only included when the token was granted the `identify` scope.
-    if (auth.user && auth.scopes.includes("identify")) {
-      result.user = toAPIUser(auth.user, auth.scopes.includes("email"));
+    // When strict_scopes is enabled, bot tokens bypass the scope check; bearer tokens must
+    // hold `identify` explicitly or the field is omitted (no 403 -- just field omission).
+    const strictScopes = store.getData<boolean>("discord.strict_scopes") === true;
+    const hasIdentify = auth.scopes.includes("identify");
+    const includeUser = auth.user && (auth.type === "bot" || !strictScopes || hasIdentify) && hasIdentify;
+    if (includeUser) {
+      result.user = toAPIUser(auth.user!, auth.scopes.includes("email"));
     }
     return c.json(result);
   };
