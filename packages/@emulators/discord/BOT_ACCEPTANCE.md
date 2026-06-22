@@ -9,7 +9,8 @@ fidelity gaps each surfaced.
 Control-plane hooks used by these tests (not real Discord routes): `POST /__emulate/interactions`
 (trigger a slash/component/modal interaction), `POST /__emulate/messages` (post a message as an
 arbitrary human user, so message/prefix command handlers — which ignore bot authors — can run),
-`POST /__emulate/poll-vote`, `POST /__emulate/event-webhook`.
+`POST /__emulate/voice-state` (place a user in a voice channel, so voice-gated music-bot commands can
+run), `POST /__emulate/poll-vote`.
 
 ## Round 1 — library diversity (templates) → 6 fixes
 
@@ -54,6 +55,12 @@ Findings so far:
   separate segment.) Fixed: HELLO is now deferred one tick so the 101 flushes first. discordrb
   otherwise connected, registered a guild command, and round-tripped messages/interactions, with
   correct intent-based content redaction.
+- **JMusicBot — JDA 4.4.1 (no bug)** — logged in, reached READY, and handled every prefix command
+  end-to-end (ping/about/settings/help-as-DM/setgame/nowplaying/setdj) with zero REST or gateway
+  fidelity gaps; MESSAGE_CONTENT intent gating was correctly observed. `play` stopped at the bot's
+  own "must be in a voice channel" guard. Enhancement added in response: `POST /__emulate/voice-state`
+  control plane (place a user in voice + dispatch VOICE_STATE_UPDATE) so voice-gated music-bot
+  commands can be driven. (Real-time audio transport remains out of scope — signaling/state only.)
 
 ## Backlog (from the curated lists)
 

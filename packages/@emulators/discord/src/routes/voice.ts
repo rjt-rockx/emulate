@@ -1,6 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { requireBot, requireUser, notFound, toAPIVoiceState, invalidFormBody, requirePermission } from "../helpers.js";
+import { requireBot, requireUser, notFound, toAPIVoiceState, invalidFormBody, requirePermission, discordError } from "../helpers.js";
 import { PermissionFlags } from "../permissions.js";
 import { Intents } from "../gateway/intents.js";
 
@@ -118,5 +118,71 @@ export function voiceRoutes(ctx: DiscordRouteContext): void {
     const updated = ds.voiceStates.get(state.id)!;
     bus.publish({ t: "VOICE_STATE_UPDATE", guildId, requiredIntents: Intents.GuildVoiceStates, d: toAPIVoiceState(updated, ds) });
     return new Response(null, { status: 204 });
+  });
+
+  // Emulator control plane: place an arbitrary user in (or remove them from) a voice channel, so
+  // voice-gated commands (music bots' "you must be in a voice channel") can be exercised. Not a real
+  // Discord route. `channel_id: null` removes the user from voice.
+  app.post("/__emulate/voice-state", async (c) => {
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      guild_id?: string;
+      channel_id?: string | null;
+      user_id?: string;
+      self_mute?: boolean;
+      self_deaf?: boolean;
+      self_video?: boolean;
+    };
+    const guildId = body.guild_id;
+    const userId = body.user_id;
+    if (!guildId || !ds.guilds.findOneBy("snowflake", guildId)) return discordError(c, 404, "Unknown Guild", 10004);
+    if (!userId || !ds.users.findOneBy("snowflake", userId)) return discordError(c, 404, "Unknown User", 10013);
+    const existing = ds.voiceStates.findBy("guild_snowflake", guildId).find((v) => v.user_snowflake === userId);
+
+    if (body.channel_id == null) {
+      if (existing) ds.voiceStates.delete(existing.id);
+      bus.publish({
+        t: "VOICE_STATE_UPDATE",
+        guildId,
+        requiredIntents: Intents.GuildVoiceStates,
+        d: {
+          guild_id: guildId,
+          channel_id: null,
+          user_id: userId,
+          session_id: `emu-${userId}`,
+          deaf: false,
+          mute: false,
+          self_deaf: body.self_deaf ?? false,
+          self_mute: body.self_mute ?? false,
+          self_stream: false,
+          self_video: body.self_video ?? false,
+          suppress: false,
+          request_to_speak_timestamp: null,
+        },
+      });
+      return new Response(null, { status: 204 });
+    }
+
+    if (!ds.channels.findOneBy("snowflake", body.channel_id)) return discordError(c, 404, "Unknown Channel", 10003);
+    const fields = {
+      guild_snowflake: guildId,
+      channel_snowflake: body.channel_id,
+      user_snowflake: userId,
+      session_id: `emu-${userId}`,
+      deaf: false,
+      mute: false,
+      self_deaf: body.self_deaf ?? false,
+      self_mute: body.self_mute ?? false,
+      self_video: body.self_video ?? false,
+      suppress: false,
+      request_to_speak_timestamp: null,
+    };
+    if (existing) ds.voiceStates.update(existing.id, fields);
+    else ds.voiceStates.insert(fields);
+    const state = ds.voiceStates.findBy("guild_snowflake", guildId).find((v) => v.user_snowflake === userId)!;
+    bus.publish({ t: "VOICE_STATE_UPDATE", guildId, requiredIntents: Intents.GuildVoiceStates, d: toAPIVoiceState(state, ds) });
+    return c.json(toAPIVoiceState(state, ds));
   });
 }

@@ -127,4 +127,32 @@ describe("real-bot fidelity regressions", () => {
     const MANAGE_MESSAGES = 1n << 13n;
     expect(BigInt(interaction.member!.permissions!) & MANAGE_MESSAGES).not.toBe(0n);
   });
+
+  // Music/voice bots gate commands on the invoker being in a voice channel. The control plane places
+  // an arbitrary user in voice (dispatching VOICE_STATE_UPDATE) so those paths can be exercised.
+  it("__emulate/voice-state places a user in voice and dispatches VOICE_STATE_UPDATE", async () => {
+    const { app, store } = createDiscordTestApp();
+    const ids = seededIds(store);
+    const events: GatewayEvent[] = [];
+    const unsubscribe = getDiscordRuntime(store).bus.subscribe((e) => events.push(e));
+
+    const res = await app.request(`${TEST_BASE_URL}/__emulate/voice-state`, {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ guild_id: ids.guild, channel_id: ids.voice, user_id: ids.developer }),
+    });
+    expect(res.status).toBe(200);
+    const state = await json<{ channel_id: string; user_id: string }>(res);
+    expect(state.channel_id).toBe(ids.voice);
+    expect(state.user_id).toBe(ids.developer);
+
+    // Persisted: GET voice-states reflects it.
+    const fetched = await app.request(api(`/guilds/${ids.guild}/voice-states/${ids.developer}`), { headers: botHeaders() });
+    expect(fetched.status).toBe(200);
+
+    const evt = events.find((e) => e.t === "VOICE_STATE_UPDATE");
+    expect(evt).toBeDefined();
+    expect((evt!.d as { channel_id: string }).channel_id).toBe(ids.voice);
+    unsubscribe();
+  });
 });
