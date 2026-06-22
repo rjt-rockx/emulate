@@ -1,4 +1,4 @@
-import { createServer, serve, type AppKeyResolver, type Store } from "@emulators/core";
+import { createServer, serve, type AppKeyResolver, type PluginDisposer, type Store } from "@emulators/core";
 import { SERVICE_REGISTRY, SERVICE_NAMES, type ServiceName } from "../registry.js";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
@@ -159,6 +159,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
   const serviceUrls: Array<{ name: string; url: string }> = [];
   const stores: Store[] = [];
   const httpServers: ReturnType<typeof serve>[] = [];
+  const disposers: PluginDisposer[] = [];
 
   for (const { svc, entry, loadedSvc, svcSeedConfig, port, baseUrl } of prepared) {
     serviceUrls.push({ name: svc, url: baseUrl });
@@ -189,14 +190,24 @@ export async function startCommand(options: StartOptions): Promise<void> {
 
     const httpServer = serve({ fetch: app.fetch, port });
     httpServers.push(httpServer);
+
+    const dispose = loadedSvc.plugin.attach?.(httpServer, store, baseUrl);
+    if (dispose) disposers.push(dispose);
   }
 
   printBanner(serviceUrls, tokens, configSource);
 
-  const shutdown = () => {
+  const shutdown = async () => {
     console.log(`\n${pc.dim("Shutting down...")}`);
     if (portlessAliases.length > 0) {
       removeAliases(portlessAliases);
+    }
+    for (const dispose of disposers) {
+      try {
+        await dispose();
+      } catch {
+        // best-effort cleanup
+      }
     }
     for (const store of stores) {
       store.reset();

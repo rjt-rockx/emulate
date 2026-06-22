@@ -28,6 +28,7 @@ const SERVICE_NAME_LIST = [
   "mongoatlas",
   "clerk",
   "linear",
+  "discord",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -565,6 +566,55 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             scopes: ["read", "write", "issues:create", "comments:create", "admin"],
           },
         ],
+        strict_scopes: false,
+      },
+    },
+  },
+
+  discord: {
+    label: "Discord REST + Gateway API emulator",
+    endpoints:
+      "users, guilds, channels, messages, roles, members, reactions, emojis, OAuth2, gateway (websocket), interactions (gateway + signed HTTP), application commands, webhooks, inspector",
+    async load() {
+      const mod = await import("@emulators/discord");
+      return { plugin: mod.discordPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const u = (cfg?.users as Array<{ username?: string }> | undefined)?.[0]?.username ?? "developer";
+      return { login: u, id: 1, scopes: [] };
+    },
+    initConfig: {
+      discord: {
+        application: {
+          name: "My Discord App",
+          bot_token: "test_bot_token",
+          bot_username: "my-bot",
+          interactions_endpoint_url: "http://localhost:3000/api/interactions",
+        },
+        oauth_apps: [
+          {
+            client_id: "1234567890",
+            client_secret: "example_client_secret",
+            name: "My Discord App",
+            redirect_uris: ["http://localhost:3000/api/auth/callback/discord"],
+            scopes: ["identify", "email", "guilds"],
+          },
+        ],
+        users: [{ username: "alice", global_name: "Alice", email: "alice@example.com" }],
+        guilds: [
+          {
+            name: "My Server",
+            owner: "alice",
+            roles: [{ name: "Admin", color: 15158332, permissions: "8" }],
+            channels: [
+              { name: "general", type: 0, topic: "General discussion" },
+              { name: "voice", type: 2 },
+            ],
+            members: ["alice"],
+            emojis: [{ name: "party" }],
+          },
+        ],
+        application_commands: [{ name: "ping", description: "Replies with pong", type: 1 }],
         strict_scopes: false,
       },
     },

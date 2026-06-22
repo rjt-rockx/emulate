@@ -67,6 +67,7 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
   seed();
 
   const httpServer = serve({ fetch: app.fetch, port });
+  const dispose = loaded.plugin.attach?.(httpServer, store, baseUrl);
 
   return {
     url: baseUrl,
@@ -74,8 +75,9 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
       store.reset();
       seed();
     },
-    close(): Promise<void> {
-      return new Promise((resolve, reject) => {
+    async close(): Promise<void> {
+      await dispose?.();
+      await new Promise<void>((resolve, reject) => {
         httpServer.close((err) => {
           if (err) reject(err);
           else resolve();
