@@ -52,8 +52,26 @@ client.on("messageCreate", (m) => console.log("message:", m.content));
 await client.login("test_bot_token");
 ```
 
-discord.py: point the HTTP and Gateway hosts at the emulator (it connects with
-`compress=zlib-stream` by default, which is supported).
+discord.py: override the REST base and the (otherwise hardcoded) gateway host. discord.py
+connects with `compress=zlib-stream` by default, which the emulator supports.
+
+```python
+import yarl, discord
+
+PORT = 4000
+discord.http.Route.BASE = f"http://localhost:{PORT}/api/v10"
+discord.gateway.DiscordWebSocket.DEFAULT_GATEWAY = yarl.URL(f"ws://localhost:{PORT}/")
+
+intents = discord.Intents.default()
+intents.message_content = True
+client = discord.Client(intents=intents)
+
+@client.event
+async def on_ready():
+    print("ready as", client.user)
+
+client.run("test_bot_token")
+```
 
 ## Seed config
 

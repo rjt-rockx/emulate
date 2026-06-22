@@ -33,6 +33,15 @@ export const discordPlugin: ServicePlugin = {
     const runtime = getDiscordRuntime(store, baseUrl);
     const ctx: DiscordRouteContext = { app, store, webhooks, baseUrl, bus: runtime.bus };
 
+    // Real Discord responds with exactly `application/json` (no charset). discord.py only
+    // parses a body when the Content-Type matches that exactly, so normalize it for all REST
+    // (`/api/`) responses. The inspector and OAuth pages (served from other paths) keep their
+    // own content types.
+    app.use("*", async (c, next) => {
+      await next();
+      if (c.req.path.startsWith("/api/")) c.header("Content-Type", "application/json");
+    });
+
     gatewayRoutes(ctx);
     oauthRoutes(ctx);
     usersRoutes(ctx);

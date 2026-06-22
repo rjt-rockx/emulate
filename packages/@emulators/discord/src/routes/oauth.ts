@@ -170,13 +170,21 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
     const application = auth.application ?? ds.applications.all()[0];
     if (!application) return unauthorized(c);
     const botUser = ds.users.findOneBy("snowflake", application.bot_user_snowflake);
+    const owner =
+      (application.owner_snowflake && ds.users.findOneBy("snowflake", application.owner_snowflake)) ||
+      ds.users.all().find((u) => !u.bot) ||
+      botUser;
     return c.json({
       id: application.snowflake,
       name: application.name,
       description: application.description,
       icon: application.icon,
+      rpc_origins: [],
       bot_public: true,
+      bot_require_code_grant: false,
+      owner: owner ? toAPIUser(owner) : null,
       verify_key: application.verify_key,
+      team: null,
       flags: application.flags,
       bot: botUser ? toAPIUser(botUser) : undefined,
     });
