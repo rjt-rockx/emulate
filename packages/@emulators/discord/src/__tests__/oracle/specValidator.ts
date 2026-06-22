@@ -116,6 +116,65 @@ export function checkResponse(method: string, path: string, status: number, body
   return { matched: true, specPath, validated: true, errors };
 }
 
+type JsonSchema = Record<string, unknown>;
+
+/** Resolve a `$ref` (or return the schema as-is) one level. */
+function deref(schema: JsonSchema): JsonSchema {
+  const ref = schema.$ref as string | undefined;
+  if (typeof ref === "string") return (resolvePointer(ref.replace(/^#/, "")) as JsonSchema) ?? {};
+  return schema;
+}
+
+/** Generate a minimal value satisfying a (subset of) JSON Schema, for synthesizing request bodies. */
+function genFromSchema(raw: JsonSchema | undefined, depth = 0): unknown {
+  if (!raw || depth > 6) return undefined;
+  const schema = deref(raw);
+  if (Array.isArray(schema.enum)) return schema.enum.find((v) => v !== null);
+  if (Array.isArray(schema.oneOf)) return genFromSchema(schema.oneOf[0] as JsonSchema, depth + 1);
+  if (Array.isArray(schema.anyOf)) return genFromSchema(schema.anyOf[0] as JsonSchema, depth + 1);
+  if (Array.isArray(schema.allOf)) {
+    const merged: Record<string, unknown> = {};
+    for (const part of schema.allOf as JsonSchema[]) {
+      const v = genFromSchema(part, depth + 1);
+      if (v && typeof v === "object") Object.assign(merged, v);
+    }
+    return merged;
+  }
+  let type = schema.type as string | string[] | undefined;
+  if (Array.isArray(type)) type = type.find((t) => t !== "null");
+  switch (type) {
+    case "string": {
+      if (schema.format === "date-time") return new Date(Date.now() + 86_400_000).toISOString();
+      if (schema.format === "uri") return "https://example.com";
+      const min = (schema.minLength as number) ?? 0;
+      return "oracle".padEnd(Math.max(min, 1), "x").slice(0, (schema.maxLength as number) ?? 32);
+    }
+    case "integer":
+    case "number":
+      return (schema.minimum as number) ?? 1;
+    case "boolean":
+      return false;
+    case "array":
+      return (schema.minItems as number) ? [genFromSchema(schema.items as JsonSchema, depth + 1)] : [];
+    case "object": {
+      const out: Record<string, unknown> = {};
+      const props = (schema.properties as Record<string, JsonSchema>) ?? {};
+      for (const key of (schema.required as string[]) ?? []) out[key] = genFromSchema(props[key], depth + 1);
+      return out;
+    }
+    default:
+      return type === undefined && schema.properties ? genFromSchema({ ...schema, type: "object" }, depth) : undefined;
+  }
+}
+
+/** Synthesize a minimal valid JSON request body for an operation, or null when it has none. */
+export function generateRequestBody(specPath: string, method: string): unknown {
+  const op = spec.paths[specPath]?.[method.toLowerCase()] as { requestBody?: { content?: Record<string, { schema?: JsonSchema }> } } | undefined;
+  const schema = op?.requestBody?.content?.["application/json"]?.schema;
+  if (!schema) return null;
+  return genFromSchema(schema);
+}
+
 /** Spec operations (method + path) the spec defines, for coverage reporting. */
 export function specOperations(): Array<{ method: string; path: string }> {
   const ops: Array<{ method: string; path: string }> = [];

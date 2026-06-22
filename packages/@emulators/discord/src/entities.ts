@@ -585,6 +585,7 @@ export interface DiscordLobby extends Entity {
   application_snowflake: string;
   metadata: Record<string, string> | null;
   linked_channel_snowflake: string | null;
+  flags?: number;
 }
 
 /** Membership of a user in a lobby. */

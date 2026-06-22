@@ -43,6 +43,7 @@ function toAPILobby(lobby: DiscordLobby, ds: DiscordStore): Record<string, unkno
     application_id: lobby.application_snowflake,
     metadata: sanitizeLobbyMetadata(lobby.metadata),
     members,
+    flags: lobby.flags ?? 0,
     // linked_channel is omitted unless set (emulator does not store full channel objects for lobbies).
     ...(lobby.linked_channel_snowflake != null
       ? { linked_channel: { id: lobby.linked_channel_snowflake, type: 0 } }
