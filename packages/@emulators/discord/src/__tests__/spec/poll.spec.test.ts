@@ -10,6 +10,7 @@
 import { describe, it, expect } from "vitest";
 import { createDiscordTestApp, api, botHeaders, TEST_BASE_URL, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
+import { createMessage } from "../../factories.js";
 
 type Json = Record<string, unknown>;
 
@@ -287,6 +288,77 @@ describe("poll.mdx — End Poll", () => {
     const { app, store } = createDiscordTestApp();
     const { general } = ctx(store);
     const res = await app.request(api(`/channels/${general}/polls/999999999999999999/expire`), { method: "POST", headers: botHeaders() });
+    expect(res.status).toBe(404);
+  });
+
+  it("P1: End Poll returns 403 when the caller is not the poll author", async () => {
+    // Create a poll message authored by the developer (not the bot).
+    const { app, store } = createDiscordTestApp();
+    const { ds, general, developer } = ctx(store);
+    const channel = ds.channels.findOneBy("snowflake", general)!;
+    // Create a poll message with developer as author (bot cannot create polls via REST for another author,
+    // so we use the control-plane factory directly).
+    const msg = createMessage(ds, {
+      channelSnowflake: general,
+      guildSnowflake: channel.guild_snowflake,
+      authorSnowflake: developer, // authored by developer, not the bot
+      content: "",
+      poll: {
+        question: { text: "Test poll?" },
+        answers: [{ answer_id: 1, poll_media: { text: "Yes" } }],
+        expiry: new Date(Date.now() + 3600_000).toISOString(),
+      },
+    });
+    // The bot (botHeaders) tries to end a poll they didn't create -> 403.
+    const res = await app.request(api(`/channels/${general}/polls/${msg.snowflake}/expire`), {
+      method: "POST",
+      headers: botHeaders(),
+    });
+    expect(res.status).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Get Answer Voters — P2 and P3
+// ---------------------------------------------------------------------------
+
+describe("poll.mdx — Get Answer Voters parameter validation", () => {
+  it("P2: limit=0 is clamped to 1, not passed through as-is", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { ds, general, developer } = ctx(store);
+    const msg = (await (await postPoll(app, general, BASIC_POLL)).json()) as { id: string };
+    // Seed 2 voters.
+    await vote(app, msg.id, 1, developer);
+    await vote(app, msg.id, 1, ds.users.findOneBy("username", "emulate-bot")!.snowflake);
+    // limit=0 must return exactly 1 user (clamped to min 1), not all voters.
+    const res = await app.request(api(`/channels/${general}/polls/${msg.id}/answers/1?limit=0`), { headers: botHeaders() });
+    expect(res.status).toBe(200);
+    const body = await json<{ users: Array<unknown> }>(res);
+    // With clamping to 1, we get exactly 1 result (not the full list, not 0 or negative-sliced).
+    expect(body.users).toHaveLength(1);
+  });
+
+  it("P2: negative limit is clamped to 1", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { ds, general, developer } = ctx(store);
+    const msg = (await (await postPoll(app, general, BASIC_POLL)).json()) as { id: string };
+    await vote(app, msg.id, 1, developer);
+    await vote(app, msg.id, 1, ds.users.findOneBy("username", "emulate-bot")!.snowflake);
+    // limit=-5 must not produce a bizarre slice; it is clamped to 1.
+    const res = await app.request(api(`/channels/${general}/polls/${msg.id}/answers/1?limit=-5`), { headers: botHeaders() });
+    expect(res.status).toBe(200);
+    const body = await json<{ users: Array<unknown> }>(res);
+    expect(body.users).toHaveLength(1);
+  });
+
+  it("P3: Get Answer Voters returns 404 when the message belongs to a different channel", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { ds, general } = ctx(store);
+    // Create a poll in the 'general' channel.
+    const msg = (await (await postPoll(app, general, BASIC_POLL)).json()) as { id: string };
+    // Use the 'random' channel id in the URL — mismatch should 404.
+    const randomChannel = ds.channels.findOneBy("name", "random")!.snowflake;
+    const res = await app.request(api(`/channels/${randomChannel}/polls/${msg.id}/answers/1`), { headers: botHeaders() });
     expect(res.status).toBe(404);
   });
 });

@@ -239,9 +239,17 @@ function validateComponents(
   isV2: boolean,
   pathPrefix = "components",
 ): Response | null {
+  // C1: v1 messages are limited to at most 5 top-level Action Rows.
+  if (!isV2 && components.length > 5) {
+    return invalidFormBody(c, { [pathPrefix]: "Must be 5 or fewer in length." });
+  }
+
+  // Collect all custom_ids across the entire component tree for C4 uniqueness check.
+  const seenCustomIds = new Set<string>();
+
   // Count total components for IS_COMPONENTS_V2 messages (max 40).
   let totalCount = 0;
-  const walk = (comps: unknown[], prefix: string): Response | null => {
+  const walk = (comps: unknown[], prefix: string, isActionRow: boolean): Response | null => {
     for (let i = 0; i < comps.length; i++) {
       const comp = comps[i] as Record<string, unknown>;
       totalCount++;
@@ -250,12 +258,24 @@ function validateComponents(
       }
       const path = `${prefix}.${i}`;
       const type = typeof comp.type === "number" ? comp.type : 0;
+
+      // C5: Text Input (type 4) is modal-only and must not appear in a message Action Row.
+      if (type === 4 && isActionRow) {
+        return invalidFormBody(c, { [`${path}.type`]: "Text inputs are not allowed in message action rows." });
+      }
+
       // custom_id check: must be 1-100 chars if present.
       if (typeof comp.custom_id === "string") {
         if (comp.custom_id.length === 0 || comp.custom_id.length > 100) {
           return invalidFormBody(c, { [`${path}.custom_id`]: "Must be between 1 and 100 in length." });
         }
+        // C4: custom_id must be unique across all components in the message.
+        if (seenCustomIds.has(comp.custom_id)) {
+          return invalidFormBody(c, { [`${path}.custom_id`]: "Component custom_ids must be unique within a message." });
+        }
+        seenCustomIds.add(comp.custom_id);
       }
+
       // type 2 = Button
       if (type === 2) {
         const label = typeof comp.label === "string" ? comp.label : "";
@@ -272,13 +292,54 @@ function validateComponents(
           if (!comp.url) {
             return invalidFormBody(c, { [`${path}.url`]: "This field is required." });
           }
+        } else if (style === 6) {
+          // C6: Premium button: must have sku_id; must NOT have custom_id/label/url.
+          if (!comp.sku_id) {
+            return invalidFormBody(c, { [`${path}.sku_id`]: "This field is required." });
+          }
+          if (comp.custom_id) {
+            return invalidFormBody(c, { [`${path}.custom_id`]: "Premium buttons must not have a custom_id." });
+          }
+          if (comp.label) {
+            return invalidFormBody(c, { [`${path}.label`]: "Premium buttons must not have a label." });
+          }
+          if (comp.url) {
+            return invalidFormBody(c, { [`${path}.url`]: "Premium buttons must not have a url." });
+          }
         } else {
-          // Non-link button: must have custom_id
+          // Non-link, non-premium button: must have custom_id
           if (!comp.custom_id) {
             return invalidFormBody(c, { [`${path}.custom_id`]: "This field is required." });
           }
         }
       }
+
+      // type 1 = Action Row — validate composition rules (C1).
+      if (type === 1 && !isV2) {
+        const children = Array.isArray(comp.components) ? (comp.components as unknown[]) : [];
+        // Count buttons vs. selects in this row.
+        let buttonCount = 0;
+        let selectCount = 0;
+        for (const child of children) {
+          const childType = typeof (child as Record<string, unknown>).type === "number"
+            ? (child as Record<string, unknown>).type as number
+            : 0;
+          if (childType === 2) buttonCount++;
+          if (childType === 3 || childType === 5 || childType === 6 || childType === 7 || childType === 8) selectCount++;
+        }
+        // At most 5 buttons per row.
+        if (buttonCount > 5) {
+          return invalidFormBody(c, { [`${path}.components`]: "Must be 5 or fewer buttons in an action row." });
+        }
+        // A row with a select must contain exactly one select and no buttons.
+        if (selectCount > 1) {
+          return invalidFormBody(c, { [`${path}.components`]: "An action row may only contain one select component." });
+        }
+        if (selectCount > 0 && buttonCount > 0) {
+          return invalidFormBody(c, { [`${path}.components`]: "An action row cannot mix buttons and select components." });
+        }
+      }
+
       // type 3,5,6,7,8 = Select menus
       if (type === 3 || type === 5 || type === 6 || type === 7 || type === 8) {
         const options = Array.isArray(comp.options) ? comp.options : [];
@@ -291,8 +352,9 @@ function validateComponents(
           }
         }
         if (typeof comp.max_values === "number") {
-          if (comp.max_values < 0 || comp.max_values > 25) {
-            return invalidFormBody(c, { [`${path}.max_values`]: "Must be between 0 and 25." });
+          // C3: max_values must be at least 1 (a select choosing 0 items is nonsensical).
+          if (comp.max_values < 1 || comp.max_values > 25) {
+            return invalidFormBody(c, { [`${path}.max_values`]: "Must be between 1 and 25." });
           }
         }
         const minV = typeof comp.min_values === "number" ? comp.min_values : 0;
@@ -314,15 +376,15 @@ function validateComponents(
           }
         }
       }
-      // Recurse into nested components.
+      // Recurse into nested components (children of an Action Row are flagged as isActionRow=true).
       if (Array.isArray(comp.components)) {
-        const nested = walk(comp.components as unknown[], `${path}.components`);
+        const nested = walk(comp.components as unknown[], `${path}.components`, type === 1);
         if (nested) return nested;
       }
     }
     return null;
   };
-  return walk(components, pathPrefix);
+  return walk(components, pathPrefix, false);
 }
 
 export function messagesRoutes(ctx: DiscordRouteContext): void {
@@ -414,7 +476,7 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
     const isComponentsV2 = (flags & MessageFlags.IsComponentsV2) !== 0;
 
     // A message_reference may make this a reply (DEFAULT/type 0) or a forward (FORWARD/type 1).
-    const ref = body.message_reference as { message_id?: string; type?: number; channel_id?: string } | undefined;
+    const ref = body.message_reference as { message_id?: string; type?: number; channel_id?: string; fail_if_not_exists?: boolean } | undefined;
     const refType = ref?.type ?? 0;
     const isForward = !!ref && refType === 1;
     const isReply = !!ref?.message_id && refType === 0;
@@ -459,15 +521,17 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
 
     // enforce_nonce: if a recent message by this author with the same nonce already exists in the
     // channel, return it instead of creating a new one.
-    const nonce = typeof body.nonce === "string" ? body.nonce : typeof body.nonce === "number" ? String(body.nonce) : null;
+    // M6: preserve integer nonces as integers (do not coerce to string).
+    const nonce: string | number | null = typeof body.nonce === "string" ? body.nonce : typeof body.nonce === "number" ? body.nonce : null;
     // Validate nonce length (string nonce only, max 25 chars).
     if (typeof body.nonce === "string" && body.nonce.length > 25) {
       return invalidFormBody(c, { nonce: "Must be 25 or fewer in length." });
     }
-    if (body.enforce_nonce === true && nonce) {
+    if (body.enforce_nonce === true && nonce !== null) {
+      const nonceStr = String(nonce);
       const existing = ds.messages
         .findBy("channel_snowflake", channelId)
-        .find((mm) => mm.author_snowflake === auth.user!.snowflake && mm.nonce === nonce);
+        .find((mm) => mm.author_snowflake === auth.user!.snowflake && mm.nonce !== null && String(mm.nonce) === nonceStr);
       if (existing) return c.json(toAPIMessage(existing, ds, auth.user!.snowflake), 200);
     }
 
@@ -478,10 +542,23 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
     }
 
     // Resolve the replied-to author (for replied_user) before computing mentions.
+    // M8: Honor fail_if_not_exists (default true). When the referenced message does not exist:
+    //   - fail_if_not_exists true (default) -> 10008 Unknown Message
+    //   - fail_if_not_exists false -> demote to a plain (non-reply) message
     let repliedAuthor: string | null = null;
+    let effectiveIsReply = isReply;
     if (isReply) {
       const target = ds.messages.findOneBy("snowflake", ref!.message_id!);
-      repliedAuthor = target?.author_snowflake ?? null;
+      if (!target) {
+        const failIfNotExists = ref!.fail_if_not_exists !== false; // default true
+        if (failIfNotExists) {
+          return discordError(c, 404, "Unknown Message", 10008);
+        }
+        // fail_if_not_exists=false: treat as a plain message, not a reply.
+        effectiveIsReply = false;
+      } else {
+        repliedAuthor = target.author_snowflake ?? null;
+      }
     }
     const mentions = applyAllowedMentions(parseMentions(content), allowed, repliedAuthor);
 
@@ -518,7 +595,7 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
 
     // The reply reference echoed back must include type:0, channel_id, guild_id.
     let messageReference: DiscordMessage["message_reference"] = null;
-    if (isReply) {
+    if (effectiveIsReply) {
       messageReference = {
         type: 0,
         message_id: ref!.message_id!,
@@ -532,7 +609,8 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
         channel_id: ref.channel_id ?? channelId,
         guild_id: channel.guild_snowflake ?? undefined,
       };
-    } else if (ref) {
+    } else if (ref && !isReply) {
+      // Only echo a non-reply ref if it wasn't demoted from a reply (M8: fail_if_not_exists=false).
       messageReference = ref as never;
     }
 
@@ -542,14 +620,16 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
       authorSnowflake: auth.user!.snowflake,
       content,
       tts: body.tts === true,
-      type: isReply ? 19 : 0,
+      type: effectiveIsReply ? 19 : 0,
       flags: snapshotFlags,
       embeds: (body.embeds as unknown[] | undefined) ?? [],
       components: sanitizeComponentIds((body.components as unknown[] | undefined) ?? []),
       attachments: uploaded.length > 0 ? uploaded : ((body.attachments as unknown[] | undefined) ?? []),
-      nonce,
+      // M6: preserve the nonce as-is (integer or string); cast to satisfy the factory type while
+      // relying on JS runtime to store the actual value unchanged.
+      nonce: nonce as string | null,
       messageReference,
-      referencedMessageSnowflake: isReply ? ref!.message_id! : null,
+      referencedMessageSnowflake: effectiveIsReply ? ref!.message_id! : null,
       stickerSnowflakes: stickerIds,
       messageSnapshots,
       poll: poll ?? null,
@@ -558,6 +638,16 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
       mentionEveryone: mentions.everyone,
     });
     const payload = toAPIMessage(message, ds);
+
+    // Thread message counters: when a message is posted in a thread channel (type 10/11/12),
+    // increment message_count (excludes the starter) and total_message_sent (never decrements).
+    if (channel.type === 10 || channel.type === 11 || channel.type === 12) {
+      ds.channels.update(channel.id, {
+        message_count: (channel.message_count ?? 0) + 1,
+        total_message_sent: (channel.total_message_sent ?? 0) + 1,
+      });
+    }
+
     bus.publish({
       t: "MESSAGE_CREATE",
       guildId: channel.guild_snowflake,
@@ -663,10 +753,11 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
       return discordError(c, 400, "Provided too few or too many messages to delete. Must provide at least 2 and fewer than 100 messages to delete.", 50034);
     }
     // Reject messages older than 2 weeks.
+    // M7: use a distinct message for the age failure (same code 50034 but different text).
     const twoWeeksAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
     for (const id of messageIds) {
       if (snowflakeTimestamp(id) < twoWeeksAgo) {
-        return discordError(c, 400, "Provided too few or too many messages to delete. Must provide at least 2 and fewer than 100 messages to delete.", 50034);
+        return discordError(c, 400, "You can only bulk delete messages that are under 14 days old.", 50034);
       }
     }
     for (const id of messageIds) {

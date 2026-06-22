@@ -1,5 +1,5 @@
 import type { DiscordRouteContext } from "../context.js";
-import { requireBot, notFound, toAPIUser, toAPIMessage, redactMessageContent } from "../helpers.js";
+import { requireBot, notFound, toAPIUser, toAPIMessage, redactMessageContent, discordError } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 
 export function pollsRoutes(ctx: DiscordRouteContext): void {
@@ -8,10 +8,16 @@ export function pollsRoutes(ctx: DiscordRouteContext): void {
   // List the users who voted for a given poll answer. Honors `after` and `limit` (1-100, default 25).
   app.get("/api/v:version/channels/:channelId/polls/:messageId/answers/:answerId", (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    const channelId = c.req.param("channelId");
     const messageId = c.req.param("messageId");
-    if (!ds.messages.findOneBy("snowflake", messageId)) return notFound(c);
+    const message = ds.messages.findOneBy("snowflake", messageId);
+    if (!message) return notFound(c);
+    // P3: validate the message belongs to the requested channel.
+    if (message.channel_snowflake !== channelId) return notFound(c);
     const answerId = Number(c.req.param("answerId"));
-    const limit = Math.min(Number(c.req.query("limit") ?? 25) || 25, 100);
+    // P2: clamp limit to [1,100] (negative or zero must not reach .slice).
+    const rawLimit = Number(c.req.query("limit") ?? 25);
+    const limit = Math.min(Math.max(isNaN(rawLimit) ? 25 : rawLimit, 1), 100);
     const after = c.req.query("after");
     const users = ds.pollVotes
       .findBy("message_snowflake", messageId)
@@ -27,9 +33,13 @@ export function pollsRoutes(ctx: DiscordRouteContext): void {
 
   // Expire (finalize) a poll.
   app.post("/api/v:version/channels/:channelId/polls/:messageId/expire", (c) => {
-    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const message = ds.messages.findOneBy("snowflake", c.req.param("messageId"));
     if (!message || !message.poll) return notFound(c);
+    // P1: only the poll's author (message author) may end the poll.
+    if (auth.user && message.author_snowflake !== auth.user.snowflake) {
+      return discordError(c, 403, "You cannot end polls from other users.", 50013);
+    }
     ds.messages.update(message.id, { poll_finalized: true });
     const updated = ds.messages.findOneBy("snowflake", message.snowflake)!;
     const payload = toAPIMessage(updated, ds);

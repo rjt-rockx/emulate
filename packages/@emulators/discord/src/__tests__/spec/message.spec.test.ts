@@ -408,11 +408,12 @@ describe("message.mdx — enforce_nonce", () => {
     expect(m.nonce).toBe("n1");
   });
 
-  it("echoes an integer nonce as a string", async () => {
+  it("preserves an integer nonce as an integer (not coerced to string)", async () => {
     const { app, store } = createDiscordTestApp();
     const { general } = ctx(store);
     const m = await post(app, general, { content: "x", nonce: 12345 });
-    expect(m.nonce).toBe("12345");
+    // M6: integer nonces must round-trip as integers, not be coerced to string.
+    expect(m.nonce).toBe(12345);
   });
 });
 
@@ -783,6 +784,76 @@ describe("message.mdx — Delete & Bulk Delete", () => {
     });
     expect(res.status).toBe(400);
     expect((await json<{ code: number }>(res)).code).toBe(50034);
+  });
+
+  it("M7: Bulk Delete age-failure error message is distinct from the count-failure message", async () => {
+    // M7: Discord uses a different human-readable message for the age-failure branch vs. count failure.
+    // Both use code 50034, but the message text must differ.
+    const { app, store } = createDiscordTestApp();
+    const { general } = ctx(store);
+    // Build the count-failure response (too few messages).
+    const a = await post(app, general, { content: "a" });
+    const countFail = await app.request(api(`/channels/${general}/messages/bulk-delete`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ messages: [a.id] }),
+    });
+    const countFailBody = await json<{ code: number; message: string }>(countFail);
+    expect(countFailBody.code).toBe(50034);
+
+    // Build the age-failure response (messages older than 2 weeks).
+    const DISCORD_EPOCH = 1420070400000n;
+    const threeWeeksAgo = BigInt(Date.now() - 21 * 24 * 60 * 60 * 1000) - DISCORD_EPOCH;
+    const old1 = (threeWeeksAgo << 22n).toString();
+    const old2 = ((threeWeeksAgo << 22n) + 1n).toString();
+    const ageFail = await app.request(api(`/channels/${general}/messages/bulk-delete`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ messages: [old1, old2] }),
+    });
+    const ageFailBody = await json<{ code: number; message: string }>(ageFail);
+    expect(ageFailBody.code).toBe(50034);
+
+    // The two error messages must be distinct strings.
+    expect(ageFailBody.message).not.toBe(countFailBody.message);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Message Reference (fail_if_not_exists)
+// ---------------------------------------------------------------------------
+
+describe("message.mdx — message_reference fail_if_not_exists (M8)", () => {
+  it("fails with 10008 when replying to a non-existent message (default fail_if_not_exists=true)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ctx(store);
+    const res = await app.request(api(`/channels/${general}/messages`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({
+        content: "reply to nothing",
+        message_reference: { message_id: "999999999999999999" },
+      }),
+    });
+    expect(res.status).toBe(404);
+    expect((await json<{ code: number }>(res)).code).toBe(10008);
+  });
+
+  it("sends as a plain message when fail_if_not_exists=false and referenced message is missing", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ctx(store);
+    const res = await app.request(api(`/channels/${general}/messages`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({
+        content: "downgraded to plain",
+        message_reference: { message_id: "999999999999999999", fail_if_not_exists: false },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const m = await json<{ type: number }>(res);
+    // Must be type 0 (DEFAULT), not type 19 (REPLY), because the reference was demoted.
+    expect(m.type).toBe(0);
   });
 });
 

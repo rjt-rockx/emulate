@@ -254,6 +254,183 @@ describe("components.mdx — Action Row constraints", () => {
     const msg = await json<{ components: Array<{ components: unknown[] }> }>(res);
     expect(msg.components[0]!.components.length).toBe(5);
   });
+
+  it("C1: rejects more than 5 top-level action rows -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const components = Array.from({ length: 6 }, (_, i) => ({
+      type: 1,
+      components: [{ type: 2, style: 1, label: `Btn ${i}`, custom_id: `btn${i}` }],
+    }));
+    const res = await sendMessage(app, channel, { content: "too many rows", components });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("C1: rejects more than 5 buttons in a single action row -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await sendMessage(app, channel, {
+      content: "too many buttons",
+      components: [
+        {
+          type: 1,
+          components: Array.from({ length: 6 }, (_, i) => ({
+            type: 2,
+            style: 1,
+            label: `B${i}`,
+            custom_id: `b${i}`,
+          })),
+        },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("C1: rejects mixing a button and a select in the same action row -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await sendMessage(app, channel, {
+      content: "mixed row",
+      components: [
+        {
+          type: 1,
+          components: [
+            { type: 2, style: 1, label: "Btn", custom_id: "btn" },
+            { type: 3, custom_id: "sel", options: [{ label: "A", value: "a" }] },
+          ],
+        },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("C1: rejects multiple selects in one action row -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await sendMessage(app, channel, {
+      content: "two selects",
+      components: [
+        {
+          type: 1,
+          components: [
+            { type: 3, custom_id: "sel1", options: [{ label: "A", value: "a" }] },
+            { type: 3, custom_id: "sel2", options: [{ label: "B", value: "b" }] },
+          ],
+        },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+});
+
+describe("components.mdx — C3: select max_values lower bound", () => {
+  it("rejects max_values: 0 on a select menu -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await sendMessage(app, channel, {
+      content: "bad select",
+      components: [
+        {
+          type: 1,
+          components: [
+            {
+              type: 3,
+              custom_id: "sel",
+              options: [{ label: "A", value: "a" }],
+              max_values: 0,
+            },
+          ],
+        },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+});
+
+describe("components.mdx — C4: custom_id uniqueness", () => {
+  it("rejects duplicate custom_ids across buttons in the same message -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await sendMessage(app, channel, {
+      content: "dup custom_id",
+      components: [
+        {
+          type: 1,
+          components: [
+            { type: 2, style: 1, label: "A", custom_id: "same" },
+            { type: 2, style: 1, label: "B", custom_id: "same" },
+          ],
+        },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+});
+
+describe("components.mdx — C5: modal-only types forbidden in message action rows", () => {
+  it("rejects a Text Input (type 4) in a message action row -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await sendMessage(app, channel, {
+      content: "bad component",
+      components: [
+        {
+          type: 1,
+          components: [
+            { type: 4, custom_id: "text_input", style: 1, label: "Name" },
+          ],
+        },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+});
+
+describe("components.mdx — C6: premium button (style 6)", () => {
+  it("rejects a premium button without sku_id -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await sendMessage(app, channel, {
+      content: "premium button no sku",
+      components: [
+        { type: 1, components: [{ type: 2, style: 6 }] },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("accepts a premium button with sku_id and no custom_id/label/url -> 200", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await sendMessage(app, channel, {
+      content: "premium button ok",
+      components: [
+        { type: 1, components: [{ type: 2, style: 6, sku_id: "1234567890123456789" }] },
+      ],
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects a premium button that also has a custom_id -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await sendMessage(app, channel, {
+      content: "premium button with custom_id",
+      components: [
+        { type: 1, components: [{ type: 2, style: 6, sku_id: "1234567890123456789", custom_id: "bad" }] },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
 });
 
 describe("components.mdx — Select menu option count (<=25)", () => {
