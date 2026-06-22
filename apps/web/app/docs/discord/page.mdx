@@ -1,0 +1,78 @@
+# Discord API
+
+Stateful Discord API emulation: a REST API under `/api/v10` plus a real Gateway WebSocket on the same port, so real clients like discord.js and discord.py connect and run against it. Covers users, guilds (roles, members, emojis, bans), channels, messages, reactions, pins, invites, threads, stickers, scheduled events, OAuth2, application commands, interactions (slash commands and message components) over both the Gateway and the HTTP interactions endpoint, channel webhooks, stage instances, and auto-moderation. REST mutations dispatch the matching Gateway events to connected bots, filtered by intents and guild membership, with `MESSAGE_CONTENT` gating just like real Discord. The Gateway supports `zlib-stream` compression (discord.py's default).
+
+## Start
+
+```bash
+npx emulate --service discord
+```
+
+When Discord is the only enabled service, it starts on `http://localhost:4000`. When all services are started, it uses `http://localhost:4013`.
+
+- REST base: `http://localhost:4000/api/v10`
+- Gateway: `ws://localhost:4000/` (advertised by `GET /api/v10/gateway/bot`)
+
+## Auth
+
+Pass a bot token as `Authorization: Bot <token>` (OAuth bearer tokens use `Authorization: Bearer <token>`). A `test_bot_token` Bot token is seeded by default and mapped to the seeded application's bot user. The Gateway `IDENTIFY` validates the same bot tokens.
+
+## Pointing a client at the emulator
+
+discord.js: override the REST base URL; it reads the Gateway URL from `GET /gateway/bot`.
+
+```js
+import { Client, GatewayIntentBits } from "discord.js";
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+  rest: { api: "http://localhost:4000/api" },
+});
+await client.login("test_bot_token");
+```
+
+discord.py: override the REST base and the (otherwise hardcoded) gateway host.
+
+```python
+import yarl, discord
+
+PORT = 4000
+discord.http.Route.BASE = f"http://localhost:{PORT}/api/v10"
+discord.gateway.DiscordWebSocket.DEFAULT_GATEWAY = yarl.URL(f"ws://localhost:{PORT}/")
+
+client = discord.Client(intents=discord.Intents.default())
+client.run("test_bot_token")
+```
+
+## REST endpoints (under `/api/v10`)
+
+- Users: `GET/PATCH /users/@me`, `GET /users/:id`, `GET /users/@me/guilds`, `POST /users/@me/channels`
+- Guilds: `GET/POST/PATCH/DELETE /guilds/:id`; roles, members, emojis, bans subroutes
+- Channels: `GET/POST /guilds/:id/channels`, `GET/PATCH/DELETE /channels/:id`, typing, pins, invites
+- Messages: `GET/POST /channels/:id/messages`, `GET/PATCH/DELETE /channels/:id/messages/:mid`, bulk-delete
+- Reactions: add/remove/list/clear
+- Threads: create from a message or standalone, active threads, thread members
+- Application commands: global and guild CRUD + bulk overwrite
+- Interactions: `POST /interactions/:id/:token/callback`, followups, `@original`
+- Webhooks: channel webhook management and execution (`POST /webhooks/:id/:token`)
+- Stickers, scheduled events, stage instances, auto-moderation rules
+- Voice regions, guild prune, vanity url, audit logs
+- OAuth2: `GET /oauth2/authorize`, `POST /api/oauth2/token`, `GET /api/v10/oauth2/@me`
+- Gateway bootstrap: `GET /api/v10/gateway`, `GET /api/v10/gateway/bot`
+
+## Gateway events
+
+REST writes dispatch the matching Gateway events to connected bots: `READY`, `GUILD_CREATE`, `GUILD_UPDATE/DELETE`, `CHANNEL_*`, `THREAD_*`, `MESSAGE_*`, `MESSAGE_REACTION_*`, `GUILD_MEMBER_*`, `GUILD_ROLE_*`, `GUILD_BAN_*`, `TYPING_START`, `INTERACTION_CREATE`, `STAGE_INSTANCE_*`, `AUTO_MODERATION_RULE_*`, `GUILD_SCHEDULED_EVENT_*`, and `GUILD_STICKERS_UPDATE`. Events are filtered by the connection's intents and guild membership. `REQUEST_GUILD_MEMBERS` is answered with a `GUILD_MEMBERS_CHUNK`.
+
+## Triggering interactions in tests
+
+There is no real client to click a button, so a control endpoint simulates a user triggering an interaction. It routes the interaction over the Gateway and/or the configured HTTP interactions endpoint:
+
+```bash
+curl -X POST http://localhost:4000/__emulate/interactions \
+  -H "Authorization: Bot test_bot_token" -H "Content-Type: application/json" \
+  -d '{"type":2,"commandName":"ping"}'
+```
+
+## Current limits
+
+JSON encoding only (no ETF); `zlib-stream` compression is supported, `zstd-stream` is not. Voice connections, sharding, gateway resume replay buffering, polls, soundboard, guild templates/widget/onboarding, retroactive audit-log entries, strict permission enforcement, and exact rate limiting are not yet implemented.

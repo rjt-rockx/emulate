@@ -8,6 +8,7 @@ export const PAGE_TITLES: Record<string, string> = {
   google: "Google API",
   slack: "Slack API",
   linear: "Linear API",
+  discord: "Discord API",
   apple: "Apple Sign In",
   microsoft: "Microsoft Entra ID",
   aws: "AWS",
