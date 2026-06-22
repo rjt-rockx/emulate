@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "./helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "./helpers.js";
 import { getDiscordStore } from "../store.js";
 
 function guildId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).guilds.findOneBy("name", "Emulate Server")!.snowflake;
+  return seededIds(store).guild;
 }
 
 describe("discord soundboard", () => {
@@ -11,7 +11,7 @@ describe("discord soundboard", () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/soundboard-default-sounds"), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const sounds = (await res.json()) as Array<{ name: string }>;
+    const sounds = await json<Array<{ name: string }>>(res);
     expect(sounds.length).toBeGreaterThan(0);
   });
 

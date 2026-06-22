@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "./helpers.js";
+import { createDiscordTestApp, api, botHeaders, json } from "./helpers.js";
 import { setRateLimitConfig } from "../rateLimiter.js";
 
 describe("discord rate limiting", () => {
@@ -31,7 +31,7 @@ describe("discord rate limiting", () => {
       statuses.push(res.status);
       if (res.status === 429) {
         expect(res.headers.get("retry-after")).toBeTruthy();
-        const body = (await res.json()) as { message: string; retry_after: number; global: boolean };
+        const body = await json<{ message: string; retry_after: number; global: boolean }>(res);
         expect(body.message).toContain("rate limited");
         expect(body.global).toBe(false);
         expect(body.retry_after).toBeGreaterThan(0);

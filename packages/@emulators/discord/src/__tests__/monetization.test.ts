@@ -4,7 +4,7 @@ import { discordPlugin } from "../index.js";
 import { getDiscordRuntime } from "../runtime.js";
 import { getDiscordStore } from "../store.js";
 import { monetizationRoutes } from "../routes/monetization.js";
-import { api, botHeaders, TEST_BASE_URL } from "./helpers.js";
+import { api, botHeaders, json, TEST_BASE_URL } from "./helpers.js";
 
 function build() {
   const store = new Store();
@@ -45,7 +45,7 @@ describe("monetization routes", () => {
     it("returns seeded SKUs", async () => {
       const res = await app.request(api(`/applications/${appId}/skus`), { headers: botHeaders() });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as Array<Record<string, unknown>>;
+      const body = await json<Array<Record<string, unknown>>>(res);
       expect(Array.isArray(body)).toBe(true);
       expect(body.length).toBe(1);
       expect(body[0].id).toBe("100000000000000001");
@@ -64,7 +64,7 @@ describe("monetization routes", () => {
     it("returns empty array when app has no SKUs", async () => {
       const res = await app.request(api("/applications/999999999999999999/skus"), { headers: botHeaders() });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as unknown[];
+      const body = await json<unknown[]>(res);
       expect(body).toEqual([]);
     });
   });
@@ -96,7 +96,7 @@ describe("monetization routes", () => {
         }),
       });
       expect(createRes.status).toBe(200);
-      const created = (await createRes.json()) as Record<string, unknown>;
+      const created = await json<Record<string, unknown>>(createRes);
       expect(typeof created.id).toBe("string");
       expect(created.sku_id).toBe("100000000000000002");
       expect(created.application_id).toBe(appId);
@@ -111,7 +111,7 @@ describe("monetization routes", () => {
       // LIST
       const listRes = await app.request(api(`/applications/${appId}/entitlements`), { headers: botHeaders() });
       expect(listRes.status).toBe(200);
-      const list = (await listRes.json()) as Array<Record<string, unknown>>;
+      const list = await json<Array<Record<string, unknown>>>(listRes);
       expect(list.length).toBe(1);
       expect(list[0].id).toBe(entitlementId);
 
@@ -120,7 +120,7 @@ describe("monetization routes", () => {
         headers: botHeaders(),
       });
       expect(getRes.status).toBe(200);
-      const got = (await getRes.json()) as Record<string, unknown>;
+      const got = await json<Record<string, unknown>>(getRes);
       expect(got.id).toBe(entitlementId);
       expect(got.user_id).toBe("200000000000000001");
 
@@ -136,7 +136,7 @@ describe("monetization routes", () => {
         headers: botHeaders(),
       });
       expect(afterConsumeRes.status).toBe(200);
-      const afterConsumed = (await afterConsumeRes.json()) as Record<string, unknown>;
+      const afterConsumed = await json<Record<string, unknown>>(afterConsumeRes);
       expect(afterConsumed.consumed).toBe(true);
 
       // DELETE
@@ -156,7 +156,7 @@ describe("monetization routes", () => {
       const afterDeleteListRes = await app.request(api(`/applications/${appId}/entitlements`), {
         headers: botHeaders(),
       });
-      const afterDeleteList = (await afterDeleteListRes.json()) as unknown[];
+      const afterDeleteList = await json<unknown[]>(afterDeleteListRes);
       expect(afterDeleteList.length).toBe(0);
     });
 
@@ -171,7 +171,7 @@ describe("monetization routes", () => {
         }),
       });
       expect(createRes.status).toBe(200);
-      const created = (await createRes.json()) as Record<string, unknown>;
+      const created = await json<Record<string, unknown>>(createRes);
       expect(created.guild_id).toBe("300000000000000001");
       expect(created.user_id).toBeUndefined();
     });
@@ -216,7 +216,7 @@ describe("monetization routes", () => {
         headers: botHeaders(),
       });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as Array<Record<string, unknown>>;
+      const body = await json<Array<Record<string, unknown>>>(res);
       expect(body.length).toBe(1);
       expect(body[0].user_id).toBe("user_a");
     });
@@ -226,7 +226,7 @@ describe("monetization routes", () => {
         headers: botHeaders(),
       });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as unknown[];
+      const body = await json<unknown[]>(res);
       expect(body.length).toBe(2);
     });
 
@@ -235,7 +235,7 @@ describe("monetization routes", () => {
         headers: botHeaders(),
       });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as unknown[];
+      const body = await json<unknown[]>(res);
       expect(body.length).toBe(0);
     });
 
@@ -244,7 +244,7 @@ describe("monetization routes", () => {
         headers: botHeaders(),
       });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as unknown[];
+      const body = await json<unknown[]>(res);
       expect(body.length).toBe(1);
     });
   });
@@ -283,7 +283,7 @@ describe("monetization routes", () => {
     it("GET /skus/:skuId/subscriptions returns all subscriptions for the SKU", async () => {
       const res = await app.request(api(`/skus/${skuId}/subscriptions`), { headers: botHeaders() });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as Array<Record<string, unknown>>;
+      const body = await json<Array<Record<string, unknown>>>(res);
       expect(body.length).toBe(2);
       expect(body[0].id).toBeDefined();
       expect(Array.isArray(body[0].sku_ids)).toBe(true);
@@ -295,7 +295,7 @@ describe("monetization routes", () => {
         headers: botHeaders(),
       });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as Array<Record<string, unknown>>;
+      const body = await json<Array<Record<string, unknown>>>(res);
       expect(body.length).toBe(1);
       expect(body[0].user_id).toBe("user_sub_1");
     });
@@ -303,7 +303,7 @@ describe("monetization routes", () => {
     it("returns empty for unrelated SKU", async () => {
       const res = await app.request(api("/skus/999999/subscriptions"), { headers: botHeaders() });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as unknown[];
+      const body = await json<unknown[]>(res);
       expect(body.length).toBe(0);
     });
 
@@ -312,7 +312,7 @@ describe("monetization routes", () => {
         headers: botHeaders(),
       });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as Record<string, unknown>;
+      const body = await json<Record<string, unknown>>(res);
       expect(body.id).toBe("400000000000000001");
       expect(body.user_id).toBe("user_sub_1");
       expect(Array.isArray(body.sku_ids)).toBe(true);
@@ -340,7 +340,7 @@ describe("monetization routes", () => {
     it("respects limit", async () => {
       const res = await app.request(api(`/skus/${skuId}/subscriptions?limit=1`), { headers: botHeaders() });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as unknown[];
+      const body = await json<unknown[]>(res);
       expect(body.length).toBe(1);
     });
   });

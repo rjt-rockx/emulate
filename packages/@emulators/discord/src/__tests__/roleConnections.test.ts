@@ -1,9 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "./helpers.js";
-import { getDiscordStore } from "../store.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "./helpers.js";
 
 function appId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).applications.all()[0].snowflake;
+  return seededIds(store).app;
 }
 
 describe("discord application role connections", () => {
@@ -19,9 +18,9 @@ describe("discord application role connections", () => {
     });
     expect(put.status).toBe(200);
 
-    const got = (await (
+    const got = await json<Array<{ key: string }>>(
       await app.request(api(`/applications/${aid}/role-connections/metadata`), { headers: botHeaders() })
-    ).json()) as Array<{ key: string }>;
+    );
     expect(got.some((m) => m.key === "level")).toBe(true);
   });
 
@@ -34,9 +33,9 @@ describe("discord application role connections", () => {
       body: JSON.stringify({ platform_name: "Steam", platform_username: "gamer", metadata: { level: "42" } }),
     });
     expect(put.status).toBe(200);
-    const conn = (await (
+    const conn = await json<{ platform_name: string; metadata: Record<string, string> }>(
       await app.request(api(`/users/@me/applications/${aid}/role-connection`), { headers: botHeaders() })
-    ).json()) as { platform_name: string; metadata: Record<string, string> };
+    );
     expect(conn.platform_name).toBe("Steam");
     expect(conn.metadata.level).toBe("42");
   });

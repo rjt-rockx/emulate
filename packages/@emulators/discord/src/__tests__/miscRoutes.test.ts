@@ -1,26 +1,21 @@
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "./helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "./helpers.js";
 import { getDiscordStore } from "../store.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
-  const ds = getDiscordStore(store);
-  return {
-    guild: ds.guilds.findOneBy("name", "Emulate Server")!.snowflake,
-    general: ds.channels.findOneBy("name", "general")!.snowflake,
-    app: ds.applications.all()[0].snowflake,
-    bot: ds.users.findOneBy("username", "emulate-bot")!.snowflake,
-  };
+  const s = seededIds(store);
+  return { guild: s.guild, general: s.general, app: s.app, bot: s.bot };
 }
 
 describe("webhook platform compatibility", () => {
   it("executes a GitHub-format webhook and creates a message", async () => {
     const { app, store } = createDiscordTestApp();
     const { general } = ids(store);
-    const hook = (await (await app.request(api(`/channels/${general}/webhooks`), {
+    const hook = await json<{ id: string; token: string }>(await app.request(api(`/channels/${general}/webhooks`), {
       method: "POST",
       headers: botHeaders(),
       body: JSON.stringify({ name: "ci" }),
-    })).json()) as { id: string; token: string };
+    }));
 
     const res = await app.request(api(`/webhooks/${hook.id}/${hook.token}/github?wait=true`), {
       method: "POST",
@@ -28,17 +23,17 @@ describe("webhook platform compatibility", () => {
       body: JSON.stringify({ action: "opened", repository: { full_name: "octo/repo" } }),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { content: string }).content).toContain("octo/repo");
+    expect((await json<{ content: string }>(res)).content).toContain("octo/repo");
   });
 
   it("executes a Slack-format webhook (204 without wait)", async () => {
     const { app, store } = createDiscordTestApp();
     const { general } = ids(store);
-    const hook = (await (await app.request(api(`/channels/${general}/webhooks`), {
+    const hook = await json<{ id: string; token: string }>(await app.request(api(`/channels/${general}/webhooks`), {
       method: "POST",
       headers: botHeaders(),
       body: JSON.stringify({ name: "slk" }),
-    })).json()) as { id: string; token: string };
+    }));
     const res = await app.request(api(`/webhooks/${hook.id}/${hook.token}/slack`), {
       method: "POST",
       headers: botHeaders(),
@@ -60,7 +55,7 @@ describe("misc documented endpoints", () => {
     });
     const res = await app.request(api(`/guilds/${guild}/messages/search?content=needle`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { messages: unknown[][]; total_results: number };
+    const body = await json<{ messages: unknown[][]; total_results: number }>(res);
     expect(body.total_results).toBeGreaterThanOrEqual(1);
     expect(Array.isArray(body.messages[0])).toBe(true);
   });
@@ -75,7 +70,7 @@ describe("misc documented endpoints", () => {
       body: JSON.stringify({ invites_disabled_until: until }),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { invites_disabled_until: string }).invites_disabled_until).toBe(until);
+    expect((await json<{ invites_disabled_until: string }>(res)).invites_disabled_until).toBe(until);
     // Verify persistence: the incidents_data is now stored on the guild entity (not the side-channel).
     const ds = getDiscordStore(store);
     const guildEntity = ds.guilds.findOneBy("snowflake", guild)!;
@@ -117,9 +112,9 @@ describe("misc documented endpoints", () => {
     const { app, store } = createDiscordTestApp();
     const { app: appId } = ids(store);
     const inst = await app.request(api(`/applications/${appId}/activity-instances/abc`), { headers: botHeaders() });
-    expect(((await inst.json()) as { instance_id: string }).instance_id).toBe("abc");
+    expect((await json<{ instance_id: string }>(inst)).instance_id).toBe("abc");
     const targets = await app.request(api(`/invites/xyz/target-users`), { headers: botHeaders() });
-    expect(((await targets.json()) as { target_users: unknown[] }).target_users).toEqual([]);
+    expect((await json<{ target_users: unknown[] }>(targets)).target_users).toEqual([]);
   });
 });
 
@@ -127,11 +122,11 @@ describe("archived threads", () => {
   it("lists public archived threads under a channel", async () => {
     const { app, store } = createDiscordTestApp();
     const { general } = ids(store);
-    const thread = (await (await app.request(api(`/channels/${general}/threads`), {
+    const thread = await json<{ id: string }>(await app.request(api(`/channels/${general}/threads`), {
       method: "POST",
       headers: botHeaders(),
       body: JSON.stringify({ name: "old-thread", type: 11 }),
-    })).json()) as { id: string };
+    }));
 
     // Archive it.
     await app.request(api(`/channels/${thread.id}`), {
@@ -142,7 +137,7 @@ describe("archived threads", () => {
 
     const res = await app.request(api(`/channels/${general}/threads/archived/public`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { threads: Array<{ id: string }>; has_more: boolean };
+    const body = await json<{ threads: Array<{ id: string }>; has_more: boolean }>(res);
     expect(body.threads.some((t) => t.id === thread.id)).toBe(true);
   });
 });

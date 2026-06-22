@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import WebSocket from "ws";
-import { startDiscordTestEmulator, api, botHeaders, type RunningDiscordEmulator } from "./helpers.js";
+import { startDiscordTestEmulator, api, botHeaders, json, type RunningDiscordEmulator } from "./helpers.js";
 import { GatewayOpcodes } from "../gateway/opcodes.js";
 import { Intents } from "../gateway/intents.js";
 import { getDiscordStore } from "../store.js";
@@ -76,7 +76,7 @@ describe("voice state signaling", () => {
     // REST reflects the stored voice state.
     const res = await fetch(api(`/guilds/${guildId}/voice-states/${botId}`, emu.baseUrl), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { channel_id: string }).channel_id).toBe(voiceChannel.snowflake);
+    expect((await json<{ channel_id: string }>(res)).channel_id).toBe(voiceChannel.snowflake);
   });
 
   it("op-4 with null channel leaves voice and clears the state", async () => {

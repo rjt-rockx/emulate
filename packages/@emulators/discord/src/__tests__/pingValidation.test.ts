@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { createDiscordTestApp, api, botHeaders } from "./helpers.js";
+import { createDiscordTestApp, api, botHeaders, json } from "./helpers.js";
 
 function startServer(handler: http.RequestListener): Promise<{ url: string; close: () => void }> {
   const server = http.createServer(handler);
@@ -50,7 +50,7 @@ describe("interactions endpoint PING validation (opt-in)", () => {
       body: JSON.stringify({ interactions_endpoint_url: bad.url }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("is lenient when validation is disabled (default)", async () => {

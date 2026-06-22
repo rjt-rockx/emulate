@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "./helpers.js";
+import { createDiscordTestApp, api, botHeaders, json } from "./helpers.js";
 import { getDiscordStore } from "../store.js";
 import { createMessage } from "../factories.js";
 import { toAPIMessage } from "../helpers.js";
@@ -29,7 +29,7 @@ describe("discord reactions routes", () => {
       api(`/channels/${channel.snowflake}/messages/${message.snowflake}/reactions/${THUMBS}`),
       { headers: botHeaders() },
     );
-    const users = (await listRes.json()) as Array<{ id: string }>;
+    const users = await json<Array<{ id: string }>>(listRes);
     expect(users.some((u) => u.id === bot.snowflake)).toBe(true);
 
     const serialized = toAPIMessage(message, ds, bot.snowflake) as { reactions: Array<{ count: number; me: boolean }> };

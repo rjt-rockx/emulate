@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "./helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "./helpers.js";
 import { getDiscordStore } from "../store.js";
 
 function generalId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).channels.findOneBy("name", "general")!.snowflake;
+  return seededIds(store).general;
 }
 
 describe("discord channel webhooks", () => {
@@ -17,14 +17,14 @@ describe("discord channel webhooks", () => {
       body: JSON.stringify({ name: "CI Bot" }),
     });
     expect(createRes.status).toBe(200);
-    const webhook = (await createRes.json()) as { id: string; token: string; name: string; url: string };
+    const webhook = await json<{ id: string; token: string; name: string; url: string }>(createRes);
     expect(webhook.name).toBe("CI Bot");
     expect(webhook.token).toBeTruthy();
     expect(webhook.url).toContain(webhook.id);
 
-    const list = (await (
+    const list = await json<Array<{ id: string }>>(
       await app.request(api(`/channels/${channelId}/webhooks`), { headers: botHeaders() })
-    ).json()) as Array<{ id: string }>;
+    );
     expect(list.some((w) => w.id === webhook.id)).toBe(true);
 
     // Execute without wait -> 204
@@ -42,7 +42,7 @@ describe("discord channel webhooks", () => {
       body: JSON.stringify({ content: "waited" }),
     });
     expect(execWait.status).toBe(200);
-    const msg = (await execWait.json()) as { content: string; webhook_id?: string };
+    const msg = await json<{ content: string; webhook_id?: string }>(execWait);
     expect(msg.content).toBe("waited");
 
     // The webhook messages persisted in the channel
@@ -53,13 +53,13 @@ describe("discord channel webhooks", () => {
   it("deletes a webhook by token", async () => {
     const { app, store } = createDiscordTestApp();
     const channelId = generalId(store);
-    const webhook = (await (
+    const webhook = await json<{ id: string; token: string }>(
       await app.request(api(`/channels/${channelId}/webhooks`), {
         method: "POST",
         headers: botHeaders(),
         body: JSON.stringify({ name: "tmp" }),
       })
-    ).json()) as { id: string; token: string };
+    );
 
     const del = await app.request(api(`/webhooks/${webhook.id}/${webhook.token}`), { method: "DELETE" });
     expect(del.status).toBe(204);

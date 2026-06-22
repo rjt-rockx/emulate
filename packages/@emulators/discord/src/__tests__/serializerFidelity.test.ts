@@ -1,22 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "./helpers.js";
-import { getDiscordStore } from "../store.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "./helpers.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
-  const ds = getDiscordStore(store);
-  return {
-    guild: ds.guilds.findOneBy("name", "Emulate Server")!.snowflake,
-    bot: ds.users.findOneBy("username", "emulate-bot")!.snowflake,
-    developer: ds.users.findOneBy("username", "developer")!.snowflake,
-    voice: ds.channels.findBy("guild_snowflake", ds.guilds.findOneBy("name", "Emulate Server")!.snowflake).find((c) => c.type === 2)!.snowflake,
-  };
+  const s = seededIds(store);
+  return { guild: s.guild, bot: s.bot, developer: s.developer, voice: s.voice };
 }
 
 describe("serializer fidelity", () => {
   it("guild object includes the documented extended fields", async () => {
     const { app, store } = createDiscordTestApp();
     const { guild } = ids(store);
-    const g = (await (await app.request(api(`/guilds/${guild}`), { headers: botHeaders() })).json()) as Record<string, unknown>;
+    const g = await json<Record<string, unknown>>(await app.request(api(`/guilds/${guild}`), { headers: botHeaders() }));
     for (const key of [
       "premium_progress_bar_enabled",
       "max_members",
@@ -36,7 +30,7 @@ describe("serializer fidelity", () => {
   it("voice channel carries voice-specific fields", async () => {
     const { app, store } = createDiscordTestApp();
     const { voice } = ids(store);
-    const c = (await (await app.request(api(`/channels/${voice}`), { headers: botHeaders() })).json()) as Record<string, unknown>;
+    const c = await json<Record<string, unknown>>(await app.request(api(`/channels/${voice}`), { headers: botHeaders() }));
     expect(c.video_quality_mode).toBe(1);
     expect("rtc_region" in c).toBe(true);
     expect(c.flags).toBe(0);
@@ -45,11 +39,11 @@ describe("serializer fidelity", () => {
   it("DM channel does not leak guild-only fields", async () => {
     const { app, store } = createDiscordTestApp();
     const { developer } = ids(store);
-    const dm = (await (await app.request(api("/users/@me/channels"), {
+    const dm = await json<Record<string, unknown>>(await app.request(api("/users/@me/channels"), {
       method: "POST",
       headers: botHeaders(),
       body: JSON.stringify({ recipient_id: developer }),
-    })).json()) as Record<string, unknown>;
+    }));
     expect(dm.type).toBe(1);
     expect("permission_overwrites" in dm).toBe(false);
     expect("position" in dm).toBe(false);
@@ -66,6 +60,6 @@ describe("serializer fidelity", () => {
       body: JSON.stringify({ communication_disabled_until: until }),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { communication_disabled_until: string }).communication_disabled_until).toBe(until);
+    expect((await json<{ communication_disabled_until: string }>(res)).communication_disabled_until).toBe(until);
   });
 });

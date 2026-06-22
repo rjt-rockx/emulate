@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, TEST_BASE_URL } from "./helpers.js";
+import { createDiscordTestApp, api, json, TEST_BASE_URL } from "./helpers.js";
 
 const seed = {
   oauth_apps: [
@@ -61,7 +61,7 @@ describe("discord oauth2", () => {
       body: tokenBody.toString(),
     });
     expect(tokenRes.status).toBe(200);
-    const token = (await tokenRes.json()) as { access_token: string; token_type: string; scope: string };
+    const token = await json<{ access_token: string; token_type: string; scope: string }>(tokenRes);
     expect(token.token_type).toBe("Bearer");
     expect(token.access_token).toBeTruthy();
 
@@ -70,7 +70,7 @@ describe("discord oauth2", () => {
       headers: { Authorization: `Bearer ${token.access_token}` },
     });
     expect(meRes.status).toBe(200);
-    const me = (await meRes.json()) as { scopes: string[]; user: { username: string } };
+    const me = await json<{ scopes: string[]; user: { username: string } }>(meRes);
     expect(me.user.username).toBe("developer");
     expect(me.scopes).toContain("identify");
   });
@@ -92,7 +92,7 @@ describe("discord oauth2", () => {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ grant_type: "client_credentials", client_id: "cid", client_secret: "secret", scope: "identify" }).toString(),
     });
-    const token = (await res.json()) as { access_token: string; refresh_token?: string };
+    const token = await json<{ access_token: string; refresh_token?: string }>(res);
     expect(token.access_token).toBeTruthy();
     expect(token.refresh_token).toBeUndefined();
   });
@@ -110,7 +110,7 @@ describe("discord oauth2", () => {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ grant_type: "authorization_code", code, client_id: "cid", client_secret: "secret", redirect_uri: "http://localhost:3000/cb" }).toString(),
     });
-    return (await res.json()) as { access_token: string; refresh_token: string };
+    return json<{ access_token: string; refresh_token: string }>(res);
   }
 
   it("exchanges a refresh_token for a fresh access token (rotating it)", async () => {
@@ -124,7 +124,7 @@ describe("discord oauth2", () => {
       body: new URLSearchParams({ grant_type: "refresh_token", client_id: "cid", client_secret: "secret", refresh_token: first.refresh_token }).toString(),
     });
     expect(refreshed.status).toBe(200);
-    const next = (await refreshed.json()) as { access_token: string; refresh_token: string; scope: string };
+    const next = await json<{ access_token: string; refresh_token: string; scope: string }>(refreshed);
     expect(next.access_token).not.toBe(first.access_token);
     expect(next.scope).toContain("identify");
 

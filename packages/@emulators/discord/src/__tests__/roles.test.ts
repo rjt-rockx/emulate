@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "./helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "./helpers.js";
 import { getDiscordStore } from "../store.js";
 
 function guildId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).guilds.findOneBy("name", "Emulate Server")!.snowflake;
+  return seededIds(store).guild;
 }
 
 describe("roles — full surface and parity", () => {
@@ -22,7 +22,7 @@ describe("roles — full surface and parity", () => {
       }),
     });
     expect(res.status).toBe(200);
-    const role = (await res.json()) as Record<string, unknown>;
+    const role = await json<Record<string, unknown>>(res);
     expect(role.name).toBe("Moderator");
     expect(role.color).toBe(0x5865f2);
     expect(role.hoist).toBe(true);
@@ -43,7 +43,7 @@ describe("roles — full surface and parity", () => {
       headers: botHeaders(),
       body: JSON.stringify({ name: "x", permissions: 274877906944 }),
     });
-    const role = (await res.json()) as Record<string, unknown>;
+    const role = await json<Record<string, unknown>>(res);
     expect(typeof role.permissions).toBe("string");
     expect(role.permissions).toBe("274877906944");
   });
@@ -56,7 +56,7 @@ describe("roles — full surface and parity", () => {
       body: JSON.stringify({ name: "a".repeat(101) }),
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { code: number; errors?: { name?: unknown } };
+    const body = await json<{ code: number; errors?: { name?: unknown } }>(res);
     expect(body.code).toBe(50035);
     expect(body.errors?.name).toBeDefined();
   });
@@ -69,7 +69,7 @@ describe("roles — full surface and parity", () => {
       body: JSON.stringify({ name: "x", color: 0x1000000 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("enforces the 250-role cap with code 30005", async () => {
@@ -97,7 +97,7 @@ describe("roles — full surface and parity", () => {
       body: JSON.stringify({ name: "one too many" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(30005);
+    expect((await json<{ code: number }>(res)).code).toBe(30005);
   });
 
   it("PATCH round-trips the colors object (primary/secondary/tertiary colors)", async () => {
@@ -108,7 +108,7 @@ describe("roles — full surface and parity", () => {
       headers: botHeaders(),
       body: JSON.stringify({ name: "Gradient" }),
     });
-    const role = (await created.json()) as { id: string };
+    const role = await json<{ id: string }>(created);
     const colorsPayload = { primary_color: 0xff0000, secondary_color: 0x00ff00, tertiary_color: null };
     const res = await app.request(api(`/guilds/${gid}/roles/${role.id}`), {
       method: "PATCH",
@@ -116,7 +116,7 @@ describe("roles — full surface and parity", () => {
       body: JSON.stringify({ colors: colorsPayload }),
     });
     expect(res.status).toBe(200);
-    const updated = (await res.json()) as Record<string, unknown>;
+    const updated = await json<Record<string, unknown>>(res);
     // The serializer emits `colors` on the role object.
     expect(updated.colors).toBeDefined();
     const colors = updated.colors as { primary_color: number; secondary_color: number | null; tertiary_color: number | null };
@@ -125,7 +125,7 @@ describe("roles — full surface and parity", () => {
     expect(colors.tertiary_color).toBeNull();
     // Verify persistence via a follow-up GET.
     const getRes = await app.request(api(`/guilds/${gid}/roles/${role.id}`), { headers: botHeaders() });
-    const fetched = (await getRes.json()) as Record<string, unknown>;
+    const fetched = await json<Record<string, unknown>>(getRes);
     const fetchedColors = fetched.colors as { primary_color: number; secondary_color: number | null };
     expect(fetchedColors.primary_color).toBe(0xff0000);
     expect(fetchedColors.secondary_color).toBe(0x00ff00);
@@ -139,14 +139,14 @@ describe("roles — full surface and parity", () => {
       headers: botHeaders(),
       body: JSON.stringify({ name: "Booster" }),
     });
-    const role = (await created.json()) as { id: string };
+    const role = await json<{ id: string }>(created);
     const res = await app.request(api(`/guilds/${gid}/roles/${role.id}`), {
       method: "PATCH",
       headers: botHeaders(),
       body: JSON.stringify({ unicode_emoji: "⭐", flags: 1 }),
     });
     expect(res.status).toBe(200);
-    const updated = (await res.json()) as Record<string, unknown>;
+    const updated = await json<Record<string, unknown>>(res);
     expect(updated.unicode_emoji).toBe("⭐");
     expect(updated.flags).toBe(1);
   });
@@ -156,7 +156,7 @@ describe("roles — full surface and parity", () => {
     const gid = guildId(store);
     const res = await app.request(api(`/guilds/${gid}/roles/${gid}`), { method: "DELETE", headers: botHeaders() });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50028);
+    expect((await json<{ code: number }>(res)).code).toBe(50028);
   });
 
   it("deleting a role strips it from every member that held it", async () => {
@@ -168,7 +168,7 @@ describe("roles — full surface and parity", () => {
       headers: botHeaders(),
       body: JSON.stringify({ name: "Temp" }),
     });
-    const role = (await created.json()) as { id: string };
+    const role = await json<{ id: string }>(created);
     const member = ds.members.findBy("guild_snowflake", gid)[0];
     ds.members.update(member.id, { role_snowflakes: [role.id] });
 
@@ -185,7 +185,7 @@ describe("roles — full surface and parity", () => {
       body: JSON.stringify({ name: "ghost" }),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10011);
+    expect((await json<{ code: number }>(res)).code).toBe(10011);
   });
 
   it("records a Role Create audit entry carrying the X-Audit-Log-Reason", async () => {
@@ -247,6 +247,6 @@ describe("roles — hierarchy enforcement (opt-in)", () => {
       { method: "PUT", headers: botHeaders() },
     );
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { code: number }).code).toBe(50013);
+    expect((await json<{ code: number }>(res)).code).toBe(50013);
   });
 });

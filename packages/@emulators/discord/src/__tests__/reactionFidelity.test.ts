@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import WebSocket from "ws";
-import { createDiscordTestApp, startDiscordTestEmulator, api, botHeaders, type RunningDiscordEmulator } from "./helpers.js";
+import { createDiscordTestApp, startDiscordTestEmulator, api, botHeaders, json, type RunningDiscordEmulator } from "./helpers.js";
 import { getDiscordStore } from "../store.js";
 import { GatewayOpcodes } from "../gateway/opcodes.js";
 import { Intents } from "../gateway/intents.js";
@@ -10,20 +10,20 @@ describe("reaction object fidelity", () => {
     const { app, store } = createDiscordTestApp();
     const ds = getDiscordStore(store);
     const channel = ds.channels.findOneBy("name", "general")!.snowflake;
-    const msg = (await (await app.request(api(`/channels/${channel}/messages`), {
+    const msg = await json<{ id: string }>(await app.request(api(`/channels/${channel}/messages`), {
       method: "POST",
       headers: botHeaders(),
       body: JSON.stringify({ content: "react to me" }),
-    })).json()) as { id: string };
+    }));
 
     await app.request(api(`/channels/${channel}/messages/${msg.id}/reactions/${encodeURIComponent("👍")}/@me`), {
       method: "PUT",
       headers: botHeaders(),
     });
 
-    const fetched = (await (await app.request(api(`/channels/${channel}/messages/${msg.id}`), { headers: botHeaders() })).json()) as {
+    const fetched = await json<{
       reactions: Array<{ count: number; count_details: { burst: number; normal: number }; me_burst: boolean; burst_colors: unknown[] }>;
-    };
+    }>(await app.request(api(`/channels/${channel}/messages/${msg.id}`), { headers: botHeaders() }));
     expect(fetched.reactions[0].count).toBe(1);
     expect(fetched.reactions[0].count_details).toEqual({ burst: 0, normal: 1 });
     expect(fetched.reactions[0].me_burst).toBe(false);
@@ -61,11 +61,11 @@ describe("reaction gateway event fidelity", () => {
       check();
     });
 
-    const msg = (await (await fetch(api(`/channels/${channel}/messages`, emu.baseUrl), {
+    const msg = await json<{ id: string }>(await fetch(api(`/channels/${channel}/messages`, emu.baseUrl), {
       method: "POST",
       headers: botHeaders(),
       body: JSON.stringify({ content: "hi" }),
-    })).json()) as { id: string };
+    }));
 
     await fetch(api(`/channels/${channel}/messages/${msg.id}/reactions/${encodeURIComponent("🎉")}/@me`, emu.baseUrl), {
       method: "PUT",

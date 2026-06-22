@@ -1,9 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "./helpers.js";
-import { getDiscordStore } from "../store.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "./helpers.js";
 
 function guildId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).guilds.findOneBy("name", "Emulate Server")!.snowflake;
+  return seededIds(store).guild;
 }
 
 describe("permission enforcement (opt-in)", () => {
@@ -25,12 +24,12 @@ describe("permission enforcement (opt-in)", () => {
       body: JSON.stringify({ name: "Staff" }),
     });
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { code: number }).code).toBe(50013);
+    expect((await json<{ code: number }>(res)).code).toBe(50013);
   });
 
   it("when enabled, still allows an action the @everyone role grants (SendMessages)", async () => {
     const { app, store } = createDiscordTestApp({ enforce_permissions: true });
-    const channel = getDiscordStore(store).channels.findOneBy("name", "general")!.snowflake;
+    const channel = seededIds(store).general;
     const res = await app.request(api(`/channels/${channel}/messages`), {
       method: "POST",
       headers: botHeaders(),
@@ -47,7 +46,7 @@ describe("permission enforcement (opt-in)", () => {
       headers: botHeaders(),
       body: JSON.stringify({ name: "Bot's Server" }),
     });
-    const guild = (await created.json()) as { id: string };
+    const guild = await json<{ id: string }>(created);
     const role = await app.request(api(`/guilds/${guild.id}/roles`), {
       method: "POST",
       headers: botHeaders(),

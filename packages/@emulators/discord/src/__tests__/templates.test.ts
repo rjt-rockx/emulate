@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "./helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "./helpers.js";
 import { getDiscordStore } from "../store.js";
 
 function guildId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).guilds.findOneBy("name", "Emulate Server")!.snowflake;
+  return seededIds(store).guild;
 }
 
 describe("discord guild templates", () => {
@@ -11,30 +11,30 @@ describe("discord guild templates", () => {
     const { app, store } = createDiscordTestApp();
     const gid = guildId(store);
 
-    const created = (await (
+    const created = await json<{ code: string; name: string; source_guild_id: string }>(
       await app.request(api(`/guilds/${gid}/templates`), {
         method: "POST",
         headers: botHeaders(),
         body: JSON.stringify({ name: "Starter", description: "A starter template" }),
       })
-    ).json()) as { code: string; name: string; source_guild_id: string };
+    );
     expect(created.name).toBe("Starter");
     expect(created.source_guild_id).toBe(gid);
 
-    const list = (await (await app.request(api(`/guilds/${gid}/templates`), { headers: botHeaders() })).json()) as Array<{ code: string }>;
+    const list = await json<Array<{ code: string }>>(await app.request(api(`/guilds/${gid}/templates`), { headers: botHeaders() }));
     expect(list.some((t) => t.code === created.code)).toBe(true);
 
     const got = await app.request(api(`/guilds/templates/${created.code}`), { headers: botHeaders() });
     expect(got.status).toBe(200);
 
     const guildsBefore = getDiscordStore(store).guilds.all().length;
-    const newGuild = (await (
+    const newGuild = await json<{ id: string; name: string; channels: unknown[] }>(
       await app.request(api(`/guilds/templates/${created.code}`), {
         method: "POST",
         headers: botHeaders(),
         body: JSON.stringify({ name: "My New Server" }),
       })
-    ).json()) as { id: string; name: string; channels: unknown[] };
+    );
     expect(newGuild.name).toBe("My New Server");
     expect(getDiscordStore(store).guilds.all().length).toBe(guildsBefore + 1);
     expect((newGuild.channels as unknown[]).length).toBeGreaterThan(0);

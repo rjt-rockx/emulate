@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "./helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "./helpers.js";
 import { getDiscordStore } from "../store.js";
 
 function chan(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).channels.findOneBy("name", "general")!.snowflake;
+  return seededIds(store).general;
 }
 
 async function post(app: ReturnType<typeof createDiscordTestApp>["app"], channel: string, body: unknown) {
@@ -66,7 +66,7 @@ describe("message fidelity", () => {
       body: form,
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { content: string; attachments: Array<{ id: string; filename: string; content_type: string; description?: string; url: string }> };
+    const msg = await json<{ content: string; attachments: Array<{ id: string; filename: string; content_type: string; description?: string; url: string }> }>(res);
     expect(msg.content).toBe("see attached");
     expect(msg.attachments).toHaveLength(1);
     expect(msg.attachments[0].filename).toBe("hello.txt");
@@ -80,7 +80,7 @@ describe("message fidelity", () => {
     const channel = chan(store);
     const res = await app.request(api(`/channels/${channel}/messages`), { method: "POST", headers: botHeaders(), body: JSON.stringify({}) });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50006);
+    expect((await json<{ code: number }>(res)).code).toBe(50006);
   });
 
   it("webhook execute honors a custom username and avatar", async () => {

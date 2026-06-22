@@ -7,6 +7,8 @@ import {
   startDiscordTestEmulator,
   api,
   botHeaders,
+  json,
+  seededIds,
   TEST_BASE_URL,
   type RunningDiscordEmulator,
 } from "./helpers.js";
@@ -16,7 +18,7 @@ import { GatewayOpcodes } from "../gateway/opcodes.js";
 import { Intents } from "../gateway/intents.js";
 
 function appId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).applications.all()[0].snowflake;
+  return seededIds(store).app;
 }
 
 describe("discord application commands", () => {
@@ -30,21 +32,21 @@ describe("discord application commands", () => {
       body: JSON.stringify({ name: "ping", description: "Replies with pong" }),
     });
     expect(createRes.status).toBe(201);
-    const cmd = (await createRes.json()) as { id: string; name: string };
+    const cmd = await json<{ id: string; name: string }>(createRes);
     expect(cmd.name).toBe("ping");
 
-    const list = (await (await app.request(api(`/applications/${aid}/commands`), { headers: botHeaders() })).json()) as Array<{ name: string }>;
+    const list = await json<Array<{ name: string }>>(await app.request(api(`/applications/${aid}/commands`), { headers: botHeaders() }));
     expect(list.some((c) => c.name === "ping")).toBe(true);
 
-    const gid = getDiscordStore(store).guilds.findOneBy("name", "Emulate Server")!.snowflake;
+    const gid = seededIds(store).guild;
     await app.request(api(`/applications/${aid}/guilds/${gid}/commands`), {
       method: "POST",
       headers: botHeaders(),
       body: JSON.stringify({ name: "hello", description: "guild only" }),
     });
-    const guildList = (await (
+    const guildList = await json<Array<{ name: string }>>(
       await app.request(api(`/applications/${aid}/guilds/${gid}/commands`), { headers: botHeaders() })
-    ).json()) as Array<{ name: string }>;
+    );
     expect(guildList.some((c) => c.name === "hello")).toBe(true);
 
     const del = await app.request(api(`/applications/${aid}/commands/${cmd.id}`), { method: "DELETE", headers: botHeaders() });
@@ -63,7 +65,7 @@ describe("application command validation", () => {
       body: JSON.stringify({ name: "Ping", description: "x" }),
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { code: number; errors: { name?: unknown } };
+    const body = await json<{ code: number; errors: { name?: unknown } }>(res);
     expect(body.code).toBe(50035);
     expect(body.errors.name).toBeTruthy();
   });
@@ -76,7 +78,7 @@ describe("application command validation", () => {
       body: JSON.stringify({ name: "ping" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("allows a USER context-menu name with spaces and capitals", async () => {
@@ -101,8 +103,7 @@ describe("discord interactions over the gateway", () => {
 
   it("dispatches INTERACTION_CREATE and the bot reply creates a message", async () => {
     emu = await startDiscordTestEmulator();
-    const ds = getDiscordStore(emu.store);
-    const aid = ds.applications.all()[0].snowflake;
+    const { app: aid, general: channelId } = seededIds(emu.store);
     // register a command
     await fetch(api(`/applications/${aid}/commands`, emu.baseUrl), {
       method: "POST",
@@ -140,13 +141,12 @@ describe("discord interactions over the gateway", () => {
     await waitFor("READY");
 
     // trigger the slash command
-    const channelId = ds.channels.findOneBy("name", "general")!.snowflake;
     const triggerRes = await fetch(`${emu.baseUrl}/__emulate/interactions`, {
       method: "POST",
       headers: botHeaders(),
       body: JSON.stringify({ type: 2, commandName: "ping", channelSnowflake: channelId }),
     });
-    const trigger = (await triggerRes.json()) as { id: string; token: string };
+    const trigger = await json<{ id: string; token: string }>(triggerRes);
 
     const interaction = await waitFor("INTERACTION_CREATE");
     expect((interaction.d as { data: { name: string } }).data.name).toBe("ping");
@@ -167,7 +167,7 @@ describe("discord interactions over the gateway", () => {
       headers: botHeaders(),
     });
     expect(original.status).toBe(200);
-    expect(((await original.json()) as { content: string }).content).toBe("pong");
+    expect((await json<{ content: string }>(original)).content).toBe("pong");
   });
 });
 
@@ -199,7 +199,7 @@ describe("discord HTTP interactions endpoint (Ed25519)", () => {
       application: { public_key: publicKeyHex, private_key: privateKeyPem, interactions_endpoint_url: endpointUrl },
     });
     const ds = getDiscordStore(store);
-    const channelId = ds.channels.findOneBy("name", "general")!.snowflake;
+    const channelId = seededIds(store).general;
     const before = ds.messages.findBy("channel_snowflake", channelId).length;
 
     const res = await app.request(`${TEST_BASE_URL}/__emulate/interactions`, {
@@ -207,7 +207,7 @@ describe("discord HTTP interactions endpoint (Ed25519)", () => {
       headers: botHeaders(),
       body: JSON.stringify({ type: 2, commandName: "ping", channelSnowflake: channelId }),
     });
-    const body = (await res.json()) as { delivered: string; response: { type: number; data: { content: string } } | null };
+    const body = await json<{ delivered: string; response: { type: number; data: { content: string } } | null }>(res);
 
     expect(verified).toBe(true);
     expect(received).toBe(1);

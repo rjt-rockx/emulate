@@ -4,7 +4,7 @@ import { discordPlugin } from "../index.js";
 import { getDiscordRuntime } from "../runtime.js";
 import { getDiscordStore } from "../store.js";
 import { lobbiesRoutes } from "../routes/lobbies.js";
-import { api, botHeaders, TEST_BASE_URL } from "./helpers.js";
+import { api, botHeaders, json, TEST_BASE_URL } from "./helpers.js";
 
 function build() {
   const store = new Store();
@@ -49,12 +49,12 @@ describe("discord lobbies", () => {
       body: JSON.stringify({ metadata: { mode: "casual" } }),
     });
     expect(createRes.status).toBe(201);
-    const lobby = (await createRes.json()) as {
+    const lobby = await json<{
       id: string;
       application_id: string;
       metadata: Record<string, string>;
       members: Array<{ id: string; metadata: unknown; flags: number }>;
-    };
+    }>(createRes);
     expect(typeof lobby.id).toBe("string");
     expect(lobby.metadata?.mode).toBe("casual");
     const lobbyId = lobby.id;
@@ -62,7 +62,7 @@ describe("discord lobbies", () => {
     // 2. GET the lobby
     const getRes = await app.request(api(`/lobbies/${lobbyId}`), { headers: botHeaders() });
     expect(getRes.status).toBe(200);
-    const fetched = (await getRes.json()) as { id: string; metadata: Record<string, string> };
+    const fetched = await json<{ id: string; metadata: Record<string, string> }>(getRes);
     expect(fetched.id).toBe(lobbyId);
     expect(fetched.metadata?.mode).toBe("casual");
 
@@ -73,7 +73,7 @@ describe("discord lobbies", () => {
       body: JSON.stringify({ metadata: { role: "scout" }, flags: 1 }),
     });
     expect(addMemberRes.status).toBe(200);
-    const member = (await addMemberRes.json()) as { id: string; metadata: Record<string, string>; flags: number };
+    const member = await json<{ id: string; metadata: Record<string, string>; flags: number }>(addMemberRes);
     expect(member.id).toBe(secondUser.snowflake);
     expect(member.metadata?.role).toBe("scout");
     expect(member.flags).toBe(1);
@@ -81,9 +81,9 @@ describe("discord lobbies", () => {
     // 4. GET shows member
     const getWithMemberRes = await app.request(api(`/lobbies/${lobbyId}`), { headers: botHeaders() });
     expect(getWithMemberRes.status).toBe(200);
-    const withMember = (await getWithMemberRes.json()) as {
+    const withMember = await json<{
       members: Array<{ id: string }>;
-    };
+    }>(getWithMemberRes);
     expect(withMember.members.some((m) => m.id === secondUser.snowflake)).toBe(true);
 
     // 5. Post a message
@@ -93,13 +93,13 @@ describe("discord lobbies", () => {
       body: JSON.stringify({ content: "Hello lobby!", metadata: { priority: "high" } }),
     });
     expect(msgRes.status).toBe(200);
-    const msg = (await msgRes.json()) as {
+    const msg = await json<{
       id: string;
       type: number;
       content: string;
       lobby_id: string;
       flags: number;
-    };
+    }>(msgRes);
     expect(msg.content).toBe("Hello lobby!");
     expect(msg.lobby_id).toBe(lobbyId);
     expect(msg.type).toBe(0);
@@ -108,7 +108,7 @@ describe("discord lobbies", () => {
     // 6. List messages (most recent first)
     const listRes = await app.request(api(`/lobbies/${lobbyId}/messages`), { headers: botHeaders() });
     expect(listRes.status).toBe(200);
-    const messages = (await listRes.json()) as Array<{ id: string; content: string }>;
+    const messages = await json<Array<{ id: string; content: string }>>(listRes);
     expect(messages.length).toBeGreaterThan(0);
     expect(messages[0].content).toBe("Hello lobby!");
 
@@ -121,7 +121,7 @@ describe("discord lobbies", () => {
 
     // Verify member removed
     const afterRemoveRes = await app.request(api(`/lobbies/${lobbyId}`), { headers: botHeaders() });
-    const afterRemove = (await afterRemoveRes.json()) as { members: Array<{ id: string }> };
+    const afterRemove = await json<{ members: Array<{ id: string }> }>(afterRemoveRes);
     expect(afterRemove.members.every((m) => m.id !== secondUser.snowflake)).toBe(true);
 
     // 8. Delete lobby
@@ -151,7 +151,7 @@ describe("discord lobbies", () => {
       body: JSON.stringify({ secret: "my-game-secret", lobby_metadata: { map: "forest" } }),
     });
     expect(createRes.status).toBe(200);
-    const created = (await createRes.json()) as { id: string; metadata: Record<string, string> };
+    const created = await json<{ id: string; metadata: Record<string, string> }>(createRes);
     expect(typeof created.id).toBe("string");
     // secret is stored in metadata but lobby is returned
     const lobbyId = created.id;
@@ -163,7 +163,7 @@ describe("discord lobbies", () => {
       body: JSON.stringify({ secret: "my-game-secret", lobby_metadata: { map: "forest" } }),
     });
     expect(joinRes.status).toBe(200);
-    const joined = (await joinRes.json()) as { id: string };
+    const joined = await json<{ id: string }>(joinRes);
     // Should return the same lobby
     expect(joined.id).toBe(lobbyId);
   });
@@ -177,7 +177,7 @@ describe("discord lobbies", () => {
       headers: botHeaders(),
       body: JSON.stringify({ metadata: { status: "waiting" } }),
     });
-    const lobby = (await createRes.json()) as { id: string };
+    const lobby = await json<{ id: string }>(createRes);
     const lobbyId = lobby.id;
 
     // Patch metadata
@@ -187,7 +187,7 @@ describe("discord lobbies", () => {
       body: JSON.stringify({ metadata: { status: "active" } }),
     });
     expect(patchRes.status).toBe(200);
-    const patched = (await patchRes.json()) as { metadata: Record<string, string> };
+    const patched = await json<{ metadata: Record<string, string> }>(patchRes);
     expect(patched.metadata?.status).toBe("active");
   });
 
@@ -238,7 +238,7 @@ describe("discord lobbies", () => {
       headers: botHeaders(),
       body: JSON.stringify({}),
     });
-    const lobby = (await createRes.json()) as { id: string };
+    const lobby = await json<{ id: string }>(createRes);
     const lobbyId = lobby.id;
 
     // Bulk add members
@@ -253,7 +253,7 @@ describe("discord lobbies", () => {
       }),
     });
     expect(bulkRes.status).toBe(200);
-    const bulkResult = (await bulkRes.json()) as Array<{ id: string }>;
+    const bulkResult = await json<Array<{ id: string }>>(bulkRes);
     expect(bulkResult.length).toBe(2);
     expect(bulkResult.some((m) => m.id === userA.snowflake)).toBe(true);
     expect(bulkResult.some((m) => m.id === userB.snowflake)).toBe(true);
@@ -268,7 +268,7 @@ describe("discord lobbies", () => {
       headers: botHeaders(),
       body: JSON.stringify({}),
     });
-    const lobby = (await createRes.json()) as { id: string };
+    const lobby = await json<{ id: string }>(createRes);
     const lobbyId = lobby.id;
 
     // Link a channel
@@ -278,7 +278,7 @@ describe("discord lobbies", () => {
       body: JSON.stringify({ channel_id: "777000000000000001" }),
     });
     expect(linkRes.status).toBe(200);
-    const linked = (await linkRes.json()) as { linked_channel?: { id: string } };
+    const linked = await json<{ linked_channel?: { id: string } }>(linkRes);
     expect(linked.linked_channel?.id).toBe("777000000000000001");
 
     // Unlink (null channel_id)
@@ -288,7 +288,7 @@ describe("discord lobbies", () => {
       body: JSON.stringify({ channel_id: null }),
     });
     expect(unlinkRes.status).toBe(200);
-    const unlinked = (await unlinkRes.json()) as { linked_channel?: unknown };
+    const unlinked = await json<{ linked_channel?: unknown }>(unlinkRes);
     expect(unlinked.linked_channel).toBeUndefined();
   });
 
@@ -306,7 +306,7 @@ describe("discord lobbies", () => {
       headers: botHeaders(),
       body: JSON.stringify({}),
     });
-    const lobby = (await createRes.json()) as { id: string };
+    const lobby = await json<{ id: string }>(createRes);
     const lobbyId = lobby.id;
 
     if (botUser) {
@@ -336,7 +336,7 @@ describe("discord lobbies", () => {
       headers: botHeaders(),
       body: JSON.stringify({}),
     });
-    const lobby = (await createRes.json()) as { id: string };
+    const lobby = await json<{ id: string }>(createRes);
     const lobbyId = lobby.id;
 
     // Link a channel so invite endpoints are accessible (lobby.mdx:292,301).
@@ -355,7 +355,7 @@ describe("discord lobbies", () => {
       headers: botHeaders(),
     });
     expect(meInviteRes.status).toBe(200);
-    const meInvite = (await meInviteRes.json()) as { lobby_id: string; code: string };
+    const meInvite = await json<{ lobby_id: string; code: string }>(meInviteRes);
     expect(meInvite.lobby_id).toBe(lobbyId);
     expect(typeof meInvite.code).toBe("string");
 
@@ -391,7 +391,7 @@ describe("discord lobbies", () => {
       headers: botHeaders(),
     });
     expect(userInviteRes.status).toBe(200);
-    const userInvite = (await userInviteRes.json()) as { lobby_id: string; code: string };
+    const userInvite = await json<{ lobby_id: string; code: string }>(userInviteRes);
     expect(userInvite.lobby_id).toBe(lobbyId);
   });
 
@@ -404,7 +404,7 @@ describe("discord lobbies", () => {
       headers: botHeaders(),
       body: JSON.stringify({}),
     });
-    const lobby = (await createRes.json()) as { id: string };
+    const lobby = await json<{ id: string }>(createRes);
     const lobbyId = lobby.id;
 
     const msgRes = await app.request(api(`/lobbies/${lobbyId}/messages`), {
@@ -412,7 +412,7 @@ describe("discord lobbies", () => {
       headers: botHeaders(),
       body: JSON.stringify({ content: "test" }),
     });
-    const msg = (await msgRes.json()) as { id: string };
+    const msg = await json<{ id: string }>(msgRes);
 
     const modRes = await app.request(api(`/lobbies/${lobbyId}/messages/${msg.id}/moderation-metadata`), {
       method: "PUT",
