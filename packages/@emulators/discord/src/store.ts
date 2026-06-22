@@ -121,7 +121,11 @@ export function getDiscordStore(store: Store): DiscordStore {
       "user_snowflake",
     ]),
     threadMembers: store.collection<DiscordThreadMember>("discord.thread_members", ["thread_snowflake", "user_snowflake"]),
-    stageInstances: store.collection<DiscordStageInstance>("discord.stage_instances", ["snowflake", "channel_snowflake"]),
+    stageInstances: store.collection<DiscordStageInstance>("discord.stage_instances", [
+      "snowflake",
+      "channel_snowflake",
+      "guild_snowflake",
+    ]),
     autoModRules: store.collection<DiscordAutoModRule>("discord.automod_rules", ["snowflake", "guild_snowflake"]),
     guildTemplates: store.collection<DiscordGuildTemplate>("discord.guild_templates", ["code", "source_guild_snowflake"]),
     pollVotes: store.collection<DiscordPollVote>("discord.poll_votes", ["message_snowflake", "user_snowflake"]),

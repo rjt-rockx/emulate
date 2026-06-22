@@ -244,6 +244,108 @@ export function resolveBotUser(ds: DiscordStore, auth: DiscordAuth | null): Disc
 }
 
 // ---------------------------------------------------------------------------
+// Composition guards / lookups (collapse the repeated per-handler prologue)
+// ---------------------------------------------------------------------------
+
+/**
+ * The bot-auth guard every mutating handler opens with. Returns the resolved auth + store on
+ * success, or a 401 Response to return directly. Usage:
+ *   const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+ */
+export function requireBot(c: Context<AppEnv>, store: Store): { auth: DiscordAuth; ds: DiscordStore } | Response {
+  const auth = getAuth(c, store);
+  if (!auth || auth.type !== "bot") return unauthorized(c);
+  return { auth, ds: getDiscordStore(store) };
+}
+
+/** Like requireBot but for endpoints that accept any authenticated user (bot or bearer). */
+export function requireUser(c: Context<AppEnv>, store: Store): { auth: DiscordAuth; ds: DiscordStore } | Response {
+  const auth = getAuth(c, store);
+  if (!auth || !auth.user) return unauthorized(c);
+  return { auth, ds: getDiscordStore(store) };
+}
+
+/**
+ * Enforce an OAuth2 scope when `strict_scopes` is enabled. Bot tokens bypass. Returns a
+ * 403/50026 Response when the scope is missing, or null to proceed.
+ */
+export function requireScope(c: Context<AppEnv>, store: Store, auth: DiscordAuth, scope: string): Response | null {
+  if (store.getData<boolean>("discord.strict_scopes") !== true) return null;
+  if (auth.type === "bot") return null;
+  if (auth.scopes.includes(scope)) return null;
+  return discordError(c, 403, "Missing required OAuth2 scope", 50026);
+}
+
+/** Parse a JSON body leniently (empty object on absent/invalid), narrowed to a partial T. */
+export async function readBody<T extends object = Record<string, unknown>>(c: Context<AppEnv>): Promise<Partial<T>> {
+  return (await c.req.json().catch(() => ({}))) as Partial<T>;
+}
+
+/** Resolve a guild member by (guild, user) — the composite lookup the store cannot index. */
+export function getGuildMember(ds: DiscordStore, guildSnowflake: string, userSnowflake: string): DiscordGuildMember | undefined {
+  return ds.members.findBy("guild_snowflake", guildSnowflake).find((m) => m.user_snowflake === userSnowflake);
+}
+
+/** True when the user is a member of the guild. */
+export function hasGuildMember(ds: DiscordStore, guildSnowflake: string, userSnowflake: string): boolean {
+  return !!getGuildMember(ds, guildSnowflake, userSnowflake);
+}
+
+/** Build an audit `changes[]` array from the keys present in a patch (old -> new). */
+export function diffChanges(
+  before: Record<string, unknown>,
+  patch: Record<string, unknown>,
+  rename: Record<string, string> = {},
+): Array<{ key: string; old_value: unknown; new_value: unknown }> {
+  return Object.keys(patch).map((key) => ({
+    key: rename[key] ?? key,
+    old_value: before[key],
+    new_value: patch[key],
+  }));
+}
+
+export interface Pagination {
+  limit: number;
+  before?: string;
+  after?: string;
+}
+
+/** Parse the standard before/after/limit query params with a clamped limit. */
+export function parsePagination(c: Context<AppEnv>, opts: { defaultLimit: number; maxLimit: number }): Pagination {
+  const raw = c.req.query("limit");
+  const limit = raw !== undefined ? Math.max(0, Math.min(opts.maxLimit, Number(raw) || 0)) : opts.defaultLimit;
+  return { limit, before: c.req.query("before"), after: c.req.query("after") };
+}
+
+/**
+ * Page a list by snowflake id using BigInt comparison (never string comparison, which mis-orders
+ * snowflakes of different lengths). `before`/`after` are exclusive cursors; result is sliced to
+ * `limit` and returned in the input order.
+ */
+export function sliceBySnowflake<T>(rows: T[], idOf: (row: T) => string, page: Pagination): T[] {
+  let out = rows;
+  if (page.after) out = out.filter((r) => BigInt(idOf(r)) > BigInt(page.after!));
+  if (page.before) out = out.filter((r) => BigInt(idOf(r)) < BigInt(page.before!));
+  return out.slice(0, page.limit);
+}
+
+/** Load a guild by snowflake or return the canonical 10004 Response. */
+export function requireGuild(c: Context<AppEnv>, ds: DiscordStore, id: string): DiscordGuild | Response {
+  return ds.guilds.findOneBy("snowflake", id) ?? unknownGuild(c);
+}
+
+/** Load a channel by snowflake or return the canonical 10003 Response. */
+export function requireChannel(c: Context<AppEnv>, ds: DiscordStore, id: string): DiscordChannel | Response {
+  return ds.channels.findOneBy("snowflake", id) ?? unknownChannel(c);
+}
+
+/** Load a message in a specific channel or return the canonical 10008 Response. */
+export function requireMessage(c: Context<AppEnv>, ds: DiscordStore, channelId: string, id: string): DiscordMessage | Response {
+  const m = ds.messages.findOneBy("snowflake", id);
+  return m && m.channel_snowflake === channelId ? m : unknownMessage(c);
+}
+
+// ---------------------------------------------------------------------------
 // Message flags
 // ---------------------------------------------------------------------------
 
@@ -797,7 +899,7 @@ export function toAPIGuild(g: DiscordGuild, ds: DiscordStore, opts: GuildSeriali
         return state;
       });
     base.presences = [];
-    base.stage_instances = ds.stageInstances.all().filter((s) => s.guild_snowflake === g.snowflake).map(toAPIStageInstance);
+    base.stage_instances = ds.stageInstances.findBy("guild_snowflake", g.snowflake).map(toAPIStageInstance);
     base.guild_scheduled_events = ds.scheduledEvents
       .findBy("guild_snowflake", g.snowflake)
       .map((e) => toAPIScheduledEvent(e, ds));
