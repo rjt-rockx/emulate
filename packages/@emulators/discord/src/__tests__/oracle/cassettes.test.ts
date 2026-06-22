@@ -44,6 +44,10 @@ const KNOWN_MISSING: Record<string, string> = {
   "application.slug": "conditional; only for apps with a store listing",
   "application.integration_types_config.0.oauth2_install_params": "conditional; only when default install params are configured",
   "application.integration_types_config.1": "conditional; USER_INSTALL context, declared only when the app supports it",
+  // Invite targeting is conditional: only stream (target_type 1) and embedded-app (2) invites carry
+  // a target; a plain channel invite has neither.
+  "invite.target_type": "conditional; only on stream / embedded-application invites",
+  "invite.target_user": "conditional; only on stream invites",
 };
 
 type Diff = { path: string; kind: "missing" | "type"; detail?: string };
@@ -101,6 +105,19 @@ const DRIVERS: Record<string, Driver> = {
   emoji: ({ app, ids }) => post(app, `/guilds/${ids.guild}/emojis`, { name: "cassette_emoji", image: PNG }),
   webhook: ({ app, ids }) => post(app, `/channels/${ids.general}/webhooks`, { name: "cassette-hook" }),
   guild: ({ app, ids }) => get(app, `/guilds/${ids.guild}`),
+  automod_rule: ({ app, ids }) =>
+    post(app, `/guilds/${ids.guild}/auto-moderation/rules`, {
+      name: "cassette-rule",
+      event_type: 1,
+      trigger_type: 1,
+      trigger_metadata: { keyword_filter: ["x"] },
+      actions: [{ type: 1, metadata: { custom_message: "blocked by cassette" } }],
+    }),
+  stage_instance: async ({ app, ids }) => {
+    const stage = (await post(app, `/guilds/${ids.guild}/channels`, { name: "cassette-stage", type: 13 })) as { id: string };
+    return post(app, `/stage-instances`, { topic: "cassette stage", channel_id: stage.id });
+  },
+  invite: ({ app, ids }) => post(app, `/channels/${ids.general}/invites`, {}),
   // The docs example is a STANDARD (type 1, packaged) sticker, so fetch one from the catalog.
   sticker: async ({ app }) => {
     const packs = (await get(app, "/sticker-packs")) as { sticker_packs: Array<{ stickers: unknown[] }> };
