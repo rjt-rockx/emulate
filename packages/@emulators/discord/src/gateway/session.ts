@@ -1,5 +1,5 @@
 import type { WebSocket } from "ws";
-import type { ZlibCompressor } from "./compression.js";
+import type { StreamCompressor } from "./compression.js";
 
 /** A dispatched event retained so a resuming client can replay what it missed. */
 export interface BufferedEvent {
@@ -28,8 +28,8 @@ export interface GatewaySession {
   /** Recently dispatched events, retained for RESUME replay (bounded). */
   buffer: BufferedEvent[];
   encoding: "json" | "etf";
-  /** Set when the connection requested transport compression (zlib-stream): one shared zlib stream. */
-  compressor?: ZlibCompressor;
+  /** Set when the connection requested transport compression (zlib-stream/zstd-stream): one shared stream. */
+  compressor?: StreamCompressor;
   /**
    * Set when the connection requested Identify-level payload compression (`compress: true`) and no
    * transport compression. Each dispatched payload is its own independent, complete zlib block —

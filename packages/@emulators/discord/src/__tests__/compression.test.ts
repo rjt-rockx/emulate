@@ -79,6 +79,56 @@ describe("discord gateway zlib-stream compression", () => {
     ws.close();
   });
 
+  it("compresses gateway frames with zstd-stream (discord.py 2.7+ default)", { timeout: 15000 }, async () => {
+    emu = await startDiscordTestEmulator();
+    const ws = new WebSocket(`${emu.gatewayUrl}?v=10&encoding=json&compress=zstd-stream`);
+    ws.on("error", () => void 0);
+    // A single shared zstd-stream decompress context, exactly as discord.py 2.7 uses.
+    const dec = zlib.createZstdDecompress();
+    let chunks: Buffer[] = [];
+    dec.on("data", (c: Buffer) => chunks.push(c));
+    let dq: Promise<unknown> = Promise.resolve();
+    const inflate = (buf: Buffer): Promise<{ op: number; t?: string | null; d?: unknown }> => {
+      const next = dq.then(
+        () =>
+          new Promise<{ op: number; t?: string | null; d?: unknown }>((resolve) => {
+            dec.write(buf, () => dec.flush(zlib.constants.ZSTD_e_flush, () => {
+              const text = Buffer.concat(chunks).toString("utf8");
+              chunks = [];
+              resolve(JSON.parse(text));
+            }));
+          }),
+      );
+      dq = next.catch(() => undefined);
+      return next;
+    };
+    const frames: Array<{ op: number; t?: string | null; d?: unknown }> = [];
+    const decodeQueue: Array<Promise<void>> = [];
+    ws.on("message", (data: Buffer, isBinary: boolean) => {
+      expect(isBinary).toBe(true); // compressed frames are binary
+      decodeQueue.push(inflate(data).then((f) => void frames.push(f)));
+    });
+    await new Promise<void>((resolve, reject) => {
+      ws.once("open", () => resolve());
+      ws.once("error", reject);
+    });
+    const waitFor = async (predicate: () => boolean, timeout = 4000) => {
+      const deadline = Date.now() + timeout;
+      while (Date.now() < deadline) {
+        await Promise.all(decodeQueue.splice(0));
+        if (predicate()) return;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      throw new Error("timeout");
+    };
+
+    await waitFor(() => frames.some((f) => f.op === GatewayOpcodes.Hello));
+    ws.send(JSON.stringify({ op: GatewayOpcodes.Identify, d: { token: "test_bot_token", intents: Intents.Guilds } }));
+    await waitFor(() => frames.some((f) => f.t === "READY"));
+    await waitFor(() => frames.some((f) => f.t === "GUILD_CREATE"));
+    ws.close();
+  });
+
   it("serves Identify compress:true as independent per-message zlib blocks (discordgo default)", { timeout: 15000 }, async () => {
     emu = await startDiscordTestEmulator();
     // No transport compression on the URL — payload compression is requested via IDENTIFY instead.

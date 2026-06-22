@@ -8,7 +8,7 @@ import { snowflake, toAPIUser, toAPIGuild, toAPIMember, toAPIVoiceState, gateway
 import { GatewayOpcodes, GatewayCloseCodes, HEARTBEAT_INTERVAL, type GatewayPayload } from "./opcodes.js";
 import { Intents, ALL_INTENTS, hasIntent, intentsAllow, disallowedPrivilegedIntents } from "./intents.js";
 import { type DiscordEventBus, type GatewayEvent } from "./dispatcher.js";
-import { ZlibCompressor } from "./compression.js";
+import { createZlibStreamCompressor, createZstdStreamCompressor } from "./compression.js";
 import { VoiceGatewayServer } from "./voice.js";
 import { packETF, unpackETF } from "./etf.js";
 import type { GatewaySession, ResumableState } from "./session.js";
@@ -149,9 +149,11 @@ export class GatewayServer {
       return;
     }
 
-    // discord.py defaults to transport compression; honor zlib-stream (a single zlib
-    // context for the connection). Other schemes (e.g. zstd-stream) fall back to plain.
-    if (compress === "zlib-stream") session.compressor = new ZlibCompressor();
+    // Transport compression: a single shared stream context for the connection. discord.py 2.7+
+    // defaults to zstd-stream when `zstandard` is installed (and Discord has supported it since 2024);
+    // older clients use zlib-stream. Anything else falls back to plain frames.
+    if (compress === "zlib-stream") session.compressor = createZlibStreamCompressor();
+    else if (compress === "zstd-stream") session.compressor = createZstdStreamCompressor();
 
     ws.on("message", (raw) => this.onMessage(session, raw));
     ws.on("close", () => this.removeSession(session, true));

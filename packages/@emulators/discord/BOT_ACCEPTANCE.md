@@ -72,6 +72,18 @@ Findings so far:
   nearly universal. Real Discord decodes the path. Fixed: the `:messageId` handlers recognize the
   decoded `@original` and delegate. Both bots otherwise booted fully (Tickets: 19 commands +
   channel/message/pin ticket flow; ModBot: 29 commands + ban/kick/timeout/audit-log all correct).
+- **Red-DiscordBot 3.5.24 (discord.py 2.7, high)** — booted fully (41 commands, slash sync, all
+  prefix/slash/hybrid flows clean) but found a high-impact transport gap: the emulator only
+  implemented `zlib-stream`, while **discord.py 2.7+ defaults to `zstd-stream`** when `zstandard` is
+  installed (Red bundles it) — so it requested zstd and crashed at READY (`ZstdError: Unknown frame
+  descriptor`) because the emulator silently sent plain frames. Real Discord has supported zstd-stream
+  since 2024. Fixed: implemented `zstd-stream` transport compression (Node `createZstdCompress` +
+  `ZSTD_e_flush`, shared per-connection context), generalizing the compressor. Also fixed the oracle
+  stub `discordpy_flow.py` to return discord.py 2.7's 3-tuple `get_bot_gateway`.
+- **py-cord 2.8.0 (no bug)** — clean across repeated runs: auto-sync, `choices`, `SlashCommandGroup`
+  subcommands, `on_message`, and the deferred-then-edit (`ctx.defer`→`followup`→`edit`) path all
+  worked; even py-cord's `GET /soundboard-default-sounds` connect call was served. (Override note: on
+  py-cord set `Route.API_BASE_URL`, not `Route.BASE`.)
 
 ## Backlog (from the curated lists)
 

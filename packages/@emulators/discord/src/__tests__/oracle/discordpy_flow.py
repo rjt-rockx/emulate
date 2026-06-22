@@ -33,7 +33,8 @@ async def _get_gateway(self, **kwargs):  # noqa: ANN001
 
 
 async def _get_bot_gateway(self, **kwargs):  # noqa: ANN001
-    return (1, WS_URL)
+    # discord.py 2.7 returns (shards, url, session_start_limit); AutoShardedClient unpacks all three.
+    return (1, WS_URL, {"total": 1000, "remaining": 1000, "reset_after": 0, "max_concurrency": 1})
 
 
 discord.http.HTTPClient.get_gateway = _get_gateway
