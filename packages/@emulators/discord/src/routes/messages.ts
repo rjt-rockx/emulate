@@ -26,6 +26,7 @@ import { Intents } from "../gateway/intents.js";
 import { PermissionFlags } from "../permissions.js";
 import type { DiscordMessage } from "../entities.js";
 import type { DiscordStore } from "../store.js";
+import type { APIMessage, APIGuildMember } from "discord-api-types/v10";
 
 const MENTION_RE = /<@!?(\d+)>/g;
 const ROLE_MENTION_RE = /<@&(\d+)>/g;
@@ -335,9 +336,16 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
    * the author's guild `member` and the `channel_type`. We augment locally rather than changing
    * toAPIMessage (which models the REST response).
    */
-  const gatewayMessagePayload = (m: DiscordMessage, ds: DiscordStore, rest: Record<string, unknown>): Record<string, unknown> => {
+  const gatewayMessagePayload = (
+    m: DiscordMessage,
+    ds: DiscordStore,
+    rest: APIMessage,
+  ): APIMessage & { channel_type?: number; member?: APIGuildMember } => {
     const channel = ds.channels.findOneBy("snowflake", m.channel_snowflake);
-    const payload: Record<string, unknown> = { ...rest, channel_type: channel?.type };
+    const payload: APIMessage & { channel_type?: number; member?: APIGuildMember } = {
+      ...rest,
+      channel_type: channel?.type,
+    };
     if (m.guild_snowflake) {
       const member = ds.members.findBy("guild_snowflake", m.guild_snowflake).find((mm) => mm.user_snowflake === m.author_snowflake);
       if (member) payload.member = toAPIMember(member, ds);

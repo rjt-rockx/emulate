@@ -1,4 +1,5 @@
 import type { DiscordRouteContext } from "../context.js";
+import type { APIGuildScheduledEvent } from "discord-api-types/v10";
 import { getDiscordStore, type DiscordStore } from "../store.js";
 import {
   getAuth,
@@ -232,7 +233,7 @@ function eventUserCount(ds: DiscordStore, eventSnowflake: string): number {
 }
 
 /** Serialize an event, refreshing user_count from the subscriber model. */
-function serializeEvent(e: DiscordScheduledEvent, ds: DiscordStore): Record<string, unknown> {
+function serializeEvent(e: DiscordScheduledEvent, ds: DiscordStore): APIGuildScheduledEvent {
   const payload = toAPIScheduledEvent({ ...e, user_count: eventUserCount(ds, e.snowflake) }, ds);
   return payload;
 }

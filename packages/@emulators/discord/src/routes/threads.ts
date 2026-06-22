@@ -145,7 +145,11 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
       .find((m) => m.user_snowflake === creatorSnowflake);
     const payload = toAPIChannel(ds.channels.findOneBy("snowflake", thread.snowflake)!);
     // The create endpoints return the current user's thread-member object on the channel.
-    payload.member = selfThreadMember(thread.snowflake, creatorSnowflake, joined?.joined_at ?? new Date().toISOString());
+    (payload as { member?: unknown }).member = selfThreadMember(
+      thread.snowflake,
+      creatorSnowflake,
+      joined?.joined_at ?? new Date().toISOString(),
+    );
     if (extra) Object.assign(payload, extra);
     bus.publish({ t: "THREAD_CREATE", guildId: thread.guild_snowflake, requiredIntents: Intents.Guilds, d: payload });
     if (thread.guild_snowflake) {

@@ -1,4 +1,19 @@
-import type { APIUser, UserFlags, UserPremiumType } from "discord-api-types/v10";
+import type {
+  APIUser,
+  UserFlags,
+  UserPremiumType,
+  APIRole,
+  APIGuildMember,
+  APIEmoji,
+  APIApplicationCommand,
+  APIStageInstance,
+  APIVoiceState,
+  APIChannel,
+  APIMessage,
+  APIPoll,
+  APIGuild,
+  APIGuildScheduledEvent,
+} from "discord-api-types/v10";
 import { type Context, type AppEnv, type ContentfulStatusCode, type Store } from "@emulators/core";
 import { getDiscordStore, type DiscordStore } from "./store.js";
 import { computePermissions, computeGuildPermissions, hasPermission } from "./permissions.js";
@@ -544,8 +559,8 @@ export function toAPIUser(u: DiscordUser, self = false): APIUser {
   return base;
 }
 
-export function toAPIRole(r: DiscordRole): Record<string, unknown> {
-  const role: Record<string, unknown> = {
+export function toAPIRole(r: DiscordRole): APIRole {
+  const role: APIRole = {
     id: r.snowflake,
     name: r.name,
     color: r.color,
@@ -556,11 +571,11 @@ export function toAPIRole(r: DiscordRole): Record<string, unknown> {
     permissions: r.permissions,
     managed: r.managed,
     mentionable: r.mentionable,
-    flags: r.flags ?? 0,
+    flags: (r.flags ?? 0) as APIRole["flags"],
     // Role colors object: primary mirrors `color`; secondary/tertiary enable gradients.
     colors: r.colors ?? { primary_color: r.color, secondary_color: null, tertiary_color: null },
   };
-  if (r.tags) role.tags = r.tags;
+  if (r.tags) role.tags = r.tags as APIRole["tags"];
   return role;
 }
 
@@ -568,8 +583,10 @@ export function toAPIMember(
   m: DiscordGuildMember,
   ds: DiscordStore,
   opts: { withUser?: boolean } = {},
-): Record<string, unknown> {
-  const member: Record<string, unknown> = {
+): APIGuildMember {
+  // `user` is required on the full APIGuildMember but omitted in nested contexts
+  // (e.g. a member embedded under a payload that already carries the user).
+  const member: Omit<APIGuildMember, "user"> & { user?: APIUser } = {
     nick: m.nick,
     avatar: m.avatar,
     roles: m.role_snowflakes,
@@ -579,16 +596,16 @@ export function toAPIMember(
     mute: m.mute,
     pending: m.pending,
     communication_disabled_until: m.communication_disabled_until,
-    flags: m.flags ?? 0,
+    flags: (m.flags ?? 0) as APIGuildMember["flags"],
   };
   if (opts.withUser !== false) {
     const user = ds.users.findOneBy("snowflake", m.user_snowflake);
     if (user) member.user = toAPIUser(user);
   }
-  return member;
+  return member as APIGuildMember;
 }
 
-export function toAPIVoiceState(v: DiscordVoiceState, ds: DiscordStore): Record<string, unknown> {
+export function toAPIVoiceState(v: DiscordVoiceState, ds: DiscordStore): APIVoiceState {
   const member = v.guild_snowflake
     ? ds.members.findBy("guild_snowflake", v.guild_snowflake).find((m) => m.user_snowflake === v.user_snowflake)
     : undefined;
@@ -609,7 +626,11 @@ export function toAPIVoiceState(v: DiscordVoiceState, ds: DiscordStore): Record<
   };
 }
 
-export function toAPIChannel(c: DiscordChannel): Record<string, unknown> {
+// APIChannel is a discriminated union over `type`; the emulator builds the
+// variant fields dynamically, so the typed return is asserted at the call sites
+// below rather than narrowed per-branch. The doc-driven spec suite guards the
+// per-type field shapes.
+export function toAPIChannel(c: DiscordChannel): APIChannel {
   const isThread = c.type === 10 || c.type === 11 || c.type === 12;
   const isDM = c.type === 1 || c.type === 3;
   const base: Record<string, unknown> = {
@@ -627,7 +648,7 @@ export function toAPIChannel(c: DiscordChannel): Record<string, unknown> {
       base.owner_id = c.owner_snowflake ?? null;
       base.icon = null;
     }
-    return base;
+    return base as unknown as APIChannel;
   }
 
   base.guild_id = c.guild_snowflake ?? undefined;
@@ -643,7 +664,7 @@ export function toAPIChannel(c: DiscordChannel): Record<string, unknown> {
     base.rate_limit_per_user = c.rate_limit_per_user;
     base.applied_tags = c.applied_tags ?? [];
     base.last_pin_timestamp = c.last_pin_timestamp ?? null;
-    return base;
+    return base as unknown as APIChannel;
   }
   base.position = c.position;
   base.parent_id = c.parent_snowflake;
@@ -668,10 +689,10 @@ export function toAPIChannel(c: DiscordChannel): Record<string, unknown> {
     base.default_forum_layout = c.default_forum_layout ?? 0;
     base.default_thread_rate_limit_per_user = c.default_thread_rate_limit_per_user ?? 0;
   }
-  return base;
+  return base as unknown as APIChannel;
 }
 
-export function toAPIEmoji(e: DiscordEmoji, ds: DiscordStore): Record<string, unknown> {
+export function toAPIEmoji(e: DiscordEmoji, ds: DiscordStore): APIEmoji {
   const creator = e.creator_snowflake ? ds.users.findOneBy("snowflake", e.creator_snowflake) : null;
   return {
     id: e.snowflake,
@@ -726,7 +747,7 @@ export function aggregateReactions(
   }));
 }
 
-export function toAPIMessage(m: DiscordMessage, ds: DiscordStore, meSnowflake?: string): Record<string, unknown> {
+export function toAPIMessage(m: DiscordMessage, ds: DiscordStore, meSnowflake?: string): APIMessage {
   // Webhook messages with a custom username/avatar present a webhook-shaped author.
   const author =
     m.webhook_snowflake && m.webhook_username
@@ -783,10 +804,10 @@ export function toAPIMessage(m: DiscordMessage, ds: DiscordStore, meSnowflake?: 
         })()
       : undefined,
     poll: m.poll ? toAPIPoll(m, ds, meSnowflake) : undefined,
-  };
+  } as unknown as APIMessage;
 }
 
-export function toAPIPoll(m: DiscordMessage, ds: DiscordStore, meSnowflake?: string): Record<string, unknown> {
+export function toAPIPoll(m: DiscordMessage, ds: DiscordStore, meSnowflake?: string): APIPoll {
   const poll = m.poll!;
   const votes = ds.pollVotes.findBy("message_snowflake", m.snowflake);
   const counts = new Map<number, { count: number; me: boolean }>();
@@ -806,11 +827,11 @@ export function toAPIPoll(m: DiscordMessage, ds: DiscordStore, meSnowflake?: str
       is_finalized: !!m.poll_finalized,
       answer_counts: [...counts.entries()].map(([id, a]) => ({ id, count: a.count, me_voted: a.me })),
     },
-  };
+  } as unknown as APIPoll;
 }
 
 /** A message payload with content-bearing fields stripped (for sessions lacking MESSAGE_CONTENT). */
-export function redactMessageContent(message: Record<string, unknown>): Record<string, unknown> {
+export function redactMessageContent(message: APIMessage): APIMessage {
   return { ...message, content: "", embeds: [], components: [], attachments: [], poll: undefined };
 }
 
@@ -820,7 +841,7 @@ export interface GuildSerializeOptions {
   withCounts?: boolean;
 }
 
-export function toAPIGuild(g: DiscordGuild, ds: DiscordStore, opts: GuildSerializeOptions = {}): Record<string, unknown> {
+export function toAPIGuild(g: DiscordGuild, ds: DiscordStore, opts: GuildSerializeOptions = {}): APIGuild {
   const roles = ds.roles.findBy("guild_snowflake", g.snowflake).map(toAPIRole);
   const emojis = ds.emojis.findBy("guild_snowflake", g.snowflake).map((e) => toAPIEmoji(e, ds));
   const base: Record<string, unknown> = {
@@ -897,7 +918,7 @@ export function toAPIGuild(g: DiscordGuild, ds: DiscordStore, opts: GuildSeriali
       .findBy("guild_snowflake", g.snowflake)
       .map((v) => {
         const state = toAPIVoiceState(v, ds);
-        delete (state as Record<string, unknown>).guild_id; // omitted inside GUILD_CREATE
+        delete state.guild_id; // omitted inside GUILD_CREATE
         return state;
       });
     base.presences = [];
@@ -915,46 +936,48 @@ export function toAPIGuild(g: DiscordGuild, ds: DiscordStore, opts: GuildSeriali
       available: s.available,
     }));
   }
-  return base;
+  return base as unknown as APIGuild;
 }
 
-export function toAPIApplicationCommand(cmd: DiscordApplicationCommand): Record<string, unknown> {
-  const out: Record<string, unknown> = {
+export function toAPIApplicationCommand(cmd: DiscordApplicationCommand): APIApplicationCommand {
+  const out: APIApplicationCommand = {
     id: cmd.snowflake,
-    type: cmd.type,
+    type: cmd.type as APIApplicationCommand["type"],
     application_id: cmd.application_snowflake,
     guild_id: cmd.guild_snowflake ?? undefined,
     name: cmd.name,
     name_localizations: cmd.name_localizations ?? null,
     description: cmd.description,
     description_localizations: cmd.description_localizations ?? null,
-    options: cmd.options,
+    options: cmd.options as APIApplicationCommand["options"],
     default_member_permissions: cmd.default_member_permissions,
     // dm_permission is deprecated in favor of contexts but still emitted for compatibility.
     dm_permission: cmd.dm_permission,
     default_permission: cmd.default_permission ?? true,
     nsfw: cmd.nsfw,
-    integration_types: cmd.integration_types ?? [0],
-    contexts: cmd.contexts ?? null,
+    integration_types: (cmd.integration_types ?? [0]) as APIApplicationCommand["integration_types"],
+    contexts: (cmd.contexts ?? null) as APIApplicationCommand["contexts"],
     version: cmd.version,
   };
-  if (cmd.handler != null) out.handler = cmd.handler;
+  if (cmd.handler != null) out.handler = cmd.handler as APIApplicationCommand["handler"];
   return out;
 }
 
-export function toAPIStageInstance(s: DiscordStageInstance): Record<string, unknown> {
+export function toAPIStageInstance(s: DiscordStageInstance): APIStageInstance {
   return {
     id: s.snowflake,
     guild_id: s.guild_snowflake,
     channel_id: s.channel_snowflake,
     topic: s.topic,
-    privacy_level: s.privacy_level,
+    privacy_level: s.privacy_level as APIStageInstance["privacy_level"],
     discoverable_disabled: s.discoverable_disabled,
-    guild_scheduled_event_id: s.guild_scheduled_event_snowflake ?? null,
+    // Discord returns this as an explicit null when absent; discord-api-types
+    // under-models it as optional, so cast to preserve the real wire shape.
+    guild_scheduled_event_id: (s.guild_scheduled_event_snowflake ?? null) as APIStageInstance["guild_scheduled_event_id"],
   };
 }
 
-export function toAPIScheduledEvent(e: DiscordScheduledEvent, ds: DiscordStore): Record<string, unknown> {
+export function toAPIScheduledEvent(e: DiscordScheduledEvent, ds: DiscordStore): APIGuildScheduledEvent {
   const creator = e.creator_snowflake ? ds.users.findOneBy("snowflake", e.creator_snowflake) : null;
   return {
     id: e.snowflake,
@@ -974,5 +997,5 @@ export function toAPIScheduledEvent(e: DiscordScheduledEvent, ds: DiscordStore):
     creator: creator ? toAPIUser(creator) : undefined,
     image: e.image ?? null,
     recurrence_rule: e.recurrence_rule ?? null,
-  };
+  } as unknown as APIGuildScheduledEvent;
 }

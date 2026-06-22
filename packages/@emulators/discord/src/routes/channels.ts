@@ -153,7 +153,13 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
       const tm = ds.threadMembers
         .findBy("thread_snowflake", channel.snowflake)
         .find((m) => m.user_snowflake === auth.user!.snowflake);
-      if (tm) payload.member = { id: channel.snowflake, user_id: tm.user_snowflake, join_timestamp: tm.joined_at, flags: 0 };
+      if (tm)
+        (payload as { member?: unknown }).member = {
+          id: channel.snowflake,
+          user_id: tm.user_snowflake,
+          join_timestamp: tm.joined_at,
+          flags: 0,
+        };
     }
     return c.json(payload);
   });
