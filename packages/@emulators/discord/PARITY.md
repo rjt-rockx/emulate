@@ -360,10 +360,10 @@ until that page's suite is green. A page is **done** only when its spec suite pa
 | `developers/resources/subscription.mdx` | `spec/subscription.spec.test.ts` | [x] green (12 cases) |
 | `developers/resources/user.mdx` | `spec/user.spec.test.ts` | [x] green (16 assertions) |
 | `developers/resources/voice.mdx` | `spec/voice.spec.test.ts` | [x] green |
-| `developers/resources/webhook.mdx` | `spec/webhook.spec.test.ts` | [ ] not started |
-| `developers/interactions/application-commands.mdx` | `spec/application-commands.spec.test.ts` | [ ] not started |
+| `developers/resources/webhook.mdx` | `spec/webhook.spec.test.ts` | [x] green (22 cases) |
+| `developers/interactions/application-commands.mdx` | `spec/application-commands.spec.test.ts` | [x] green (45 cases) |
 | `developers/interactions/overview.mdx` | `spec/overview.spec.test.ts` | [ ] not started |
-| `developers/interactions/receiving-and-responding.mdx` | `spec/receiving-and-responding.spec.test.ts` | [ ] not started |
+| `developers/interactions/receiving-and-responding.mdx` | `spec/receiving-and-responding.spec.test.ts` | [x] green (25 cases) |
 | `developers/topics/certified-devices.mdx` | `spec/certified-devices.spec.test.ts` | [ ] not started |
 | `developers/topics/oauth2.mdx` | `spec/oauth2.spec.test.ts` | [x] green (30 cases) |
 | `developers/topics/opcodes-and-status-codes.mdx` | `spec/opcodes-and-status-codes.spec.test.ts` | [ ] not started |
@@ -378,6 +378,6 @@ until that page's suite is green. A page is **done** only when its spec suite pa
 | `developers/events/overview.mdx` | `spec/overview.spec.test.ts` | [ ] not started |
 | `developers/events/webhook-events.mdx` | `spec/webhook-events.spec.test.ts` | [ ] not started |
 | `developers/components/overview.mdx` | `spec/overview.spec.test.ts` | [ ] not started |
-| `developers/components/reference.mdx` | `spec/reference.spec.test.ts` | [ ] not started |
+| `developers/components/reference.mdx` | `spec/reference.spec.test.ts` | [x] green (14 cases) |
 | `developers/components/using-message-components.mdx` | `spec/using-message-components.spec.test.ts` | [ ] not started |
 | `developers/components/using-modal-components.mdx` | `spec/using-modal-components.spec.test.ts` | [ ] not started |

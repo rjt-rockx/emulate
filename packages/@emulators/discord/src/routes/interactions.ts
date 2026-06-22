@@ -3,7 +3,13 @@ import { getDiscordStore } from "../store.js";
 import { getAuth, unauthorized, notFound, discordError, toAPIMessage, redactMessageContent } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 import { buildInteraction, type TriggerInput } from "../interactions/trigger.js";
-import { routeInteraction, applyInteractionResponse, getOriginalResponse } from "../interactions/dispatch.js";
+import {
+  routeInteraction,
+  applyInteractionResponse,
+  getOriginalResponse,
+  hasInvalidResponseFlags,
+  type InteractionResponse,
+} from "../interactions/dispatch.js";
 
 export function interactionsRoutes(ctx: DiscordRouteContext): void {
   const { app, store, bus } = ctx;
@@ -20,10 +26,43 @@ export function interactionsRoutes(ctx: DiscordRouteContext): void {
     if (interaction.callback_used) {
       return discordError(c, 400, "Interaction has already been acknowledged.", 40060);
     }
-    const response = (await c.req.json().catch(() => ({ type: 1 }))) as { type: number; data?: Record<string, unknown> };
-    applyInteractionResponse(ds, bus, store, interaction, response);
+    const response = (await c.req.json().catch(() => ({ type: 1 }))) as InteractionResponse;
+
+    // Validate flags on message-bearing callbacks.
+    const callbackType = response.type;
+    if (callbackType === 4 || callbackType === 5 || callbackType === 7) {
+      const flags = typeof response.data?.flags === "number" ? response.data.flags : 0;
+      if (flags !== 0 && hasInvalidResponseFlags(flags)) {
+        return discordError(c, 400, "Invalid Form Body", 50035, {
+          errors: {
+            data: {
+              flags: {
+                _errors: [{ code: "MESSAGE_FLAG_NOT_SETTABLE", message: "This flag cannot be set on an interaction response." }],
+              },
+            },
+          },
+        });
+      }
+    }
+
+    const result = applyInteractionResponse(ds, bus, store, interaction, response);
+
     if (c.req.query("with_response") === "true") {
-      return c.json({ interaction: { id: interaction.snowflake }, resource: {} });
+      const msgSnowflake = result.message?.snowflake;
+      const msgFlags = result.message?.flags ?? 0;
+      const isEph = (msgFlags & 64) !== 0;
+      const message = msgSnowflake ? ds.messages.findOneBy("snowflake", msgSnowflake) : undefined;
+      return c.json({
+        interaction: {
+          id: interaction.snowflake,
+          type: interaction.type,
+          ...(msgSnowflake ? { response_message_id: msgSnowflake, response_message_ephemeral: isEph } : {}),
+        },
+        resource: {
+          type: callbackType,
+          ...(message ? { message: toAPIMessage(message, ds) } : {}),
+        },
+      });
     }
     return new Response(null, { status: 204 });
   });

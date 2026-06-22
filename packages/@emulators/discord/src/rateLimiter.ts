@@ -17,8 +17,8 @@ export interface RateLimitConfig {
 
 export const DEFAULT_RATE_LIMIT: RateLimitConfig = {
   enabled: true,
-  globalLimit: 50,
-  routeLimit: 50,
+  globalLimit: 500,
+  routeLimit: 200,
   windowMs: 1000,
 };
 

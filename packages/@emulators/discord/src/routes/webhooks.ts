@@ -1,26 +1,30 @@
 import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore, type DiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, unknownChannel, unknownWebhook, snowflake, toAPIUser, toAPIMessage, redactMessageContent, recordAudit, AuditLogEvent, isEphemeral, parseMessageBody } from "../helpers.js";
+import { getAuth, unauthorized, notFound, discordError, unknownChannel, unknownWebhook, snowflake, toAPIUser, toAPIMessage, redactMessageContent, recordAudit, AuditLogEvent, isEphemeral, parseMessageBody } from "../helpers.js";
 import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import { getOriginalResponse, setOriginalResponse } from "../interactions/dispatch.js";
 import type { DiscordWebhook } from "../entities.js";
 
-function toAPIWebhook(w: DiscordWebhook, ds: DiscordStore, baseUrl: string): Record<string, unknown> {
-  const creator = w.user_snowflake ? ds.users.findOneBy("snowflake", w.user_snowflake) : null;
-  return {
+function toAPIWebhook(w: DiscordWebhook, ds: DiscordStore, baseUrl: string, opts: { withUser?: boolean } = {}): Record<string, unknown> {
+  const creator = opts.withUser !== false && w.user_snowflake ? ds.users.findOneBy("snowflake", w.user_snowflake) : null;
+  const out: Record<string, unknown> = {
     id: w.snowflake,
     type: w.type,
     guild_id: w.guild_snowflake,
     channel_id: w.channel_snowflake,
-    user: creator ? toAPIUser(creator) : undefined,
     name: w.name,
     avatar: w.avatar,
     token: w.token,
     application_id: w.application_snowflake,
     url: `${baseUrl}/api/v10/webhooks/${w.snowflake}/${w.token}`,
   };
+  // The docs specify "not returned when getting a webhook with its token".
+  if (opts.withUser !== false && creator) {
+    out.user = toAPIUser(creator);
+  }
+  return out;
 }
 
 export function webhooksRoutes(ctx: DiscordRouteContext): void {
@@ -97,7 +101,8 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const webhook = ds.webhooks.findOneBy("snowflake", c.req.param("webhookId"));
     if (!webhook || webhook.token !== c.req.param("token")) return unknownWebhook(c);
-    return c.json(toAPIWebhook(webhook, ds, baseUrl));
+    // Per docs: "does not return a user in the webhook object" when fetching with token.
+    return c.json(toAPIWebhook(webhook, ds, baseUrl, { withUser: false }));
   });
 
   const modify = async (c: Context<AppEnv>, requireToken: boolean) => {
@@ -113,7 +118,8 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
     ds.webhooks.update(webhook.id, patch);
     const saved = ds.webhooks.findOneBy("snowflake", webhook.snowflake)!;
     emitWebhooksUpdate(saved.guild_snowflake, saved.channel_snowflake);
-    return c.json(toAPIWebhook(saved, ds, baseUrl));
+    // Token-based modify does not return user.
+    return c.json(toAPIWebhook(saved, ds, baseUrl, { withUser: !requireToken }));
   };
 
   app.patch("/api/v:version/webhooks/:webhookId", (c) => {
@@ -189,6 +195,17 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
     // Webhook execute.
     const webhook = ds.webhooks.findOneBy("snowflake", id);
     if (!webhook || webhook.token !== token) return unknownWebhook(c);
+
+    // Per docs: "you must provide a value for at least one of content, embeds, components, file, or poll".
+    const hasContent = typeof body.content === "string" && body.content.length > 0;
+    const hasEmbeds = Array.isArray(body.embeds) && body.embeds.length > 0;
+    const hasComponents = Array.isArray(body.components) && body.components.length > 0;
+    const hasPoll = body.poll != null;
+    const hasFiles = uploaded.length > 0;
+    if (!hasContent && !hasEmbeds && !hasComponents && !hasPoll && !hasFiles) {
+      return discordError(c, 400, "Cannot send an empty message", 50006);
+    }
+
     // ?thread_id (or body.thread_id) posts into a thread under the webhook's channel.
     const threadId = c.req.query("thread_id") ?? (typeof body.thread_id === "string" ? body.thread_id : undefined);
     const targetChannel = threadId && ds.channels.findOneBy("snowflake", threadId) ? threadId : webhook.channel_snowflake;
