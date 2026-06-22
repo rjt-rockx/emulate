@@ -3,7 +3,6 @@ import { getDiscordStore, type DiscordStore } from "../store.js";
 import {
   getAuth,
   unauthorized,
-  notFound,
   unknownGuild,
   unknownIntegration,
   toAPIUser,
@@ -14,31 +13,6 @@ import {
 } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 import type { DiscordIntegration } from "../entities.js";
-
-// ---------------------------------------------------------------------------
-// Static sticker packs (Discord's default packs are a fixed list)
-// ---------------------------------------------------------------------------
-
-const STICKER_PACKS = [
-  {
-    id: "847199849233514566",
-    name: "Wumpus Beyond",
-    sku_id: "847199849233514567",
-    cover_sticker_id: "749054660769218631",
-    description: "Wumpus ventures into the future.",
-    banner_asset_id: "761773501734911007",
-    stickers: [],
-  },
-  {
-    id: "847199849233514568",
-    name: "Noticeably Nitro",
-    sku_id: "847199849233514569",
-    cover_sticker_id: "749054660769218633",
-    description: "Show off your Nitro pride.",
-    banner_asset_id: "761773501734911009",
-    stickers: [],
-  },
-] as const;
 
 /** Serialize a stored integration to the documented Integration wire object. */
 function toAPIIntegration(integ: DiscordIntegration, ds: DiscordStore): Record<string, unknown> {
@@ -303,22 +277,4 @@ export function integrationsRoutes(ctx: DiscordRouteContext): void {
     return c.json(connections);
   });
 
-  // -------------------------------------------------------------------------
-  // GET /sticker-packs
-  // -------------------------------------------------------------------------
-
-  app.get("/api/v:version/sticker-packs", (c) => {
-    return c.json({ sticker_packs: STICKER_PACKS });
-  });
-
-  // -------------------------------------------------------------------------
-  // GET /sticker-packs/:packId
-  // -------------------------------------------------------------------------
-
-  app.get("/api/v:version/sticker-packs/:packId", (c) => {
-    const packId = c.req.param("packId");
-    const pack = STICKER_PACKS.find((p) => p.id === packId);
-    if (!pack) return notFound(c);
-    return c.json(pack);
-  });
 }

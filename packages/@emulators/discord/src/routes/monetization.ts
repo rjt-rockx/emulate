@@ -9,6 +9,8 @@ import {
   unknownEntitlement,
   invalidFormBody,
   discordError,
+  parsePagination,
+  sliceBySnowflake,
 } from "../helpers.js";
 import type { DiscordEntitlement, DiscordSubscription } from "../entities.js";
 
@@ -113,14 +115,10 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
     const userId = c.req.query("user_id");
     const skuIdsParam = c.req.query("sku_ids");
     const guildId = c.req.query("guild_id");
-    const before = c.req.query("before");
-    const after = c.req.query("after");
-    const limitParam = c.req.query("limit");
+    const page = parsePagination(c, { defaultLimit: 100, maxLimit: 100 });
     const excludeEnded = parseBool(c.req.query("exclude_ended"), false);
     // By default, deleted entitlements are excluded (exclude_deleted defaults to true)
     const excludeDeleted = parseBool(c.req.query("exclude_deleted"), true);
-
-    const limit = limitParam ? Math.min(Math.max(parseInt(limitParam, 10) || 100, 1), 100) : 100;
 
     const skuIdSet = skuIdsParam
       ? new Set(skuIdsParam.split(",").map((s) => s.trim()).filter(Boolean))
@@ -135,10 +133,7 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
     if (guildId) results = results.filter((e) => e.guild_snowflake === guildId);
     if (excludeDeleted) results = results.filter((e) => !e.deleted);
     if (excludeEnded) results = results.filter((e) => !e.ends_at || e.ends_at > now);
-    if (before) results = results.filter((e) => e.snowflake < before);
-    if (after) results = results.filter((e) => e.snowflake > after);
-
-    results = results.slice(0, limit);
+    results = sliceBySnowflake(results, (e) => e.snowflake, page);
 
     return c.json(results.map((e) => toAPIEntitlement(e)));
   });
@@ -249,18 +244,12 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
     const skuId = c.req.param("skuId");
 
     const userId = c.req.query("user_id");
-    const before = c.req.query("before");
-    const after = c.req.query("after");
-    const limitParam = c.req.query("limit");
-    const limit = limitParam ? Math.min(Math.max(parseInt(limitParam, 10) || 50, 1), 100) : 50;
+    const page = parsePagination(c, { defaultLimit: 50, maxLimit: 100 });
 
     let results = ds.subscriptions.all().filter((s) => s.sku_snowflakes.includes(skuId));
 
     if (userId) results = results.filter((s) => s.user_snowflake === userId);
-    if (before) results = results.filter((s) => s.snowflake < before);
-    if (after) results = results.filter((s) => s.snowflake > after);
-
-    results = results.slice(0, limit);
+    results = sliceBySnowflake(results, (s) => s.snowflake, page);
 
     return c.json(results.map(toAPISubscription));
   });

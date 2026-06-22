@@ -53,16 +53,6 @@ export function miscRoutes(ctx: DiscordRouteContext): void {
     return result ? c.json(result) : new Response(null, { status: 204 });
   });
 
-  // ----- Scheduled event subscribers -----
-  app.get("/api/v:version/guilds/:guildId/scheduled-events/:eventId/users", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
-    const event = ds.scheduledEvents.findOneBy("snowflake", c.req.param("eventId"));
-    if (!event || event.guild_snowflake !== c.req.param("guildId")) return notFound(c);
-    return c.json([]); // No subscriber tracking; the endpoint is valid and returns an empty roster.
-  });
-
   // ----- Guild message search (returns grouped matches like Discord's search API) -----
   app.get("/api/v:version/guilds/:guildId/messages/search", (c) => {
     const auth = getAuth(c, store);

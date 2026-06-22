@@ -9,6 +9,7 @@ import {
   toAPIUser,
   toAPIMember,
   toAPIScheduledEvent,
+  toAPISticker,
   recordAudit,
   AuditLogEvent,
   auditReason,
@@ -17,40 +18,7 @@ import {
 } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 import type { Context, AppEnv, Store } from "@emulators/core";
-import type { DiscordSticker, DiscordScheduledEvent } from "../entities.js";
-
-/**
- * Standard (pack) stickers carry two extra fields not present on the base sticker entity. They
- * are augmented locally (entities.ts is foundation-owned) and stored on the same collection.
- */
-type StickerRow = DiscordSticker & { pack_snowflake?: string | null; sort_value?: number | null };
-
-// ---------------------------------------------------------------------------
-// Sticker serialization
-// ---------------------------------------------------------------------------
-
-/** Serialize a sticker row to the Discord Sticker object (guild or standard). */
-function toAPISticker(s: StickerRow, ds: DiscordStore): Record<string, unknown> {
-  const creator = s.creator_snowflake ? ds.users.findOneBy("snowflake", s.creator_snowflake) : null;
-  const out: Record<string, unknown> = {
-    id: s.snowflake,
-    name: s.name,
-    description: s.description,
-    tags: s.tags,
-    type: s.type,
-    format_type: s.format_type,
-  };
-  // Standard stickers (type 1) belong to a pack; guild stickers (type 2) belong to a guild.
-  if (s.type === 1) {
-    if (s.pack_snowflake) out.pack_id = s.pack_snowflake;
-    if (typeof s.sort_value === "number") out.sort_value = s.sort_value;
-  } else {
-    out.available = s.available;
-    out.guild_id = s.guild_snowflake;
-    if (creator) out.user = toAPIUser(creator);
-  }
-  return out;
-}
+import type { DiscordScheduledEvent, DiscordSticker } from "../entities.js";
 
 // ---------------------------------------------------------------------------
 // Standard sticker packs (read-only catalog)

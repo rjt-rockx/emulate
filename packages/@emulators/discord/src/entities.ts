@@ -89,7 +89,6 @@ export interface DiscordGuild extends Entity {
   safety_alerts_channel_snowflake?: string | null;
   premium_progress_bar_enabled?: boolean;
   vanity_url_code?: string | null;
-  vanity_uses?: number;
   /** Security incident actions (invites_disabled_until / dms_disabled_until / ...). */
   incidents_data?: Record<string, unknown> | null;
   widget_enabled?: boolean;
@@ -596,4 +595,8 @@ export interface DiscordLobbyMessage extends Entity {
   author_snowflake: string;
   content: string;
   metadata: Record<string, string> | null;
+  /** Bot-settable message flags carried on the create body. */
+  flags?: number;
+  /** App-scoped moderation metadata set via the moderation-metadata endpoint. */
+  moderation_metadata?: Record<string, string> | null;
 }

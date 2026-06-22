@@ -19,6 +19,17 @@ const MAX_BUFFER = 1000;
 const RESUME_TIMEOUT_MS = 120_000;
 
 /**
+ * The recipient fields the fan-out filter reads and mutates. Both live `GatewaySession`s
+ * and disconnected `ResumableState`s satisfy this, so one filter path serves both.
+ */
+interface FanOutRecipient {
+  intents: number;
+  botUserSnowflake: string | null;
+  applicationSnowflake: string | null;
+  guildIds: Set<string>;
+}
+
+/**
  * The Discord Gateway, served over a WebSocket on the same HTTP server as REST.
  * All protocol logic (handshake, heartbeat, intent filtering, dispatch) lives here in
  * the Discord package; core only provides the raw `http.Server` via the generic
@@ -126,7 +137,6 @@ export class GatewayServer {
       seq: 0,
       buffer: [],
       encoding,
-      heartbeatAckPending: false,
       heartbeatInterval,
       commandWindowStart: Date.now(),
       commandCount: 0,
@@ -209,7 +219,6 @@ export class GatewayServer {
         this.handleIdentify(session, payload.d);
         break;
       case GatewayOpcodes.Heartbeat:
-        session.heartbeatAckPending = false;
         if (session.identified) this.armZombieTimer(session); // a live heartbeat clears the zombie countdown
         this.send(session, { op: GatewayOpcodes.HeartbeatAck });
         break;
@@ -503,46 +512,45 @@ export class GatewayServer {
   private fanOut(event: GatewayEvent): void {
     for (const session of this.sessions) {
       if (!session.identified) continue;
-      if (event.applicationId && session.applicationSnowflake !== event.applicationId) continue;
-
-      // Membership transition targeted at one bot, bypassing the guild-membership filter:
-      // a bot added to a guild mid-session (GUILD_CREATE) is not yet "in" the guild, and a
-      // leaving bot (GUILD_DELETE) must still receive the event before we drop the guild.
-      if (event.targetUserId) {
-        if (session.botUserSnowflake !== event.targetUserId) continue;
-        if (event.t === "GUILD_CREATE" && event.guildId) session.guildIds.add(event.guildId);
-        this.dispatch(session, event.t, event.d);
-        if (event.t === "GUILD_DELETE" && event.guildId) session.guildIds.delete(event.guildId);
-        continue;
-      }
-
-      if (!intentsAllow(session.intents, event.requiredIntents)) continue;
-      if (event.guildId != null && !session.guildIds.has(event.guildId)) continue;
-      this.dispatch(session, event.t, this.dataFor(session.intents, session.botUserSnowflake, event));
-      // A whole-guild delete (broadcast, untargeted) drops it from every recipient's set.
-      if (event.t === "GUILD_DELETE" && event.guildId) session.guildIds.delete(event.guildId);
+      this.routeToRecipient(session, event, (payload) => this.dispatch(session, event.t, payload));
     }
 
     // Buffer matching events for disconnected-but-resumable sessions so a RESUME can replay
     // what arrived during the gap, exactly as the real Gateway does.
     for (const state of this.resumable.values()) {
-      if (event.applicationId && state.applicationSnowflake !== event.applicationId) continue;
-      if (event.targetUserId) {
-        if (state.botUserSnowflake !== event.targetUserId) continue;
-        if (event.t === "GUILD_CREATE" && event.guildId) state.guildIds.add(event.guildId);
+      this.routeToRecipient(state, event, (payload) => {
         state.seq += 1;
-        state.buffer.push({ seq: state.seq, t: event.t, d: event.d });
+        state.buffer.push({ seq: state.seq, t: event.t, d: payload });
         if (state.buffer.length > MAX_BUFFER) state.buffer.shift();
-        if (event.t === "GUILD_DELETE" && event.guildId) state.guildIds.delete(event.guildId);
-        continue;
-      }
-      if (!intentsAllow(state.intents, event.requiredIntents)) continue;
-      if (event.guildId != null && !state.guildIds.has(event.guildId)) continue;
-      state.seq += 1;
-      state.buffer.push({ seq: state.seq, t: event.t, d: this.dataFor(state.intents, state.botUserSnowflake, event) });
-      if (state.buffer.length > MAX_BUFFER) state.buffer.shift();
-      if (event.t === "GUILD_DELETE" && event.guildId) state.guildIds.delete(event.guildId);
+      });
     }
+  }
+
+  /**
+   * Apply the shared fan-out filter to one recipient and, when the event is deliverable,
+   * invoke `deliver` with the recipient-appropriate payload. Centralizing the membership,
+   * intent, and content-redaction logic here keeps the live-session and resumable-buffer
+   * paths from drifting apart.
+   */
+  private routeToRecipient(r: FanOutRecipient, event: GatewayEvent, deliver: (payload: unknown) => void): void {
+    if (event.applicationId && r.applicationSnowflake !== event.applicationId) return;
+
+    // Membership transition targeted at one bot, bypassing the guild-membership filter:
+    // a bot added to a guild mid-session (GUILD_CREATE) is not yet "in" the guild, and a
+    // leaving bot (GUILD_DELETE) must still receive the event before we drop the guild.
+    if (event.targetUserId) {
+      if (r.botUserSnowflake !== event.targetUserId) return;
+      if (event.t === "GUILD_CREATE" && event.guildId) r.guildIds.add(event.guildId);
+      deliver(event.d);
+      if (event.t === "GUILD_DELETE" && event.guildId) r.guildIds.delete(event.guildId);
+      return;
+    }
+
+    if (!intentsAllow(r.intents, event.requiredIntents)) return;
+    if (event.guildId != null && !r.guildIds.has(event.guildId)) return;
+    deliver(this.dataFor(r.intents, r.botUserSnowflake, event));
+    // A whole-guild delete (broadcast, untargeted) drops it from every recipient's set.
+    if (event.t === "GUILD_DELETE" && event.guildId) r.guildIds.delete(event.guildId);
   }
 
   /**

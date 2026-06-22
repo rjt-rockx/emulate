@@ -23,15 +23,6 @@ const LobbyMemberFlags = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// Out-of-band state the entities cannot hold (no schema edits allowed here).
-// Moderation metadata is app-scoped per lobby message; keep it in-process keyed by message id.
-// ---------------------------------------------------------------------------
-
-const moderationMetadata = new Map<string, Record<string, string>>();
-/** Settable flags carried on the message body, persisted alongside the message id. */
-const messageFlags = new Map<string, number>();
-
-// ---------------------------------------------------------------------------
 // Serializers
 // ---------------------------------------------------------------------------
 
@@ -72,7 +63,6 @@ function toAPILobbyMessage(
   applicationSnowflake: string,
 ): Record<string, unknown> {
   const authorUser = ds.users.findOneBy("snowflake", msg.author_snowflake);
-  const moderation = moderationMetadata.get(msg.snowflake) ?? null;
   return {
     id: msg.snowflake,
     type: 0,
@@ -81,8 +71,8 @@ function toAPILobbyMessage(
     channel_id: msg.channel_snowflake ?? msg.lobby_snowflake,
     author: authorUser ? toAPIUser(authorUser) : { id: msg.author_snowflake },
     metadata: msg.metadata,
-    moderation_metadata: moderation,
-    flags: messageFlags.get(msg.snowflake) ?? 0,
+    moderation_metadata: msg.moderation_metadata ?? null,
+    flags: msg.flags ?? 0,
     application_id: applicationSnowflake,
   };
 }
@@ -320,11 +310,7 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
       return new Response(null, { status: 204 });
     }
     for (const m of ds.lobbyMembers.findBy("lobby_snowflake", lobbyId)) ds.lobbyMembers.delete(m.id);
-    for (const m of ds.lobbyMessages.findBy("lobby_snowflake", lobbyId)) {
-      moderationMetadata.delete(m.snowflake);
-      messageFlags.delete(m.snowflake);
-      ds.lobbyMessages.delete(m.id);
-    }
+    for (const m of ds.lobbyMessages.findBy("lobby_snowflake", lobbyId)) ds.lobbyMessages.delete(m.id);
     ds.lobbies.delete(lobby.id);
     return new Response(null, { status: 204 });
   });
@@ -518,8 +504,9 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
       author_snowflake: authorUser.snowflake,
       content,
       metadata: metadata ?? null,
+      flags,
+      moderation_metadata: null,
     });
-    if (flags) messageFlags.set(id, flags);
 
     const msg = ds.lobbyMessages.findOneBy("snowflake", id)!;
     return c.json(toAPILobbyMessage(msg, ds, application.snowflake));
@@ -579,7 +566,7 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
       if (str.length > 2000) return invalidFormBody(c, { [key]: "Value must be 2000 or fewer in length." });
       metadata[key] = str;
     }
-    moderationMetadata.set(messageId, metadata);
+    ds.lobbyMessages.update(message.id, { moderation_metadata: metadata });
     return new Response(null, { status: 204 });
   });
 

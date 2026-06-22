@@ -33,6 +33,8 @@ import type {
   DiscordVoiceState,
   DiscordStageInstance,
   DiscordScheduledEvent,
+  DiscordSticker,
+  DiscordSoundboardSound,
 } from "./entities.js";
 
 // ---------------------------------------------------------------------------
@@ -886,15 +888,7 @@ export function toAPIGuild(g: DiscordGuild, ds: DiscordStore, opts: GuildSeriali
     application_id: null,
     premium_progress_bar_enabled: g.premium_progress_bar_enabled ?? false,
     incidents_data: g.incidents_data ?? null,
-    stickers: ds.stickers.findBy("guild_snowflake", g.snowflake).map((s) => ({
-      id: s.snowflake,
-      name: s.name,
-      tags: s.tags,
-      type: s.type,
-      format_type: s.format_type,
-      available: s.available,
-      guild_id: s.guild_snowflake,
-    })),
+    stickers: ds.stickers.findBy("guild_snowflake", g.snowflake).map((s) => toAPISticker(s, ds)),
     welcome_screen: g.welcome_screen ?? undefined,
   };
   if (opts.withCounts || opts.full) {
@@ -926,15 +920,7 @@ export function toAPIGuild(g: DiscordGuild, ds: DiscordStore, opts: GuildSeriali
     base.guild_scheduled_events = ds.scheduledEvents
       .findBy("guild_snowflake", g.snowflake)
       .map((e) => toAPIScheduledEvent(e, ds));
-    base.soundboard_sounds = ds.soundboardSounds.findBy("guild_snowflake", g.snowflake).map((s) => ({
-      sound_id: s.snowflake,
-      name: s.name,
-      volume: s.volume,
-      emoji_id: s.emoji_snowflake,
-      emoji_name: s.emoji_name,
-      guild_id: s.guild_snowflake,
-      available: s.available,
-    }));
+    base.soundboard_sounds = ds.soundboardSounds.findBy("guild_snowflake", g.snowflake).map((s) => toAPISound(s, ds));
   }
   return base as unknown as APIGuild;
 }
@@ -998,4 +984,45 @@ export function toAPIScheduledEvent(e: DiscordScheduledEvent, ds: DiscordStore):
     image: e.image ?? null,
     recurrence_rule: e.recurrence_rule ?? null,
   } as unknown as APIGuildScheduledEvent;
+}
+
+/** A sticker row may carry pack/sort fields for standard (type 1) stickers from the catalog. */
+export type StickerRow = DiscordSticker & { pack_snowflake?: string | null; sort_value?: number | null };
+
+/** Serialize a sticker row to the Discord Sticker object (guild or standard). */
+export function toAPISticker(s: StickerRow, ds: DiscordStore): Record<string, unknown> {
+  const creator = s.creator_snowflake ? ds.users.findOneBy("snowflake", s.creator_snowflake) : null;
+  const out: Record<string, unknown> = {
+    id: s.snowflake,
+    name: s.name,
+    description: s.description,
+    tags: s.tags,
+    type: s.type,
+    format_type: s.format_type,
+  };
+  // Standard stickers (type 1) belong to a pack; guild stickers (type 2) belong to a guild.
+  if (s.type === 1) {
+    if (s.pack_snowflake) out.pack_id = s.pack_snowflake;
+    if (typeof s.sort_value === "number") out.sort_value = s.sort_value;
+  } else {
+    out.available = s.available;
+    out.guild_id = s.guild_snowflake;
+    if (creator) out.user = toAPIUser(creator);
+  }
+  return out;
+}
+
+/** Serialize a stored soundboard sound to the documented Soundboard Sound object. */
+export function toAPISound(s: DiscordSoundboardSound, ds: DiscordStore): Record<string, unknown> {
+  const creator = s.creator_snowflake ? ds.users.findOneBy("snowflake", s.creator_snowflake) : null;
+  return {
+    name: s.name,
+    sound_id: s.snowflake,
+    volume: s.volume,
+    emoji_id: s.emoji_snowflake,
+    emoji_name: s.emoji_name,
+    guild_id: s.guild_snowflake,
+    available: s.available,
+    user: creator ? toAPIUser(creator) : undefined,
+  };
 }

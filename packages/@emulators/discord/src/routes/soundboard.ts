@@ -6,7 +6,7 @@ import {
   notFound,
   snowflake,
   invalidFormBody,
-  toAPIUser,
+  toAPISound,
   recordAudit,
   AuditLogEvent,
   auditReason,
@@ -34,20 +34,6 @@ const DEFAULT_SOUNDS: Array<Record<string, unknown>> = [
   { name: "ba dum tss", sound_id: "11", volume: 1, emoji_id: null, emoji_name: "\u{1F941}", available: true },
   { name: "sad trombone", sound_id: "12", volume: 1, emoji_id: null, emoji_name: "\u{1F3BA}", available: true },
 ];
-
-function toAPISound(s: DiscordSoundboardSound, ds: DiscordStore): Record<string, unknown> {
-  const creator = s.creator_snowflake ? ds.users.findOneBy("snowflake", s.creator_snowflake) : null;
-  return {
-    name: s.name,
-    sound_id: s.snowflake,
-    volume: s.volume,
-    emoji_id: s.emoji_snowflake,
-    emoji_name: s.emoji_name,
-    guild_id: s.guild_snowflake,
-    available: s.available,
-    user: creator ? toAPIUser(creator) : undefined,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Validation (name 2-32, sound data uri required, volume 0-1)

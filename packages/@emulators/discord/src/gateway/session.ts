@@ -30,7 +30,6 @@ export interface GatewaySession {
   encoding: "json" | "etf";
   /** Set when the connection requested transport compression (zlib-stream). */
   compressor?: ZlibCompressor;
-  heartbeatAckPending: boolean;
   /** Heartbeat interval (ms) advertised to this connection; drives zombie detection. */
   heartbeatInterval: number;
   /** Timer that closes the connection (4009) if no heartbeat arrives in time. */

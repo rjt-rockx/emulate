@@ -141,7 +141,8 @@ export function guildMiscRoutes(ctx: DiscordRouteContext): void {
     const guildId = c.req.param("guildId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
     if (!guild) return unknownGuild(c);
-    return c.json({ code: guild.vanity_url_code ?? null, uses: guild.vanity_uses ?? 0 });
+    // The emulator does not track vanity-invite redemptions, so uses is always 0.
+    return c.json({ code: guild.vanity_url_code ?? null, uses: 0 });
   });
 
   // Get Guild Audit Log: entries recorded retroactively by mutation routes (bans, kicks, prune,
