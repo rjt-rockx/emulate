@@ -180,7 +180,15 @@ curl -X POST http://localhost:4000/__emulate/interactions \
 
 ## Current limits
 
-JSON encoding only (no ETF); `zlib-stream` compression is supported, `zstd-stream` is not.
-Voice connections, sharding, gateway resume replay buffering, threads, stickers, scheduled
-events, invites, audit logs, permission enforcement (403s), and exact rate limiting are not
-yet implemented.
+The emulator targets behavioral parity with the documented REST + Gateway contract: object
+shapes, enums/flags, validation and error codes, permission-gated responses, state
+transitions, and event dispatch. JSON **and ETF** encodings are supported, as is
+`zlib-stream` compression (`zstd-stream` is not). Voice (gateway + UDP/RTP relay), threads,
+stickers, soundboard, scheduled events, invites, audit logs, polls, monetization,
+gateway resume with a replay buffer, opt-in permission enforcement (403/50013), and
+per-route + global rate limiting with `X-RateLimit-*` headers are all implemented.
+
+A few cloud-only behaviors are emulated in shape but cannot be bit-identical to Discord's
+production service: exact rate-limit wall-clock timing, voice payload encryption / DAVE
+end-to-end encryption, and multi-process sharding coordination (the emulator always
+presents a single shard).
