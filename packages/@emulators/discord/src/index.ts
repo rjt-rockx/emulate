@@ -9,6 +9,7 @@ import {
   type PluginDisposer,
 } from "@emulators/core";
 import { getDiscordRuntime, clearDiscordRuntime } from "./runtime.js";
+import { getRateLimiter } from "./rateLimiter.js";
 import { GatewayServer } from "./gateway/server.js";
 import { type DiscordRouteContext } from "./context.js";
 import { seedDefaults } from "./seed.js";
@@ -49,19 +50,37 @@ export const discordPlugin: ServicePlugin = {
     const runtime = getDiscordRuntime(store, baseUrl);
     const ctx: DiscordRouteContext = { app, store, webhooks, baseUrl, bus: runtime.bus };
 
-    // Discord-style rate-limit headers on REST responses (lenient: the emulator does not
-    // enforce limits, but real clients/libraries read these). Content-Type is left to each
-    // response: core's c.json emits exactly `application/json`, and empty (204) responses
-    // carry no content type, so clients like discord.js do not try to parse an empty body.
+    // Discord-style rate limiting: real per-route buckets + a global budget. Every REST
+    // response carries the X-RateLimit-* headers; an exhausted bucket returns a 429 with a
+    // Retry-After. Limits are generous by default (see DEFAULT_RATE_LIMIT) so normal usage
+    // never trips — a client testing its 429 handling can tighten them via setRateLimitConfig.
     app.use("*", async (c, next) => {
-      await next();
-      if (c.req.path.startsWith("/api/")) {
-        c.header("X-RateLimit-Limit", "50");
-        c.header("X-RateLimit-Remaining", "49");
-        c.header("X-RateLimit-Reset", String(Math.floor(Date.now() / 1000) + 1));
-        c.header("X-RateLimit-Reset-After", "1");
-        c.header("X-RateLimit-Bucket", "emulate");
+      if (!c.req.path.startsWith("/api/")) {
+        await next();
+        return;
       }
+      const limiter = getRateLimiter(store);
+      if (!limiter.enabled) {
+        await next();
+        return;
+      }
+      const decision = limiter.check(c.req.method, c.req.path);
+      const resetAfter = (decision.resetAfterMs / 1000).toFixed(3);
+      c.header("X-RateLimit-Limit", String(decision.limit));
+      c.header("X-RateLimit-Remaining", String(decision.remaining));
+      c.header("X-RateLimit-Reset", String((Date.now() + decision.resetAfterMs) / 1000));
+      c.header("X-RateLimit-Reset-After", resetAfter);
+      c.header("X-RateLimit-Bucket", decision.bucket);
+      if (!decision.allowed) {
+        c.header("Retry-After", resetAfter);
+        c.header("X-RateLimit-Scope", decision.global ? "global" : "user");
+        if (decision.global) c.header("X-RateLimit-Global", "true");
+        return c.json(
+          { message: "You are being rate limited.", retry_after: decision.resetAfterMs / 1000, global: decision.global, code: 0 },
+          429,
+        );
+      }
+      await next();
     });
 
     gatewayRoutes(ctx);
@@ -136,3 +155,4 @@ export {
   recordAudit,
 } from "./helpers.js";
 export { packETF, unpackETF } from "./gateway/etf.js";
+export { setRateLimitConfig, getRateLimiter, DEFAULT_RATE_LIMIT, type RateLimitConfig } from "./rateLimiter.js";
