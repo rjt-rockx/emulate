@@ -80,3 +80,29 @@ item -> not asserted / asserted wrongly / impl diverges) with file:line. Non-con
 | `developers/topics/threads.mdx` | `threads.spec.test.ts (topic)` | [x] verified — 0H/6M/7L |
 | `developers/resources/guild-scheduled-event.mdx` | `guild-scheduled-event.spec.test.ts` | [x] verified — 1H/2M/5L |
 
+
+---
+
+## Remediation outcome
+
+All HIGH and meaningful MEDIUM gaps from the six audits were remediated in seven
+worktree-isolated waves (impl + tests, fixing implementation and any test that encoded a
+wrong value). Test count: 1330 -> 1451 (+121). type-check and lint clean.
+
+Fixed (selected): message bulk-delete validation (50034), embed limits, `around` param,
+content/sticker/nonce caps, component validation, reaction 10014; channel Modify/Create
+validation (50035), Text<->Announcement type conversion, archive_timestamp refresh;
+deferred-followup edits the placeholder, modal/autocomplete callback limits, webhook name
+validation + components-v2 on execute; application-command caps corrected to 15/1 in BOTH
+impl and tests, upsert key includes type, command-permissions Bearer-only; role member-counts
+excludes @everyone, bulk-ban 500000, emoji image required, role colors round-trip, group DM +
+username validation, audit-log tautology tests replaced with real assertions; scheduled-event
+Modify entity-type matrix, automod TIMEOUT trigger restriction, stage discoverable, soundboard
+bulk event, voice v8 ACK; timed-out-member permission collapse, invite job-status shape,
+incidents_data round-trip, lobby invite guards, oauth form-encoding + grant errors, application
+install/authorization counts, GET /gateway + session_start_limit assertions.
+
+Deferred (LOW / inference / cloud-only, documented in the per-group reports): exact rate-limit
+wall-clock, sharding routing + identify-concurrency, voice DAVE/E2EE, some niche validation
+caps (timeout 28-day, afk_timeout enum), connection-object enums, and assorted unasserted-but-
+correct round-trips. These do not affect contract fidelity for bots.
