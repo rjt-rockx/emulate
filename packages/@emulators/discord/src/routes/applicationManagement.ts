@@ -119,7 +119,7 @@ const GATEWAY_GUILD_MEMBERS_LIMITED = 1 << 15;
 const GATEWAY_MESSAGE_CONTENT_LIMITED = 1 << 19;
 const EDITABLE_FLAGS_MASK = GATEWAY_PRESENCE_LIMITED | GATEWAY_GUILD_MEMBERS_LIMITED | GATEWAY_MESSAGE_CONTENT_LIMITED;
 
-function toAPIApplication(
+export function toAPIApplication(
   application: DiscordApplication,
   ds: ReturnType<typeof getDiscordStore>,
   store: DiscordRouteContext["store"],

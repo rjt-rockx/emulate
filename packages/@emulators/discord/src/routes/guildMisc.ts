@@ -16,6 +16,7 @@ import {
 } from "../helpers.js";
 import { PermissionFlags } from "../permissions.js";
 import { Intents } from "../gateway/intents.js";
+import { toAPIAutoMod } from "./moderation.js";
 import type { DiscordGuildMember } from "../entities.js";
 
 const VOICE_REGIONS = [
@@ -212,14 +213,8 @@ export function guildMiscRoutes(ctx: DiscordRouteContext): void {
     const applicationCommands = ds.commands
       .findBy("guild_snowflake", guildId)
       .map((cmd) => toAPIApplicationCommand(cmd));
-    const autoModerationRules = ds.autoModRules.findBy("guild_snowflake", guildId).map((r) => ({
-      id: r.snowflake,
-      guild_id: r.guild_snowflake,
-      name: r.name,
-      event_type: r.event_type,
-      trigger_type: r.trigger_type,
-      enabled: r.enabled,
-    }));
+    // A3: full auto-moderation rule objects via the canonical serializer.
+    const autoModerationRules = ds.autoModRules.findBy("guild_snowflake", guildId).map((r) => toAPIAutoMod(r));
 
     return c.json({
       application_commands: applicationCommands,
@@ -242,6 +237,7 @@ export function guildMiscRoutes(ctx: DiscordRouteContext): void {
           guild_id: w.guild_snowflake,
           channel_id: w.channel_snowflake,
           name: w.name,
+          avatar: w.avatar ?? null,
           application_id: w.application_snowflake ?? null,
           token: w.type === 1 ? w.token : undefined,
         })),

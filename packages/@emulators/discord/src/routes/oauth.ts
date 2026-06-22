@@ -13,6 +13,7 @@ import {
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
 import { getAuth, requireBot, unauthorized, toAPIUser, toAPIGuild, snowflake } from "../helpers.js";
+import { toAPIApplication } from "./applicationManagement.js";
 import { createToken } from "../factories.js";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -296,9 +297,12 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
             name: app0.name,
             icon: app0.icon,
             description: app0.description,
+            type: null,
             bot_public: true,
             bot_require_code_grant: false,
             verify_key: app0.verify_key,
+            flags: app0.flags,
+            flags_new: String(app0.flags ?? 0),
           }
         : undefined,
       scopes: auth.scopes,
@@ -324,25 +328,8 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
     const { auth, ds } = g;
     const application = auth.application ?? ds.applications.all()[0];
     if (!application) return unauthorized(c);
-    const botUser = ds.users.findOneBy("snowflake", application.bot_user_snowflake);
-    const owner =
-      (application.owner_snowflake && ds.users.findOneBy("snowflake", application.owner_snowflake)) ||
-      ds.users.all().find((u) => !u.bot) ||
-      botUser;
-    return c.json({
-      id: application.snowflake,
-      name: application.name,
-      description: application.description,
-      icon: application.icon,
-      rpc_origins: [],
-      bot_public: true,
-      bot_require_code_grant: false,
-      owner: owner ? toAPIUser(owner) : null,
-      verify_key: application.verify_key,
-      team: null,
-      flags: application.flags,
-      bot: botUser ? toAPIUser(botUser) : undefined,
-    });
+    // The documented response is the bot's full application object.
+    return c.json(toAPIApplication(application, ds, store));
   };
   // The unversioned alias is documented alongside the versioned route.
   app.get("/api/oauth2/applications/@me", currentApplicationHandler);

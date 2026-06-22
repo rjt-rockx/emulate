@@ -39,7 +39,7 @@ function normalizeTriggerMetadata(triggerType: number, meta: Record<string, unkn
   return m;
 }
 
-function toAPIAutoMod(r: DiscordAutoModRule): APIAutoModerationRule {
+export function toAPIAutoMod(r: DiscordAutoModRule): APIAutoModerationRule {
   // Each action object requires a `metadata` object on the wire (empty for BLOCK_MESSAGE).
   const actions = (Array.isArray(r.actions) ? r.actions : []).map((a) => {
     const action = a as { type?: number; metadata?: unknown };

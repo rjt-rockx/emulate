@@ -79,6 +79,8 @@ export function miscRoutes(ctx: DiscordRouteContext): void {
     const messages = page.map((m) => {
       const msg = toAPIMessage(m, ds) as unknown as Record<string, unknown>;
       delete msg["reactions"];
+      // Each search-result message carries `hit: true` (per the spec's search response).
+      msg["hit"] = true;
       return [msg];
     });
     return c.json({ messages, total_results, doing_deep_historical_index: false });
