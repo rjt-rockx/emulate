@@ -441,6 +441,62 @@ describe("auto-moderation.mdx — endpoints", () => {
   });
 });
 
+describe("auto-moderation.mdx — A1/A2/A3/A4 validation fixes", () => {
+  it("[A1] Create requires MANAGE_GUILD — returns 403/50013 when enforcement is on and bot lacks it", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    // The default @everyone role does NOT have MANAGE_GUILD, so enabling enforcement denies the bot.
+    store.setData("discord.enforce_permissions", true);
+    const res = await app.request(api(`/guilds/${guild}/auto-moderation/rules`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify(KEYWORD),
+    });
+    expect(res.status).toBe(403);
+    expect((await json<{ code: number }>(res)).code).toBe(50013);
+  });
+
+  it("[A2] Create without `actions` returns 400 Invalid Form Body (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const { status, json } = await createRule(app, guild, { name: "x", event_type: 1, trigger_type: 1, trigger_metadata: { keyword_filter: ["a"] } });
+    expect(status).toBe(400);
+    expect(json.code).toBe(50035);
+  });
+
+  it("[A3] Create without `name` returns 400 Invalid Form Body (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const { status, json } = await createRule(app, guild, { event_type: 1, trigger_type: 1, trigger_metadata: { keyword_filter: ["a"] }, actions: [{ type: 1 }] });
+    expect(status).toBe(400);
+    expect(json.code).toBe(50035);
+  });
+
+  it("[A4] KEYWORD trigger (1) without keyword_filter or regex_patterns returns 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const { status, json } = await createRule(app, guild, { name: "x", event_type: 1, trigger_type: 1, trigger_metadata: {}, actions: [{ type: 1 }] });
+    expect(status).toBe(400);
+    expect(json.code).toBe(50035);
+  });
+
+  it("[A4] MENTION_SPAM trigger (5) without mention_total_limit returns 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const { status, json } = await createRule(app, guild, { name: "x", event_type: 1, trigger_type: 5, trigger_metadata: {}, actions: [{ type: 1 }] });
+    expect(status).toBe(400);
+    expect(json.code).toBe(50035);
+  });
+
+  it("[A4] KEYWORD_PRESET trigger (4) without presets returns 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const { status, json } = await createRule(app, guild, { name: "x", event_type: 1, trigger_type: 4, trigger_metadata: {}, actions: [{ type: 1 }] });
+    expect(status).toBe(400);
+    expect(json.code).toBe(50035);
+  });
+});
+
 describe("auto-moderation.mdx — Gateway events", () => {
   it("Create/Modify/Delete each fire their Gateway dispatch (observed via the parallel audit-log entry)", async () => {
     const { app, store } = createDiscordTestApp();

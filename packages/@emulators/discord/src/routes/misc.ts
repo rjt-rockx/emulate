@@ -63,11 +63,25 @@ export function miscRoutes(ctx: DiscordRouteContext): void {
     const content = (c.req.query("content") ?? "").toLowerCase();
     const authorId = c.req.query("author_id");
     const channelId = c.req.query("channel_id");
+    // [M2] limit defaults to 25, capped at 25.
+    const limitRaw = parseInt(c.req.query("limit") ?? "25", 10);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 25) : 25;
+    // [M3] offset for pagination.
+    const offsetRaw = parseInt(c.req.query("offset") ?? "0", 10);
+    const offset = Number.isFinite(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0;
     const matches = ds.messages
       .findBy("guild_snowflake", guildId)
       .filter((m) => (!content || m.content.toLowerCase().includes(content)) && (!authorId || m.author_snowflake === authorId) && (!channelId || m.channel_snowflake === channelId))
       .sort((a, b) => (BigInt(a.snowflake) < BigInt(b.snowflake) ? 1 : -1));
-    return c.json({ messages: matches.map((m) => [toAPIMessage(m, ds)]), total_results: matches.length });
+    const total_results = matches.length;
+    const page = matches.slice(offset, offset + limit);
+    // [M2] Strip `reactions` from each result; always include `doing_deep_historical_index: false`.
+    const messages = page.map((m) => {
+      const msg = toAPIMessage(m, ds) as unknown as Record<string, unknown>;
+      delete msg["reactions"];
+      return [msg];
+    });
+    return c.json({ messages, total_results, doing_deep_historical_index: false });
   });
 
   // ----- Delete the current user's application role connection -----

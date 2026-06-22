@@ -250,12 +250,14 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
     const { ds } = g;
     const skuId = c.req.param("skuId");
 
+    // [Sub-1] Bot-token callers must supply user_id. Without it they can't be scoped to a user.
     const userId = c.req.query("user_id");
+    if (!userId) return invalidFormBody(c, { user_id: "This field is required." });
     const page = parsePagination(c, { defaultLimit: 50, maxLimit: 100 });
 
     let results = ds.subscriptions.all().filter((s) => s.sku_snowflakes.includes(skuId));
 
-    if (userId) results = results.filter((s) => s.user_snowflake === userId);
+    results = results.filter((s) => s.user_snowflake === userId);
     results = sliceBySnowflake(results, (s) => s.snowflake, page);
 
     return c.json(results.map(toAPISubscription));

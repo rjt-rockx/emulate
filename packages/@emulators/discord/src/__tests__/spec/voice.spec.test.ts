@@ -13,15 +13,21 @@
 import { describe, it, expect } from "vitest";
 import { createDiscordTestApp, api, botHeaders, json } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
+import { createChannel } from "../../factories.js";
 import type { Store } from "@emulators/core";
 
 function ids(store: Store) {
   const ds = getDiscordStore(store);
+  const guild = ds.guilds.findOneBy("name", "Emulate Server")!.snowflake;
+  // [V1] PATCH voice-state endpoints require channel_id to be a stage channel (type 13).
+  // Create one for use in the modify tests.
+  const stageChannel = createChannel(ds, { name: "Stage Voice", type: 13, guildSnowflake: guild });
   return {
-    guild: ds.guilds.findOneBy("name", "Emulate Server")!.snowflake,
+    guild,
     bot: ds.users.findOneBy("username", "emulate-bot")!.snowflake,
     developer: ds.users.findOneBy("username", "developer")!.snowflake,
     voiceChannel: ds.channels.findOneBy("name", "General")!.snowflake,
+    stageChannel: stageChannel.snowflake,
   };
 }
 
@@ -174,19 +180,20 @@ describe("voice.mdx — Get User Voice State", () => {
 describe("voice.mdx — Modify Current User Voice State", () => {
   it("returns 204 No Content and applies channel_id, suppress, request_to_speak_timestamp", async () => {
     const { app, store } = createDiscordTestApp();
-    const { guild, bot, voiceChannel } = ids(store);
-    const id = seedVoiceState(store, { guild, user: bot, channel: voiceChannel });
+    const { guild, bot, stageChannel } = ids(store);
+    const id = seedVoiceState(store, { guild, user: bot, channel: stageChannel });
     const ts = "2026-06-22T18:45:31.297561+00:00";
     const res = await app.request(api(`/guilds/${guild}/voice-states/@me`), {
       method: "PATCH",
       headers: botHeaders(),
-      body: JSON.stringify({ channel_id: voiceChannel, suppress: true, request_to_speak_timestamp: ts }),
+      // [V1] channel_id must be a stage channel (type 13).
+      body: JSON.stringify({ channel_id: stageChannel, suppress: true, request_to_speak_timestamp: ts }),
     });
     expect(res.status).toBe(204);
     const ds = getDiscordStore(store);
     const state = ds.voiceStates.get(id)!;
     expect(state.suppress).toBe(true);
-    expect(state.channel_snowflake).toBe(voiceChannel);
+    expect(state.channel_snowflake).toBe(stageChannel);
     expect(state.request_to_speak_timestamp).toBe(ts);
   });
 
@@ -235,17 +242,18 @@ describe("voice.mdx — Modify Current User Voice State", () => {
 describe("voice.mdx — Modify User Voice State", () => {
   it("returns 204 No Content and applies channel_id and suppress", async () => {
     const { app, store } = createDiscordTestApp();
-    const { guild, developer, voiceChannel } = ids(store);
-    const id = seedVoiceState(store, { guild, user: developer, channel: voiceChannel });
+    const { guild, developer, stageChannel } = ids(store);
+    const id = seedVoiceState(store, { guild, user: developer, channel: stageChannel });
     const res = await app.request(api(`/guilds/${guild}/voice-states/${developer}`), {
       method: "PATCH",
       headers: botHeaders(),
-      body: JSON.stringify({ channel_id: voiceChannel, suppress: true }),
+      // [V1] channel_id must be a stage channel (type 13).
+      body: JSON.stringify({ channel_id: stageChannel, suppress: true }),
     });
     expect(res.status).toBe(204);
     const state = getDiscordStore(store).voiceStates.get(id)!;
     expect(state.suppress).toBe(true);
-    expect(state.channel_snowflake).toBe(voiceChannel);
+    expect(state.channel_snowflake).toBe(stageChannel);
   });
 
   it("caveat: suppressing removes the user's request_to_speak_timestamp", async () => {
@@ -337,5 +345,47 @@ describe("voice.mdx — Modify User Voice State", () => {
       body: JSON.stringify({ suppress: true }),
     });
     expect(res.status).toBe(401);
+  });
+});
+
+describe("voice.mdx — V1: stage-channel and permission validation", () => {
+  it("Modify Current User Voice State rejects channel_id pointing to a non-stage channel (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild, bot, voiceChannel } = ids(store);
+    seedVoiceState(store, { guild, user: bot, channel: voiceChannel });
+    const res = await app.request(api(`/guilds/${guild}/voice-states/@me`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ channel_id: voiceChannel }), // type 2, not 13
+    });
+    expect(res.status).toBe(400);
+    expect((await json(res)).code).toBe(50035);
+  });
+
+  it("Modify User Voice State rejects channel_id pointing to a non-stage channel (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild, developer, voiceChannel } = ids(store);
+    seedVoiceState(store, { guild, user: developer, channel: voiceChannel });
+    const res = await app.request(api(`/guilds/${guild}/voice-states/${developer}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ channel_id: voiceChannel }), // type 2, not 13
+    });
+    expect(res.status).toBe(400);
+    expect((await json(res)).code).toBe(50035);
+  });
+
+  it("Modify User Voice State returns 50013 when enforcement is on and caller lacks MUTE_MEMBERS", async () => {
+    const { app, store } = createDiscordTestApp();
+    store.setData("discord.enforce_permissions", true);
+    const { guild, developer, stageChannel } = ids(store);
+    seedVoiceState(store, { guild, user: developer, channel: stageChannel });
+    const res = await app.request(api(`/guilds/${guild}/voice-states/${developer}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ suppress: true }),
+    });
+    expect(res.status).toBe(403);
+    expect((await json(res)).code).toBe(50013);
   });
 });

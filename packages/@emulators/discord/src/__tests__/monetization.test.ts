@@ -280,11 +280,12 @@ describe("monetization routes", () => {
       });
     });
 
-    it("GET /skus/:skuId/subscriptions returns all subscriptions for the SKU", async () => {
-      const res = await app.request(api(`/skus/${skuId}/subscriptions`), { headers: botHeaders() });
+    it("GET /skus/:skuId/subscriptions returns subscriptions for the specified user", async () => {
+      // [Sub-1] user_id is required for bot-token callers; filters to that user's subs.
+      const res = await app.request(api(`/skus/${skuId}/subscriptions?user_id=user_sub_1`), { headers: botHeaders() });
       expect(res.status).toBe(200);
       const body = await json<Array<Record<string, unknown>>>(res);
-      expect(body.length).toBe(2);
+      expect(body.length).toBe(1);
       expect(body[0].id).toBeDefined();
       expect(Array.isArray(body[0].sku_ids)).toBe(true);
       expect((body[0].sku_ids as string[]).includes(skuId)).toBe(true);
@@ -301,7 +302,8 @@ describe("monetization routes", () => {
     });
 
     it("returns empty for unrelated SKU", async () => {
-      const res = await app.request(api("/skus/999999/subscriptions"), { headers: botHeaders() });
+      // [Sub-1] user_id is required.
+      const res = await app.request(api("/skus/999999/subscriptions?user_id=user_sub_1"), { headers: botHeaders() });
       expect(res.status).toBe(200);
       const body = await json<unknown[]>(res);
       expect(body.length).toBe(0);
@@ -338,7 +340,19 @@ describe("monetization routes", () => {
     });
 
     it("respects limit", async () => {
-      const res = await app.request(api(`/skus/${skuId}/subscriptions?limit=1`), { headers: botHeaders() });
+      // Seed a second subscription for user_sub_1 so limit=1 actually truncates.
+      getDiscordStore(store).subscriptions.insert({
+        snowflake: "400000000000000003",
+        user_snowflake: "user_sub_1",
+        sku_snowflakes: [skuId],
+        entitlement_snowflakes: [],
+        current_period_start: "2024-03-01T00:00:00.000Z",
+        current_period_end: "2024-04-01T00:00:00.000Z",
+        status: 0,
+        canceled_at: null,
+      });
+      // [Sub-1] user_id is required.
+      const res = await app.request(api(`/skus/${skuId}/subscriptions?user_id=user_sub_1&limit=1`), { headers: botHeaders() });
       expect(res.status).toBe(200);
       const body = await json<unknown[]>(res);
       expect(body.length).toBe(1);

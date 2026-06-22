@@ -350,4 +350,72 @@ describe("emoji.mdx — Application Emoji endpoints", () => {
       expect(typeof u.id).toBe("string");
     }
   });
+
+  it("[E1] Create Application Emoji without image returns 400 Invalid Form Body (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { appId } = ids(store);
+    const res = await app.request(api(`/applications/${appId}/emojis`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "noimgapp" }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("[E1] Create Application Emoji with name shorter than 2 chars returns 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { appId } = ids(store);
+    const res = await app.request(api(`/applications/${appId}/emojis`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "x", image: "data:image/png;base64,AAAA" }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("[E1] Create Application Emoji with invalid characters in name returns 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { appId } = ids(store);
+    const res = await app.request(api(`/applications/${appId}/emojis`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "bad-emoji!", image: "data:image/png;base64,AAAA" }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("[E2] Get Application Emoji for a different appId returns 404", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { appId } = ids(store);
+    // Create emoji under appId.
+    const createRes = await app.request(api(`/applications/${appId}/emojis`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "scopedtest", image: "data:image/png;base64,AAAA" }),
+    });
+    const created = (await createRes.json()) as { id: string };
+    // Try to fetch it under a different appId.
+    const res = await app.request(api(`/applications/000000000000000001/emojis/${created.id}`), { headers: botHeaders() });
+    expect(res.status).toBe(404);
+  });
+
+  it("[E2] Delete Application Emoji for a different appId returns 404", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { appId } = ids(store);
+    const createRes = await app.request(api(`/applications/${appId}/emojis`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "deletescope", image: "data:image/png;base64,AAAA" }),
+    });
+    const created = (await createRes.json()) as { id: string };
+    // Try to delete it under a different appId.
+    const res = await app.request(api(`/applications/000000000000000001/emojis/${created.id}`), {
+      method: "DELETE",
+      headers: botHeaders(),
+    });
+    expect(res.status).toBe(404);
+  });
 });

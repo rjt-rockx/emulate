@@ -4,6 +4,7 @@ import { startDiscordTestEmulator, api, botHeaders, json, type RunningDiscordEmu
 import { GatewayOpcodes } from "../gateway/opcodes.js";
 import { Intents } from "../gateway/intents.js";
 import { getDiscordStore } from "../store.js";
+import { createChannel } from "../factories.js";
 
 interface Frame {
   op: number;
@@ -107,7 +108,8 @@ describe("voice state signaling", () => {
     emu = await startDiscordTestEmulator();
     const ds = getDiscordStore(emu.store);
     const guildId = ds.guilds.findOneBy("name", "Emulate Server")!.snowflake;
-    const stageChannel = ds.channels.findBy("guild_snowflake", guildId).find((ch) => ch.type === 2)!;
+    // [V1] channel_id in PATCH body must be a stage channel (type 13). Create one first.
+    const stageChannel = createChannel(ds, { name: "Stage", type: 13, guildSnowflake: guildId });
     const botId = ds.users.findOneBy("username", "emulate-bot")!.snowflake;
 
     const { ws, waitFor } = await connect(`${emu.gatewayUrl}?v=10&encoding=json`);

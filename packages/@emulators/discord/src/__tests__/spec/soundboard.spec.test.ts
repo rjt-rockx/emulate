@@ -326,6 +326,62 @@ describe("soundboard.mdx — Send Soundboard Sound", () => {
   });
 });
 
+describe("soundboard.mdx — S-1/S-2/S-3 validation fixes", () => {
+  it("[S-1] Create requires expression permissions — 50013 when enforcement on and bot has no expression role", async () => {
+    const { app, store } = createDiscordTestApp();
+    const ds = getDiscordStore(store);
+    const guildId = ds.guilds.findOneBy("name", "Emulate Server")!.snowflake;
+    // Strip all permissions from @everyone so the bot has no expression perms.
+    const everyoneRole = ds.roles.findOneBy("snowflake", guildId)!;
+    ds.roles.update(everyoneRole.id, { permissions: "0" });
+    store.setData("discord.enforce_permissions", true);
+    const res = await app.request(api(`/guilds/${guildId}/soundboard-sounds`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "blocked", sound: SOUND_DATA }),
+    });
+    // Bot is denied when it lacks both CREATE_GUILD_EXPRESSIONS and MANAGE_GUILD_EXPRESSIONS.
+    expect(res.status).toBe(403);
+    expect((await res.json() as { code?: number }).code).toBe(50013);
+  });
+
+  it("[S-2] user field is present when caller has expression permissions (via @everyone)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild, application } = ids(store);
+    // Default @everyone has CREATE_GUILD_EXPRESSIONS, so user is included.
+    const { sound: created } = await createSound(app, guild);
+    expect((created.user as Record<string, unknown>).id).toBe(application.bot_user_snowflake);
+    // Verify it's also included in GET.
+    const res = await app.request(api(`/guilds/${guild}/soundboard-sounds/${created.sound_id}`), { headers: botHeaders() });
+    const s = await res.json() as Record<string, unknown>;
+    expect(s.user).not.toBeNull();
+  });
+
+  it("[S-3] Send Soundboard Sound without sound_id returns 400 Invalid Form Body (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { voiceChannel } = ids(store);
+    const res = await app.request(api(`/channels/${voiceChannel}/send-soundboard-sound`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ source_guild_id: "123" }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { code: number }).code).toBe(50035);
+  });
+
+  it("[S-4] Create without `sound` data uri returns 400 Invalid Form Body (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const res = await app.request(api(`/guilds/${guild}/soundboard-sounds`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "nosound" }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { code: number }).code).toBe(50035);
+  });
+});
+
 describe("soundboard.mdx — GUILD_SOUNDBOARD_SOUNDS_UPDATE bulk event", () => {
   it("fires GUILD_SOUNDBOARD_SOUNDS_UPDATE with the full sound list after Create", async () => {
     const { app, store } = createDiscordTestApp();

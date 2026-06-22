@@ -11,12 +11,16 @@
 import { describe, it, expect } from "vitest";
 import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
+import { createChannel } from "../../factories.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
   const s = seededIds(store);
+  const ds = getDiscordStore(store);
+  // [ST1] Create a Stage channel (type 13) so the endpoint accepts it.
+  const stage = createChannel(ds, { name: "Stage", type: 13, guildSnowflake: s.guild });
   return {
     guild: s.guild,
-    channel: s.voice, // the seeded voice/stage-capable channel
+    channel: stage.snowflake,
   };
 }
 
@@ -212,6 +216,42 @@ describe("stage-instance.mdx — Get / Modify / Delete", () => {
     const res = await app.request(api(`/stage-instances/${channel}`), { method: "DELETE", headers: botHeaders() });
     expect(res.status).toBe(404);
     expect((await json<{ code: number }>(res)).code).toBe(10067);
+  });
+});
+
+describe("stage-instance.mdx — ST1: channel-type and liveness checks", () => {
+  it("Create rejects a non-stage channel (type != 13) with 400 / 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const s = seededIds(store);
+    // s.voice is type 2 (voice channel), not a stage channel.
+    const { status, json: j } = await createStage(app, { channel_id: s.voice, topic: "bad channel" });
+    expect(status).toBe(400);
+    expect(j.code).toBe(50035);
+  });
+
+  it("Create rejects a second instance on the same channel (150006 Stage already open)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const first = await createStage(app, { channel_id: channel, topic: "First" });
+    expect(first.status).toBe(201);
+    const second = await createStage(app, { channel_id: channel, topic: "Second" });
+    expect(second.status).toBe(400);
+    expect(second.json.code).toBe(150006);
+  });
+});
+
+describe("stage-instance.mdx — ST2: moderator permission enforcement", () => {
+  it("Create/Modify/Delete return 50013 when enforcement is on and caller lacks moderator perms", async () => {
+    const { app, store } = createDiscordTestApp();
+    store.setData("discord.enforce_permissions", true);
+    const ds = getDiscordStore(store);
+    const s = seededIds(store);
+    // Create a stage channel owned by no one (bot has no permissions on it).
+    const stageChannel = createChannel(ds, { name: "PermStage", type: 13, guildSnowflake: s.guild });
+    // Bot user has no MANAGE_CHANNELS / MUTE_MEMBERS / MOVE_MEMBERS granted.
+    const createRes = await createStage(app, { channel_id: stageChannel.snowflake, topic: "Denied" });
+    expect(createRes.status).toBe(403);
+    expect(createRes.json.code).toBe(50013);
   });
 });
 

@@ -100,11 +100,13 @@ describe("subscription.mdx — Subscription Statuses", () => {
     const { app, store } = createDiscordTestApp();
     const statuses = { ACTIVE: 0, INACTIVE: 1, ENDING: 2 } as const;
     let i = 1;
+    // All subscriptions under the same user so user_id filter returns all three.
     for (const status of Object.values(statuses)) {
-      seedSub(store, { snowflake: `1279000000000000000${i}`, status, user_snowflake: `user_${i}` });
+      seedSub(store, { snowflake: `1279000000000000000${i}`, status, user_snowflake: "user_status_all" });
       i++;
     }
-    const res = await app.request(api(`/skus/${SKU_ID}/subscriptions`), { headers: botHeaders() });
+    // [Sub-1] user_id is required for bot-token callers.
+    const res = await app.request(api(`/skus/${SKU_ID}/subscriptions?user_id=user_status_all`), { headers: botHeaders() });
     const body = await json<Array<Record<string, unknown>>>(res);
     const seen = new Set(body.map((s) => s.status));
     expect(seen.has(0)).toBe(true);
@@ -124,15 +126,15 @@ describe("subscription.mdx — List SKU Subscriptions", () => {
     seedSub(store, { snowflake: "1280000000000000003", user_snowflake: "user_sub_1", sku_snowflakes: ["other_sku"] });
   }
 
-  it("GET /skus/{sku.id}/subscriptions returns all subscriptions containing the SKU", async () => {
+  it("GET /skus/{sku.id}/subscriptions returns subscriptions containing the SKU for the user", async () => {
     const { app, store } = createDiscordTestApp();
     seedMany(store);
-    const res = await app.request(api(`/skus/${SKU_ID}/subscriptions`), { headers: botHeaders() });
+    // [Sub-1] user_id is required; returns only the SKU-containing sub for user_sub_1.
+    const res = await app.request(api(`/skus/${SKU_ID}/subscriptions?user_id=user_sub_1`), { headers: botHeaders() });
     expect(res.status).toBe(200);
     const body = await json<Array<Record<string, unknown>>>(res);
     const ids = body.map((s) => s.id);
     expect(ids).toContain("1280000000000000001");
-    expect(ids).toContain("1280000000000000002");
     // …003 doesn't contain SKU_ID and must be omitted.
     expect(ids).not.toContain("1280000000000000003");
     for (const s of body) expect((s.sku_ids as string[]).includes(SKU_ID)).toBe(true);
@@ -151,14 +153,17 @@ describe("subscription.mdx — List SKU Subscriptions", () => {
 
   it("paginates with before/after on the subscription ID", async () => {
     const { app, store } = createDiscordTestApp();
-    seedMany(store);
-    const before = await app.request(api(`/skus/${SKU_ID}/subscriptions?before=1280000000000000002`), {
+    // Seed two subscriptions for the same user so pagination can be tested with user_id.
+    seedSub(store, { snowflake: "1280000000000000001", user_snowflake: "user_pag" });
+    seedSub(store, { snowflake: "1280000000000000002", user_snowflake: "user_pag", sku_snowflakes: [SKU_ID, "other_sku"] });
+    // [Sub-1] user_id is required.
+    const before = await app.request(api(`/skus/${SKU_ID}/subscriptions?user_id=user_pag&before=1280000000000000002`), {
       headers: botHeaders(),
     });
     const beforeIds = ((await before.json()) as Array<Record<string, unknown>>).map((s) => s.id);
     expect(beforeIds).toContain("1280000000000000001");
     expect(beforeIds).not.toContain("1280000000000000002");
-    const after = await app.request(api(`/skus/${SKU_ID}/subscriptions?after=1280000000000000001`), {
+    const after = await app.request(api(`/skus/${SKU_ID}/subscriptions?user_id=user_pag&after=1280000000000000001`), {
       headers: botHeaders(),
     });
     const afterIds = ((await after.json()) as Array<Record<string, unknown>>).map((s) => s.id);
@@ -169,7 +174,10 @@ describe("subscription.mdx — List SKU Subscriptions", () => {
   it("honors limit (1-100)", async () => {
     const { app, store } = createDiscordTestApp();
     seedMany(store);
-    const res = await app.request(api(`/skus/${SKU_ID}/subscriptions?limit=1`), { headers: botHeaders() });
+    // [Sub-1] user_id is required; user_sub_1 has two subs matching SKU_ID (001 and via seedMany).
+    // Seed an extra one so limit=1 actually truncates.
+    seedSub(store, { snowflake: "1280000000000000004", user_snowflake: "user_sub_1" });
+    const res = await app.request(api(`/skus/${SKU_ID}/subscriptions?user_id=user_sub_1&limit=1`), { headers: botHeaders() });
     const body = await json<unknown[]>(res);
     expect(body.length).toBe(1);
   });
@@ -177,9 +185,17 @@ describe("subscription.mdx — List SKU Subscriptions", () => {
   it("returns an empty array for a SKU with no subscriptions", async () => {
     const { app, store } = createDiscordTestApp();
     seedMany(store);
-    const res = await app.request(api("/skus/999999999999999999/subscriptions"), { headers: botHeaders() });
+    // [Sub-1] user_id is required.
+    const res = await app.request(api("/skus/999999999999999999/subscriptions?user_id=user_sub_1"), { headers: botHeaders() });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([]);
+  });
+
+  it("[Sub-1] omitting user_id returns 400 Invalid Form Body (50035)", async () => {
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api(`/skus/${SKU_ID}/subscriptions`), { headers: botHeaders() });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
 

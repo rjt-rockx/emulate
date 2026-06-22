@@ -12,8 +12,11 @@ import {
   AuditLogEvent,
   auditReason,
   resolveBotUser,
+  requirePermission,
 } from "../helpers.js";
+import { PermissionFlags, computeGuildPermissions, hasPermission } from "../permissions.js";
 import { Intents } from "../gateway/intents.js";
+import { getDiscordStore } from "../store.js";
 import type { DiscordSoundboardSound } from "../entities.js";
 
 /**
@@ -74,32 +77,54 @@ export function soundboardRoutes(ctx: DiscordRouteContext): void {
     return c.json(DEFAULT_SOUNDS);
   });
 
+  // [S-2] Helper: whether caller has CREATE/MANAGE_GUILD_EXPRESSIONS (to include user field).
+  const hasExpressionPerm = (userSnowflake: string | undefined, guildId: string): boolean => {
+    if (!userSnowflake) return false;
+    const ds = getDiscordStore(store);
+    const perms = computeGuildPermissions(ds, userSnowflake, guildId);
+    return hasPermission(perms, PermissionFlags.CreateGuildExpressions) || hasPermission(perms, PermissionFlags.ManageGuildExpressions);
+  };
+
   app.get("/api/v:version/guilds/:guildId/soundboard-sounds", (c) => {
-    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const guildId = c.req.param("guildId");
+    // [S-2] Include user field only when caller has expression permissions.
+    const includeUser = hasExpressionPerm(auth.user?.snowflake, guildId);
     return c.json({
-      items: ds.soundboardSounds.findBy("guild_snowflake", c.req.param("guildId")).map((s) => toAPISound(s, ds)),
+      items: ds.soundboardSounds.findBy("guild_snowflake", guildId).map((s) => toAPISound(s, ds, includeUser)),
     });
   });
 
   app.get("/api/v:version/guilds/:guildId/soundboard-sounds/:soundId", (c) => {
-    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const guildId = c.req.param("guildId");
     const sound = ds.soundboardSounds.findOneBy("snowflake", c.req.param("soundId"));
-    if (!sound || sound.guild_snowflake !== c.req.param("guildId")) return notFound(c);
-    return c.json(toAPISound(sound, ds));
+    if (!sound || sound.guild_snowflake !== guildId) return notFound(c);
+    // [S-2] Include user field only when caller has expression permissions.
+    const includeUser = hasExpressionPerm(auth.user?.snowflake, guildId);
+    return c.json(toAPISound(sound, ds, includeUser));
   });
 
   app.post("/api/v:version/guilds/:guildId/soundboard-sounds", async (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     if (!ds.guilds.findOneBy("snowflake", guildId)) return notFound(c);
+    // [S-1] Create requires CREATE_GUILD_EXPRESSIONS or MANAGE_GUILD_EXPRESSIONS.
+    {
+      const _p = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.CreateGuildExpressions, { guildId });
+      if (_p) {
+        const _p2 = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageGuildExpressions, { guildId });
+        if (_p2) return _p2;
+      }
+    }
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
 
-    // name (2-32) is required; sound is a data uri (validated when present — the emulator does
-    // not persist the bytes); volume (if present) must be 0-1.
+    // name (2-32) is required; sound is a data uri required on Create; volume (if present) must be 0-1.
     const nameErr = validateName(body.name);
     if (nameErr) return invalidFormBody(c, { name: nameErr });
-    if ("sound" in body && (typeof body.sound !== "string" || body.sound.length === 0)) {
-      return invalidFormBody(c, { sound: "Invalid sound data" });
+    // [S-4] `sound` (data uri) is required on Create.
+    if (typeof body.sound !== "string" || body.sound.length === 0) {
+      return invalidFormBody(c, { sound: "This field is required." });
     }
     const volErr = validateVolume(body.volume);
     if (volErr) return invalidFormBody(c, { volume: volErr });
@@ -114,8 +139,11 @@ export function soundboardRoutes(ctx: DiscordRouteContext): void {
       available: true,
       creator_snowflake: auth.user?.snowflake ?? null,
     });
-    const payload = toAPISound(sound, ds);
-    bus.publish({ t: "GUILD_SOUNDBOARD_SOUND_CREATE", guildId, requiredIntents: Intents.GuildExpressions, d: payload });
+    // [S-2] Include user only when caller has expression permissions (which they do here since
+    // Create requires them — so always true at this point when enforcement is on).
+    const includeUser = hasExpressionPerm(auth.user?.snowflake, guildId);
+    const payload = toAPISound(sound, ds, includeUser);
+    bus.publish({ t: "GUILD_SOUNDBOARD_SOUND_CREATE", guildId, requiredIntents: Intents.GuildExpressions, d: toAPISound(sound, ds) });
     dispatchSoundsUpdate(bus, ds, guildId);
     recordAudit(ds, bus, {
       guildSnowflake: guildId,
@@ -130,8 +158,17 @@ export function soundboardRoutes(ctx: DiscordRouteContext): void {
 
   app.patch("/api/v:version/guilds/:guildId/soundboard-sounds/:soundId", async (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const guildId = c.req.param("guildId");
+    // [S-1] Modify requires CREATE_GUILD_EXPRESSIONS or MANAGE_GUILD_EXPRESSIONS.
+    {
+      const _p = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.CreateGuildExpressions, { guildId });
+      if (_p) {
+        const _p2 = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageGuildExpressions, { guildId });
+        if (_p2) return _p2;
+      }
+    }
     const sound = ds.soundboardSounds.findOneBy("snowflake", c.req.param("soundId"));
-    if (!sound || sound.guild_snowflake !== c.req.param("guildId")) return notFound(c);
+    if (!sound || sound.guild_snowflake !== guildId) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
 
     // All params are optional, but when present they must satisfy the same constraints.
@@ -178,9 +215,17 @@ export function soundboardRoutes(ctx: DiscordRouteContext): void {
 
   app.delete("/api/v:version/guilds/:guildId/soundboard-sounds/:soundId", (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const guildId = c.req.param("guildId");
+    // [S-1] Delete requires CREATE_GUILD_EXPRESSIONS or MANAGE_GUILD_EXPRESSIONS.
+    {
+      const _p = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.CreateGuildExpressions, { guildId });
+      if (_p) {
+        const _p2 = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageGuildExpressions, { guildId });
+        if (_p2) return _p2;
+      }
+    }
     const sound = ds.soundboardSounds.findOneBy("snowflake", c.req.param("soundId"));
-    if (!sound || sound.guild_snowflake !== c.req.param("guildId")) return notFound(c);
-    const guildId = sound.guild_snowflake;
+    if (!sound || sound.guild_snowflake !== guildId) return notFound(c);
     const soundId = sound.snowflake;
     ds.soundboardSounds.delete(sound.id);
     bus.publish({
@@ -208,6 +253,10 @@ export function soundboardRoutes(ctx: DiscordRouteContext): void {
     if (!channel) return notFound(c);
 
     const body = (await c.req.json().catch(() => ({}))) as { sound_id?: string; source_guild_id?: string };
+    // [S-3] sound_id is required.
+    if (!body.sound_id) {
+      return invalidFormBody(c, { sound_id: "This field is required." });
+    }
     const user = resolveBotUser(ds, auth);
 
     // Resolve the volume from a guild sound when known, otherwise default to full volume.

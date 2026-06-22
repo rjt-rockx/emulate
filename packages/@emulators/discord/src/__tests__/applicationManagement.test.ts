@@ -141,10 +141,11 @@ describe("Application Emojis CRUD", () => {
     const { app, store } = build();
     const { app: appId } = seededIds(store);
 
+    // [E1] image is required on Create.
     const createRes = await app.request(api(`/applications/${appId}/emojis`), {
       method: "POST",
       headers: botHeaders(),
-      body: JSON.stringify({ name: "original_name" }),
+      body: JSON.stringify({ name: "original_name", image: "data:image/png;base64,abc" }),
     });
     const created = await json(createRes);
     const emojiId = created.id as string;
@@ -164,10 +165,11 @@ describe("Application Emojis CRUD", () => {
     const { app, store } = build();
     const { app: appId } = seededIds(store);
 
+    // [E1] image is required on Create.
     const createRes = await app.request(api(`/applications/${appId}/emojis`), {
       method: "POST",
       headers: botHeaders(),
-      body: JSON.stringify({ name: "to_delete" }),
+      body: JSON.stringify({ name: "to_delete", image: "data:image/png;base64,abc" }),
     });
     const created = await json(createRes);
     const emojiId = created.id as string;
@@ -192,16 +194,16 @@ describe("Application Emojis CRUD", () => {
     const { app, store } = build();
     const { app: appId } = seededIds(store);
 
-    // Create two emojis
+    // [E1] image is required on Create.
     await app.request(api(`/applications/${appId}/emojis`), {
       method: "POST",
       headers: botHeaders(),
-      body: JSON.stringify({ name: "emoji_one" }),
+      body: JSON.stringify({ name: "emoji_one", image: "data:image/png;base64,abc" }),
     });
     await app.request(api(`/applications/${appId}/emojis`), {
       method: "POST",
       headers: botHeaders(),
-      body: JSON.stringify({ name: "emoji_two" }),
+      body: JSON.stringify({ name: "emoji_two", image: "data:image/png;base64,abc" }),
     });
 
     const listRes = await app.request(api(`/applications/${appId}/emojis`), { headers: botHeaders() });

@@ -1,6 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { requireBot, unauthorized, notFound, discordError, toAPIUser, snowflake } from "../helpers.js";
+import { requireBot, unauthorized, notFound, discordError, toAPIUser, snowflake, invalidFormBody } from "../helpers.js";
 import { signInteraction } from "../interactions/ed25519.js";
 import type { APIApplication, APIEmoji } from "discord-api-types/v10";
 import type { DiscordApplication, DiscordApplicationEmoji } from "../entities.js";
@@ -248,7 +248,14 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
       extras.integration_types_config = body.integration_types_config as Record<string, unknown>;
     if (body.tags !== undefined) extras.tags = body.tags as string[];
     if (body.event_webhooks_url !== undefined) extras.event_webhooks_url = body.event_webhooks_url as string | null;
-    if (body.event_webhooks_status !== undefined) extras.event_webhooks_status = body.event_webhooks_status as number;
+    if (body.event_webhooks_status !== undefined) {
+      // [W4] Only status values 1 (DISABLED) and 2 (ENABLED_WITHOUT_LOGS) are valid.
+      const status = body.event_webhooks_status as number;
+      if (status !== 1 && status !== 2) {
+        return invalidFormBody(c, { event_webhooks_status: "Value must be one of (1, 2)." });
+      }
+      extras.event_webhooks_status = status;
+    }
     if (body.event_webhooks_types !== undefined) extras.event_webhooks_types = body.event_webhooks_types as string[];
     setApplicationExtras(appRecord, store, extras);
 
@@ -272,9 +279,11 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
     const g = requireBot(c, store);
     if (g instanceof Response) return g;
     const { ds } = g;
+    const appId = c.req.param("appId");
     const emojiId = c.req.param("emojiId");
     const emoji = ds.appEmojis.findOneBy("snowflake", emojiId);
-    if (!emoji) return notFound(c);
+    // [E2] Scope to the requesting application's emojis.
+    if (!emoji || emoji.application_snowflake !== appId) return notFound(c);
     return c.json(toAPIAppEmoji(emoji, ds));
   });
 
@@ -284,7 +293,20 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
     if (g instanceof Response) return g;
     const { auth, ds } = g;
     const appId = c.req.param("appId");
-    const body = await c.req.json<{ name: string; image?: string; roles?: string[] }>();
+    const body = await c.req.json<{ name?: string; image?: string; roles?: string[] }>();
+
+    // [E1] Validate name: required, 2-32 chars, only [a-zA-Z0-9_].
+    const name = body.name;
+    if (typeof name !== "string" || name.length < 2 || name.length > 32) {
+      return invalidFormBody(c, { name: "Must be between 2 and 32 in length." });
+    }
+    if (!/^[a-zA-Z0-9_]+$/.test(name)) {
+      return invalidFormBody(c, { name: "Must only contain alphanumeric characters and underscores." });
+    }
+    // [E1] image is required on Create.
+    if (typeof body.image !== "string" || body.image.length === 0) {
+      return invalidFormBody(c, { image: "This field is required." });
+    }
 
     const appRecord = auth.application ?? ds.applications.all()[0];
     const botUser = appRecord ? ds.users.findOneBy("snowflake", appRecord.bot_user_snowflake) : null;
@@ -292,7 +314,7 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
     const inserted = ds.appEmojis.insert({
       snowflake: snowflake(),
       application_snowflake: appId,
-      name: body.name,
+      name,
       animated: false,
       managed: false,
       available: true,
@@ -308,9 +330,11 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
     const g = requireBot(c, store);
     if (g instanceof Response) return g;
     const { ds } = g;
+    const appId = c.req.param("appId");
     const emojiId = c.req.param("emojiId");
     const emoji = ds.appEmojis.findOneBy("snowflake", emojiId);
-    if (!emoji) return notFound(c);
+    // [E2] Scope to the requesting application's emojis.
+    if (!emoji || emoji.application_snowflake !== appId) return notFound(c);
 
     const body = await c.req.json<{ name?: string }>();
     if (body.name !== undefined) {
@@ -325,9 +349,11 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
     const g = requireBot(c, store);
     if (g instanceof Response) return g;
     const { ds } = g;
+    const appId = c.req.param("appId");
     const emojiId = c.req.param("emojiId");
     const emoji = ds.appEmojis.findOneBy("snowflake", emojiId);
-    if (!emoji) return notFound(c);
+    // [E2] Scope to the requesting application's emojis.
+    if (!emoji || emoji.application_snowflake !== appId) return notFound(c);
     ds.appEmojis.delete(emoji.id);
     return new Response(null, { status: 204 });
   });

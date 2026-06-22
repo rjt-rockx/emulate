@@ -4,6 +4,7 @@ import {
   unknownChannel,
   unknownStageInstance,
   invalidFormBody,
+  discordError,
   toAPIStageInstance,
   snowflake,
   recordAudit,
@@ -11,7 +12,9 @@ import {
   auditReason,
   requireBot,
   requireGuild,
+  requirePermission,
 } from "../helpers.js";
+import { PermissionFlags } from "../permissions.js";
 import { Intents } from "../gateway/intents.js";
 import type { APIAutoModerationRule } from "discord-api-types/v10";
 import type { DiscordAutoModRule } from "../entities.js";
@@ -61,6 +64,40 @@ const ALLOW_LIST_PRESET_MAX_ARRAY = 1000; // KEYWORD_PRESET
 
 function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === "string");
+}
+
+/**
+ * [A4] Enforce required trigger_metadata fields per trigger type (Create only).
+ * KEYWORD(1) / MEMBER_PROFILE(6): need keyword_filter or regex_patterns.
+ * MENTION_SPAM(5): needs mention_total_limit.
+ * KEYWORD_PRESET(4): needs presets.
+ * Returns error map or null.
+ */
+function validateRequiredTriggerMetadata(
+  body: Record<string, unknown>,
+  triggerType: number,
+): Record<string, string> | null {
+  const errors: Record<string, string> = {};
+  const tm = (body.trigger_metadata ?? {}) as Record<string, unknown>;
+  if (triggerType === 1 || triggerType === 6) {
+    // KEYWORD / MEMBER_PROFILE: must have at least keyword_filter or regex_patterns.
+    const hasKw = Array.isArray(tm.keyword_filter) && (tm.keyword_filter as unknown[]).length > 0;
+    const hasRe = Array.isArray(tm.regex_patterns) && (tm.regex_patterns as unknown[]).length > 0;
+    if (!hasKw && !hasRe) {
+      errors["trigger_metadata"] = "trigger_metadata must contain keyword_filter or regex_patterns.";
+    }
+  } else if (triggerType === 5) {
+    // MENTION_SPAM: must have mention_total_limit.
+    if (typeof tm.mention_total_limit !== "number") {
+      errors["trigger_metadata.mention_total_limit"] = "This field is required.";
+    }
+  } else if (triggerType === 4) {
+    // KEYWORD_PRESET: must have presets.
+    if (!Array.isArray(tm.presets) || (tm.presets as unknown[]).length === 0) {
+      errors["trigger_metadata.presets"] = "This field is required.";
+    }
+  }
+  return Object.keys(errors).length > 0 ? errors : null;
 }
 
 /**
@@ -183,6 +220,11 @@ function validateAutoModRuleBody(
 export function moderationRoutes(ctx: DiscordRouteContext): void {
   const { app, store, bus } = ctx;
 
+  // Stage moderator permissions: MANAGE_CHANNELS + MUTE_MEMBERS + MOVE_MEMBERS.
+  // Per stage-instance.mdx: "Requires the user to be a moderator of the Stage channel."
+  const STAGE_MOD_PERMISSION =
+    PermissionFlags.ManageChannels | PermissionFlags.MuteMembers | PermissionFlags.MoveMembers;
+
   // ----- Stage instances -----
   app.post("/api/v:version/stage-instances", async (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
@@ -194,6 +236,17 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
     }
     const channel = typeof body.channel_id === "string" ? ds.channels.findOneBy("snowflake", body.channel_id) : null;
     if (!channel) return unknownChannel(c);
+
+    // [ST1] channel must be a Stage channel (type 13).
+    if (channel.type !== 13) {
+      return invalidFormBody(c, { channel_id: "Must be a stage channel." });
+    }
+    // [ST1] Reject creating a second instance for a channel that already has one.
+    if (ds.stageInstances.findOneBy("channel_snowflake", channel.snowflake)) {
+      return discordError(c, 400, "Stage already open.", 150006);
+    }
+    // [ST2] Require stage moderator permissions.
+    { const _p = requirePermission(c, store, auth.user?.snowflake, STAGE_MOD_PERMISSION, { channelId: channel.snowflake }); if (_p) return _p; }
 
     let privacyLevel = 2; // default GUILD_ONLY
     if (body.privacy_level !== undefined) {
@@ -239,6 +292,8 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const stage = ds.stageInstances.findOneBy("channel_snowflake", c.req.param("channelId"));
     if (!stage) return unknownStageInstance(c);
+    // [ST2] Require stage moderator permissions.
+    { const _p = requirePermission(c, store, auth.user?.snowflake, STAGE_MOD_PERMISSION, { channelId: stage.channel_snowflake }); if (_p) return _p; }
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const stageChanges: unknown[] = [];
     const patch: Record<string, unknown> = {};
@@ -276,6 +331,8 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const stage = ds.stageInstances.findOneBy("channel_snowflake", c.req.param("channelId"));
     if (!stage) return unknownStageInstance(c);
+    // [ST2] Require stage moderator permissions.
+    { const _p = requirePermission(c, store, auth.user?.snowflake, STAGE_MOD_PERMISSION, { channelId: stage.channel_snowflake }); if (_p) return _p; }
     const payload = toAPIStageInstance(stage);
     ds.stageInstances.delete(stage.id);
     bus.publish({ t: "STAGE_INSTANCE_DELETE", guildId: stage.guild_snowflake, requiredIntents: Intents.Guilds, d: payload });
@@ -292,14 +349,20 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
 
   // ----- Auto-moderation rules -----
   app.get("/api/v:version/guilds/:guildId/auto-moderation/rules", (c) => {
-    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
-    return c.json(ds.autoModRules.findBy("guild_snowflake", c.req.param("guildId")).map(toAPIAutoMod));
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const guildId = c.req.param("guildId");
+    // [A1] All auto-mod routes require MANAGE_GUILD.
+    { const _p = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageGuild, { guildId }); if (_p) return _p; }
+    return c.json(ds.autoModRules.findBy("guild_snowflake", guildId).map(toAPIAutoMod));
   });
 
   app.get("/api/v:version/guilds/:guildId/auto-moderation/rules/:ruleId", (c) => {
-    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const guildId = c.req.param("guildId");
+    // [A1] All auto-mod routes require MANAGE_GUILD.
+    { const _p = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageGuild, { guildId }); if (_p) return _p; }
     const rule = ds.autoModRules.findOneBy("snowflake", c.req.param("ruleId"));
-    if (!rule || rule.guild_snowflake !== c.req.param("guildId")) return notFound(c);
+    if (!rule || rule.guild_snowflake !== guildId) return notFound(c);
     return c.json(toAPIAutoMod(rule));
   });
 
@@ -307,11 +370,33 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     { const _g = requireGuild(c, ds, guildId); if (_g instanceof Response) return _g; }
+    // [A1] All auto-mod routes require MANAGE_GUILD.
+    { const _p = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageGuild, { guildId }); if (_p) return _p; }
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
 
+    // [A2] `actions` is required on Create.
+    if (body.actions === undefined) {
+      return invalidFormBody(c, { actions: "This field is required." });
+    }
+    // [A3] `name` is required on Create.
+    if (typeof body.name !== "string" || body.name.length === 0) {
+      return invalidFormBody(c, { name: "This field is required." });
+    }
+
     const triggerType = typeof body.trigger_type === "number" ? body.trigger_type : NaN;
+
+    // [A4] Required trigger_metadata fields per trigger type.
+    const triggerMetaErrors = validateRequiredTriggerMetadata(body, triggerType);
+    if (triggerMetaErrors) return invalidFormBody(c, triggerMetaErrors);
+
     const errors = validateAutoModRuleBody(body, triggerType, true);
     if (errors) return invalidFormBody(c, errors);
+
+    // [A1] TIMEOUT action additionally requires MODERATE_MEMBERS.
+    if (Array.isArray(body.actions) && body.actions.some((a: unknown) => (a as Record<string, unknown>)?.type === 3)) {
+      const _p = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ModerateMembers, { guildId });
+      if (_p) return _p;
+    }
 
     // Enforce the per-trigger-type maximum number of rules per guild.
     const cap = MAX_RULES_PER_GUILD[triggerType];
@@ -330,7 +415,7 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
       snowflake: snowflake(),
       guild_snowflake: guildId,
       creator_snowflake: auth.user?.snowflake ?? null,
-      name: typeof body.name === "string" ? body.name : "rule",
+      name: body.name as string,
       event_type: body.event_type as number,
       trigger_type: triggerType,
       trigger_metadata: (body.trigger_metadata as Record<string, unknown>) ?? {},
@@ -354,13 +439,22 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
 
   app.patch("/api/v:version/guilds/:guildId/auto-moderation/rules/:ruleId", async (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const guildId = c.req.param("guildId");
+    // [A1] All auto-mod routes require MANAGE_GUILD.
+    { const _p = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageGuild, { guildId }); if (_p) return _p; }
     const rule = ds.autoModRules.findOneBy("snowflake", c.req.param("ruleId"));
-    if (!rule || rule.guild_snowflake !== c.req.param("guildId")) return notFound(c);
+    if (!rule || rule.guild_snowflake !== guildId) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
 
     // Modify: all params optional; validate against the rule's (unchangeable) trigger type.
     const errors = validateAutoModRuleBody(body, rule.trigger_type, false);
     if (errors) return invalidFormBody(c, errors);
+
+    // [A1] TIMEOUT action additionally requires MODERATE_MEMBERS.
+    if (Array.isArray(body.actions) && body.actions.some((a: unknown) => (a as Record<string, unknown>)?.type === 3)) {
+      const _p = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ModerateMembers, { guildId });
+      if (_p) return _p;
+    }
 
     const patch: Partial<DiscordAutoModRule> = {};
     if (typeof body.name === "string") patch.name = body.name;
@@ -393,8 +487,11 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
 
   app.delete("/api/v:version/guilds/:guildId/auto-moderation/rules/:ruleId", (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const guildId = c.req.param("guildId");
+    // [A1] All auto-mod routes require MANAGE_GUILD.
+    { const _p = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageGuild, { guildId }); if (_p) return _p; }
     const rule = ds.autoModRules.findOneBy("snowflake", c.req.param("ruleId"));
-    if (!rule || rule.guild_snowflake !== c.req.param("guildId")) return notFound(c);
+    if (!rule || rule.guild_snowflake !== guildId) return notFound(c);
     const payload = toAPIAutoMod(rule);
     ds.autoModRules.delete(rule.id);
     bus.publish({ t: "AUTO_MODERATION_RULE_DELETE", guildId: rule.guild_snowflake, requiredIntents: Intents.AutoModerationConfiguration, d: payload });

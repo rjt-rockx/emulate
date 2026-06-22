@@ -18,11 +18,12 @@ describe("discord soundboard", () => {
   it("creates, lists, updates, and deletes a guild soundboard sound", async () => {
     const { app, store } = createDiscordTestApp();
     const gid = guildId(store);
+    // [S-4] `sound` (data uri) is required on Create.
     const created = (await (
       await app.request(api(`/guilds/${gid}/soundboard-sounds`), {
         method: "POST",
         headers: botHeaders(),
-        body: JSON.stringify({ name: "airhorn", volume: 0.8 }),
+        body: JSON.stringify({ name: "airhorn", sound: "data:audio/mpeg;base64,SUQzAAAAAAAB", volume: 0.8 }),
       })
     ).json()) as { sound_id: string; name: string };
     expect(created.name).toBe("airhorn");

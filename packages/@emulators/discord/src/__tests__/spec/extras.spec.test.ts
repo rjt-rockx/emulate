@@ -194,6 +194,39 @@ describe("guild message search", () => {
     const res = await app.request(api(`/guilds/${guild}/messages/search`));
     expect(res.status).toBe(401);
   });
+
+  it("[M2] response always includes doing_deep_historical_index: false and no reactions key", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { ds, guild, textChannel, developer } = ids(store);
+    createMessage(ds, { channelSnowflake: textChannel, guildSnowflake: guild, authorSnowflake: developer, content: "check-m2" });
+    const res = await app.request(api(`/guilds/${guild}/messages/search?content=check-m2`), { headers: botHeaders() });
+    expect(res.status).toBe(200);
+    const body = await json<{ messages: Array<Array<Record<string, unknown>>>; doing_deep_historical_index: boolean }>(res);
+    expect(body.doing_deep_historical_index).toBe(false);
+    // reactions key must be stripped from each message.
+    expect("reactions" in body.messages[0][0]).toBe(false);
+  });
+
+  it("[M3] respects limit (default 25, max 25) and offset", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { ds, guild, textChannel, developer } = ids(store);
+    for (let i = 0; i < 30; i++) {
+      createMessage(ds, { channelSnowflake: textChannel, guildSnowflake: guild, authorSnowflake: developer, content: `paged-msg-${i}` });
+    }
+    // Default limit is 25.
+    const res1 = await app.request(api(`/guilds/${guild}/messages/search?content=paged-msg`), { headers: botHeaders() });
+    const body1 = await json<{ messages: unknown[]; total_results: number }>(res1);
+    expect(body1.messages.length).toBe(25);
+    expect(body1.total_results).toBe(30);
+    // Explicit limit capped at 25.
+    const res2 = await app.request(api(`/guilds/${guild}/messages/search?content=paged-msg&limit=10`), { headers: botHeaders() });
+    const body2 = await json<{ messages: unknown[] }>(res2);
+    expect(body2.messages.length).toBe(10);
+    // Offset skips results.
+    const res3 = await app.request(api(`/guilds/${guild}/messages/search?content=paged-msg&offset=25`), { headers: botHeaders() });
+    const body3 = await json<{ messages: unknown[] }>(res3);
+    expect(body3.messages.length).toBe(5);
+  });
 });
 
 // ---------------------------------------------------------------------------

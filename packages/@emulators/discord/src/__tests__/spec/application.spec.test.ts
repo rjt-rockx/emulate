@@ -363,6 +363,52 @@ describe("application.mdx — Edit Current Application (PATCH /applications/@me)
   });
 });
 
+describe("application.mdx — W4: event_webhooks_status validation", () => {
+  it("[W4] event_webhooks_status value of 3 is rejected with 50035", async () => {
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api("/applications/@me"), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ event_webhooks_status: 3 }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("[W4] event_webhooks_status value of 0 is rejected with 50035", async () => {
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api("/applications/@me"), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ event_webhooks_status: 0 }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("[W4] event_webhooks_status value of 1 (DISABLED) is accepted", async () => {
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api("/applications/@me"), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ event_webhooks_status: 1 }),
+    });
+    expect(res.status).toBe(200);
+    expect((await json(res)).event_webhooks_status).toBe(1);
+  });
+
+  it("[W4] event_webhooks_status value of 2 (ENABLED_WITHOUT_LOGS) is accepted", async () => {
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api("/applications/@me"), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ event_webhooks_status: 2 }),
+    });
+    expect(res.status).toBe(200);
+    expect((await json(res)).event_webhooks_status).toBe(2);
+  });
+});
+
 describe("application.mdx — authorization", () => {
   it("GET /applications/@me without a bot token is unauthorized (401)", async () => {
     const { app } = createDiscordTestApp();

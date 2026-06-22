@@ -1,6 +1,7 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { requireBot, requireUser, notFound, toAPIVoiceState } from "../helpers.js";
+import { requireBot, requireUser, notFound, toAPIVoiceState, invalidFormBody, requirePermission } from "../helpers.js";
+import { PermissionFlags } from "../permissions.js";
 import { Intents } from "../gateway/intents.js";
 
 /**
@@ -42,6 +43,28 @@ export function voiceRoutes(ctx: DiscordRouteContext): void {
       suppress?: boolean;
       request_to_speak_timestamp?: string | null;
     };
+
+    // [V1] When channel_id is provided in the body, it must point to a stage channel (type 13).
+    if (body.channel_id !== undefined) {
+      const ch = ds.channels.findOneBy("snowflake", body.channel_id);
+      if (!ch || ch.type !== 13) {
+        return invalidFormBody(c, { channel_id: "Must be a stage channel." });
+      }
+    }
+
+    // The effective channel for permission checks is the provided channel_id or the existing one.
+    const effectiveChannelId = body.channel_id ?? state.channel_snowflake ?? "";
+
+    // [V1] Unsuppressing self requires MUTE_MEMBERS; requesting to speak requires REQUEST_TO_SPEAK.
+    if (body.suppress === false) {
+      const _p = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.MuteMembers, { channelId: effectiveChannelId });
+      if (_p) return _p;
+    }
+    if (body.request_to_speak_timestamp !== undefined && body.request_to_speak_timestamp !== null) {
+      const _p = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.RequestToSpeak, { channelId: effectiveChannelId });
+      if (_p) return _p;
+    }
+
     const patch: Record<string, unknown> = {};
     if (body.suppress !== undefined) patch.suppress = body.suppress;
     if (body.request_to_speak_timestamp !== undefined) patch.request_to_speak_timestamp = body.request_to_speak_timestamp;
@@ -56,12 +79,27 @@ export function voiceRoutes(ctx: DiscordRouteContext): void {
   // only JSON params are `channel_id` and `suppress`; `request_to_speak_timestamp` is NOT accepted
   // here and is instead governed by the suppress caveats below.
   app.patch("/api/v:version/guilds/:guildId/voice-states/:userId", async (c) => {
-    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     const userId = c.req.param("userId");
     const state = findState(guildId, userId);
     if (!state) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as { channel_id?: string; suppress?: boolean };
+
+    // [V1] When channel_id is provided in the body, it must point to a stage channel (type 13).
+    if (body.channel_id !== undefined) {
+      const ch = ds.channels.findOneBy("snowflake", body.channel_id);
+      if (!ch || ch.type !== 13) {
+        return invalidFormBody(c, { channel_id: "Must be a stage channel." });
+      }
+    }
+
+    // The effective channel for permission checks.
+    const effectiveChannelId = body.channel_id ?? state.channel_snowflake ?? "";
+
+    // [V1] Modifying others requires MUTE_MEMBERS.
+    { const _p = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.MuteMembers, { channelId: effectiveChannelId }); if (_p) return _p; }
+
     const patch: Record<string, unknown> = {};
     if (body.channel_id !== undefined) patch.channel_snowflake = body.channel_id;
     if (body.suppress !== undefined) {
