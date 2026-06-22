@@ -341,14 +341,14 @@ until that page's suite is green. A page is **done** only when its spec suite pa
 |---|---|---|
 | `developers/resources/application-role-connection-metadata.mdx` | `spec/application-role-connection-metadata.spec.test.ts` | [x] green (25 cases) |
 | `developers/resources/application.mdx` | `spec/application.spec.test.ts` | [x] green (31 cases) |
-| `developers/resources/audit-log.mdx` | `spec/audit-log.spec.test.ts` | [ ] not started |
+| `developers/resources/audit-log.mdx` | `spec/audit-log.spec.test.ts` | [x] green (15 cases) |
 | `developers/resources/auto-moderation.mdx` | `spec/auto-moderation.spec.test.ts` | [x] green (38 cases) |
 | `developers/resources/channel.mdx` | `spec/channel.spec.test.ts` | [x] green |
-| `developers/resources/emoji.mdx` | `spec/emoji.spec.test.ts` | [ ] not started |
+| `developers/resources/emoji.mdx` | `spec/emoji.spec.test.ts` | [x] green (21 cases) |
 | `developers/resources/entitlement.mdx` | `spec/entitlement.spec.test.ts` | [x] green (25 cases) |
 | `developers/resources/guild-scheduled-event.mdx` | `spec/guild-scheduled-event.spec.test.ts` | [x] green (29 cases) |
 | `developers/resources/guild-template.mdx` | `spec/guild-template.spec.test.ts` | [x] green (23 cases) |
-| `developers/resources/guild.mdx` | `spec/guild.spec.test.ts` | [ ] not started |
+| `developers/resources/guild.mdx` | `spec/guild.spec.test.ts` | [x] green (83 cases) |
 | `developers/resources/invite.mdx` | `spec/invite.spec.test.ts` | [x] green |
 | `developers/resources/lobby.mdx` | `spec/lobby.spec.test.ts` | [x] green (27 cases) |
 | `developers/resources/message.mdx` | `spec/message.spec.test.ts` | [x] green (55 cases) |
@@ -366,8 +366,8 @@ until that page's suite is green. A page is **done** only when its spec suite pa
 | `developers/interactions/receiving-and-responding.mdx` | `spec/receiving-and-responding.spec.test.ts` | [x] green (25 cases) |
 | `developers/topics/certified-devices.mdx` | `spec/certified-devices.spec.test.ts` | [ ] not started |
 | `developers/topics/oauth2.mdx` | `spec/oauth2.spec.test.ts` | [x] green (30 cases) |
-| `developers/topics/opcodes-and-status-codes.mdx` | `spec/opcodes-and-status-codes.spec.test.ts` | [ ] not started |
-| `developers/topics/permissions.mdx` | `spec/permissions.spec.test.ts` | [ ] not started |
+| `developers/topics/opcodes-and-status-codes.mdx` | `spec/opcodes-and-status-codes.spec.test.ts` | [x] green (43 cases) |
+| `developers/topics/permissions.mdx` | `spec/permissions.spec.test.ts` | [x] green (78 cases) |
 | `developers/topics/rate-limits.mdx` | `spec/rate-limits.spec.test.ts` | [x] green (31 cases) |
 | `developers/topics/rpc.mdx` | `spec/rpc.spec.test.ts` | [ ] not started |
 | `developers/topics/teams.mdx` | `spec/teams.spec.test.ts` | [x] green (29 cases) |
@@ -376,7 +376,7 @@ until that page's suite is green. A page is **done** only when its spec suite pa
 | `developers/events/gateway-events.mdx` | `spec/gateway-events.spec.test.ts` | [x] green (shared gateway.spec) |
 | `developers/events/gateway.mdx` | `spec/gateway.spec.test.ts` | [x] green (shared gateway.spec) |
 | `developers/events/overview.mdx` | `spec/overview.spec.test.ts` | [ ] not started |
-| `developers/events/webhook-events.mdx` | `spec/webhook-events.spec.test.ts` | [ ] not started |
+| `developers/events/webhook-events.mdx` | `spec/webhook-events.spec.test.ts` | [x] green (33 cases) |
 | `developers/components/overview.mdx` | `spec/overview.spec.test.ts` | [ ] not started |
 | `developers/components/reference.mdx` | `spec/reference.spec.test.ts` | [x] green (14 cases) |
 | `developers/components/using-message-components.mdx` | `spec/using-message-components.spec.test.ts` | [ ] not started |
