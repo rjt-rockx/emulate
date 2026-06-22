@@ -76,6 +76,15 @@ describe("rate-limits.mdx — Header Format (normal requests)", () => {
     expect(/^[0-9a-f]+$/i.test(bucket!)).toBe(true);
   });
 
+  it("X-RateLimit-Bucket is non-inclusive of the top-level resource (same across major ids)", async () => {
+    // rate-limits.mdx: the bucket id is "non-inclusive of top-level resources in the path", so the
+    // same route on different channels/guilds reports the SAME bucket hash (counters stay separate).
+    const { app } = createDiscordTestApp();
+    const a = await app.request(api("/channels/111111111111111/messages"), { headers: botHeaders() });
+    const b = await app.request(api("/channels/999999999999999/messages"), { headers: botHeaders() });
+    expect(a.headers.get("x-ratelimit-bucket")).toBe(b.headers.get("x-ratelimit-bucket"));
+  });
+
   it("X-RateLimit-Global and X-RateLimit-Scope are ABSENT on normal (non-429) responses", async () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/users/@me"), { headers: botHeaders() });

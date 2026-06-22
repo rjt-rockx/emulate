@@ -41,7 +41,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     const channels = ds.channels
       .findBy("guild_snowflake", guildId)
       .sort((a, b) => a.position - b.position)
-      .map(toAPIChannel);
+      .map((ch) => toAPIChannel(ch));
     return c.json(channels);
   });
 

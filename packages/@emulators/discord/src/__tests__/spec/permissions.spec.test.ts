@@ -419,9 +419,11 @@ describe("permissions.mdx -- channel overwrite computation", () => {
     expect(computePermissions(ds, member.snowflake, dm.snowflake)).toBe(ALL_PERMISSIONS);
   });
 
-  it("unknown channel returns ALL_PERMISSIONS (treated as DM)", () => {
+  it("unknown channel is not a permission context -- returns no permissions (0n)", () => {
+    // A real DM channel exists in the store with no guild; a channel that does not exist at all
+    // must not be conflated with a DM and silently granted ALL_PERMISSIONS.
     const { ds, member } = setup();
-    expect(computePermissions(ds, member.snowflake, "99999999999999999")).toBe(ALL_PERMISSIONS);
+    expect(computePermissions(ds, member.snowflake, "99999999999999999")).toBe(0n);
   });
 
   it("guild owner bypasses all overwrites -- returns ALL_PERMISSIONS", () => {

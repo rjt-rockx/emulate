@@ -39,8 +39,13 @@ export interface RateLimitDecision {
   resetAfterMs: number;
 }
 
-/** Derive a bucket key from method + path, scoped by the major resource id (Discord buckets). */
-export function bucketFor(method: string, path: string): string {
+/**
+ * Derive the per-route pieces from method + path. `counterKey` is scoped by the major resource id
+ * so different channels/guilds/webhooks count independently; `bucketId` is the emitted
+ * `X-RateLimit-Bucket` hash and is deliberately *non-inclusive of the top-level resource*
+ * (topics/rate-limits.mdx), so it is shared across major ids on the same route.
+ */
+function routeBucket(method: string, path: string): { counterKey: string; bucketId: string } {
   const segments = path.replace(/^\/api\/v\d+/, "").split("/").filter(Boolean);
   let major = "";
   const template = segments
@@ -57,7 +62,13 @@ export function bucketFor(method: string, path: string): string {
       return seg;
     })
     .join("/");
-  return `${method} /${template} ${major}`;
+  const routeKey = `${method} /${template}`;
+  return { counterKey: major ? `${routeKey} ${major}` : routeKey, bucketId: hashBucket(routeKey) };
+}
+
+/** The per-resource counter key (scoped by major id). Exposed for tests. */
+export function bucketFor(method: string, path: string): string {
+  return routeBucket(method, path).counterKey;
 }
 
 function hashBucket(key: string): string {
@@ -89,15 +100,13 @@ export class RateLimiter {
     const now = Date.now();
     this.roll(this.global, now);
 
-    const bucketKey = bucketFor(method, path);
-    let bucket = this.buckets.get(bucketKey);
+    const { counterKey, bucketId: bucketHash } = routeBucket(method, path);
+    let bucket = this.buckets.get(counterKey);
     if (!bucket) {
       bucket = { count: 0, resetAt: now + this.config.windowMs };
-      this.buckets.set(bucketKey, bucket);
+      this.buckets.set(counterKey, bucket);
     }
     this.roll(bucket, now);
-
-    const bucketHash = hashBucket(bucketKey);
 
     if (this.global.count >= this.config.globalLimit) {
       return { allowed: false, global: true, bucket: bucketHash, limit: this.config.globalLimit, remaining: 0, resetAfterMs: Math.max(0, this.global.resetAt - now) };

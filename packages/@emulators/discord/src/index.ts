@@ -76,8 +76,10 @@ export const discordPlugin: ServicePlugin = {
         c.header("Retry-After", resetAfter);
         c.header("X-RateLimit-Scope", decision.global ? "global" : "user");
         if (decision.global) c.header("X-RateLimit-Global", "true");
+        // The standard rate-limit body carries no `code` (topics/rate-limits.mdx); it is optional
+        // and absent from every documented example.
         return c.json(
-          { message: "You are being rate limited.", retry_after: decision.resetAfterMs / 1000, global: decision.global, code: 0 },
+          { message: "You are being rate limited.", retry_after: decision.resetAfterMs / 1000, global: decision.global },
           429,
         );
       }

@@ -163,8 +163,11 @@ export interface DiscordChannel extends Entity {
   // Thread-only fields (channel types 10/11/12).
   owner_snowflake?: string | null;
   thread_metadata?: DiscordThreadMetadata | null;
+  /** Messages in the thread excluding the initial message. */
   message_count?: number;
   member_count?: number;
+  /** Total messages ever sent in the thread (includes the initial message; never decrements). */
+  total_message_sent?: number;
   applied_tags?: string[];
 }
 

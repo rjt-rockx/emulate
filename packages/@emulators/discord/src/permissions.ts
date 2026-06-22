@@ -94,7 +94,8 @@ function parse(value: string | null | undefined): bigint {
  */
 export function computePermissions(ds: DiscordStore, userSnowflake: string, channelSnowflake: string): bigint {
   const channel = ds.channels.findOneBy("snowflake", channelSnowflake);
-  if (!channel || !channel.guild_snowflake) return ALL; // DMs: everything allowed
+  if (!channel) return 0n; // unknown channel is not a permission context (callers should 404 first)
+  if (!channel.guild_snowflake) return ALL; // DM/group DM: everything allowed
   const guild = ds.guilds.findOneBy("snowflake", channel.guild_snowflake);
   if (!guild) return 0n;
   if (guild.owner_snowflake === userSnowflake) return ALL;

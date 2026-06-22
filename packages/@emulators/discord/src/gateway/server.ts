@@ -5,7 +5,7 @@ import { type Store } from "@emulators/core";
 import { getDiscordStore } from "../store.js";
 import { snowflake, toAPIUser, toAPIGuild, toAPIMember, toAPIVoiceState, gatewayUrlFromBaseUrl } from "../helpers.js";
 import { GatewayOpcodes, GatewayCloseCodes, HEARTBEAT_INTERVAL, type GatewayPayload } from "./opcodes.js";
-import { Intents, hasIntent, intentsAllow, disallowedPrivilegedIntents } from "./intents.js";
+import { Intents, ALL_INTENTS, hasIntent, intentsAllow, disallowedPrivilegedIntents } from "./intents.js";
 import { type DiscordEventBus, type GatewayEvent } from "./dispatcher.js";
 import { ZlibCompressor } from "./compression.js";
 import { VoiceGatewayServer } from "./voice.js";
@@ -185,6 +185,14 @@ export class GatewayServer {
   }
 
   private onMessage(session: GatewaySession, raw: RawData): void {
+    // Inbound frames must not exceed 4096 bytes; Discord closes with 4002 (events/gateway.mdx).
+    const size = Array.isArray(raw)
+      ? raw.reduce((n, b) => n + b.byteLength, 0)
+      : (raw as ArrayBufferLike).byteLength;
+    if (size > 4096) {
+      this.closeSession(session, GatewayCloseCodes.DecodeError, "Payload exceeds 4096 bytes");
+      return;
+    }
     let payload: GatewayPayload;
     try {
       if (session.encoding === "etf") {
@@ -257,7 +265,9 @@ export class GatewayServer {
     const token = rawToken.replace(/^Bot\s+/i, "").trim();
     const intents = typeof d.intents === "number" && Number.isInteger(d.intents) && d.intents >= 0 ? d.intents : null;
 
-    if (intents === null) {
+    // 4013 for a non-integer/negative value OR for any bit outside the valid intent set
+    // (events/gateway.mdx: "invalid intents"). ALL_INTENTS is the OR of every defined bit.
+    if (intents === null || (intents & ~ALL_INTENTS) !== 0) {
       this.closeSession(session, GatewayCloseCodes.InvalidIntents, "Invalid intents");
       return;
     }

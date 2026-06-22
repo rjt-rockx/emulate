@@ -260,7 +260,7 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
         flags: 0,
       })),
     );
-    return c.json({ threads: threads.map(toAPIChannel), members, has_more: false });
+    return c.json({ threads: threads.map((t) => toAPIChannel(t)), members, has_more: false });
   });
 
   // Thread members.
@@ -346,7 +346,7 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
     const members = threads.flatMap((t) =>
       ds.threadMembers.findBy("thread_snowflake", t.snowflake).map((m) => ({ id: t.snowflake, user_id: m.user_snowflake, join_timestamp: m.joined_at, flags: 0 })),
     );
-    return { threads: threads.map(toAPIChannel), members, has_more: false };
+    return { threads: threads.map((t) => toAPIChannel(t)), members, has_more: false };
   };
 
   app.get("/api/v:version/channels/:channelId/threads/archived/public", (c) => {

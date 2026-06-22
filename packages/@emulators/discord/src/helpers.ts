@@ -328,23 +328,29 @@ export interface Pagination {
   after?: string;
 }
 
-/** Parse the standard before/after/limit query params with a clamped limit. */
+/** Parse the standard before/after/limit query params with a clamped limit (documented ranges start at 1). */
 export function parsePagination(c: Context<AppEnv>, opts: { defaultLimit: number; maxLimit: number }): Pagination {
   const raw = c.req.query("limit");
-  const limit = raw !== undefined ? Math.max(0, Math.min(opts.maxLimit, Number(raw) || 0)) : opts.defaultLimit;
+  const limit = raw !== undefined ? Math.max(1, Math.min(opts.maxLimit, Number(raw) || opts.defaultLimit)) : opts.defaultLimit;
   return { limit, before: c.req.query("before"), after: c.req.query("after") };
 }
 
 /**
  * Page a list by snowflake id using BigInt comparison (never string comparison, which mis-orders
- * snowflakes of different lengths). `before`/`after` are exclusive cursors; result is sliced to
- * `limit` and returned in the input order.
+ * snowflakes of different lengths). Rows are returned in ascending id order (Discord's order for
+ * these endpoints): `after` yields the lowest ids above the cursor, `before` the highest ids below
+ * it (the page immediately preceding the cursor), each sliced to `limit`.
  */
 export function sliceBySnowflake<T>(rows: T[], idOf: (row: T) => string, page: Pagination): T[] {
-  let out = rows;
-  if (page.after) out = out.filter((r) => BigInt(idOf(r)) > BigInt(page.after!));
-  if (page.before) out = out.filter((r) => BigInt(idOf(r)) < BigInt(page.before!));
-  return out.slice(0, page.limit);
+  const sorted = [...rows].sort((a, b) => (BigInt(idOf(a)) < BigInt(idOf(b)) ? -1 : 1));
+  if (page.after) {
+    return sorted.filter((r) => BigInt(idOf(r)) > BigInt(page.after!)).slice(0, page.limit);
+  }
+  if (page.before) {
+    const below = sorted.filter((r) => BigInt(idOf(r)) < BigInt(page.before!));
+    return below.slice(Math.max(0, below.length - page.limit));
+  }
+  return sorted.slice(0, page.limit);
 }
 
 /** Load a guild by snowflake or return the canonical 10004 Response. */
@@ -632,7 +638,7 @@ export function toAPIVoiceState(v: DiscordVoiceState, ds: DiscordStore): APIVoic
 // variant fields dynamically, so the typed return is asserted at the call sites
 // below rather than narrowed per-branch. The doc-driven spec suite guards the
 // per-type field shapes.
-export function toAPIChannel(c: DiscordChannel): APIChannel {
+export function toAPIChannel(c: DiscordChannel, ds?: DiscordStore): APIChannel {
   const isThread = c.type === 10 || c.type === 11 || c.type === 12;
   const isDM = c.type === 1 || c.type === 3;
   const base: Record<string, unknown> = {
@@ -644,7 +650,16 @@ export function toAPIChannel(c: DiscordChannel): APIChannel {
 
   // DM (1) and group DM (3) channels carry no guild-scoped fields.
   if (isDM) {
-    if (c.recipient_snowflakes.length > 0) base.recipients = c.recipient_snowflakes;
+    // recipients is an array of user objects (resources/channel.mdx). When a store is provided we
+    // resolve them; without one we fall back to the raw id list (legacy callers).
+    if (c.recipient_snowflakes.length > 0) {
+      base.recipients = ds
+        ? c.recipient_snowflakes
+            .map((s) => ds.users.findOneBy("snowflake", s))
+            .filter((u): u is DiscordUser => !!u)
+            .map((u) => toAPIUser(u))
+        : c.recipient_snowflakes;
+    }
     if (c.type === 3) {
       base.name = c.name;
       base.owner_id = c.owner_snowflake ?? null;
@@ -660,9 +675,11 @@ export function toAPIChannel(c: DiscordChannel): APIChannel {
     base.parent_id = c.parent_snowflake;
     base.owner_id = c.owner_snowflake ?? null;
     base.thread_metadata = c.thread_metadata ?? null;
+    // message_count excludes the initial message; total_message_sent counts every message ever
+    // sent and never decrements (resources/channel.mdx). They differ for a fresh forum/media post.
     base.message_count = c.message_count ?? 0;
     base.member_count = c.member_count ?? 0;
-    base.total_message_sent = c.message_count ?? 0;
+    base.total_message_sent = c.total_message_sent ?? c.message_count ?? 0;
     base.rate_limit_per_user = c.rate_limit_per_user;
     base.applied_tags = c.applied_tags ?? [];
     base.last_pin_timestamp = c.last_pin_timestamp ?? null;
@@ -688,14 +705,17 @@ export function toAPIChannel(c: DiscordChannel): APIChannel {
     base.available_tags = c.available_tags ?? [];
     base.default_reaction_emoji = c.default_reaction_emoji ?? null;
     base.default_sort_order = c.default_sort_order ?? null;
-    base.default_forum_layout = c.default_forum_layout ?? 0;
     base.default_thread_rate_limit_per_user = c.default_thread_rate_limit_per_user ?? 0;
   }
+  // default_forum_layout is a GUILD_FORUM-only field (not GUILD_MEDIA) per resources/channel.mdx.
+  if (c.type === 15) base.default_forum_layout = c.default_forum_layout ?? 0;
   return base as unknown as APIChannel;
 }
 
-export function toAPIEmoji(e: DiscordEmoji, ds: DiscordStore): APIEmoji {
-  const creator = e.creator_snowflake ? ds.users.findOneBy("snowflake", e.creator_snowflake) : null;
+// `includeUser` lets callers omit the `user` field when the bot lacks the
+// CREATE_GUILD_EXPRESSIONS / MANAGE_GUILD_EXPRESSIONS permission (resources/emoji.mdx).
+export function toAPIEmoji(e: DiscordEmoji, ds: DiscordStore, includeUser = true): APIEmoji {
+  const creator = includeUser && e.creator_snowflake ? ds.users.findOneBy("snowflake", e.creator_snowflake) : null;
   return {
     id: e.snowflake,
     name: e.name,
@@ -786,7 +806,8 @@ export function toAPIMessage(m: DiscordMessage, ds: DiscordStore, meSnowflake?: 
     mention_everyone: m.mention_everyone,
     mentions,
     mention_roles: m.mention_role_snowflakes,
-    mention_channels: [],
+    // mention_channels is only present on crossposted messages with qualifying channel
+    // mentions; an ordinary message omits the key entirely (per resources/message.mdx).
     attachments: m.attachments,
     embeds: m.embeds,
     components: m.components,
@@ -799,12 +820,17 @@ export function toAPIMessage(m: DiscordMessage, ds: DiscordStore, meSnowflake?: 
     nonce: m.nonce ?? undefined,
     message_reference: m.message_reference ?? undefined,
     ...(m.message_snapshots ? { message_snapshots: m.message_snapshots } : {}),
-    referenced_message: m.referenced_message_snowflake
-      ? (() => {
-          const ref = ds.messages.findOneBy("snowflake", m.referenced_message_snowflake!);
-          return ref ? toAPIMessage(ref, ds) : null;
-        })()
-      : undefined,
+    referenced_message: (() => {
+      // For REPLY (19), THREAD_STARTER_MESSAGE (21), and CONTEXT_MENU_COMMAND (23), the field
+      // is present and `null` when the referenced message was deleted; for other types it is
+      // omitted entirely (resources/message.mdx, note on referenced_message).
+      const isRefType = m.type === 19 || m.type === 21 || m.type === 23;
+      if (m.referenced_message_snowflake) {
+        const ref = ds.messages.findOneBy("snowflake", m.referenced_message_snowflake);
+        return ref ? toAPIMessage(ref, ds) : null;
+      }
+      return isRefType ? null : undefined;
+    })(),
     poll: m.poll ? toAPIPoll(m, ds, meSnowflake) : undefined,
   } as unknown as APIMessage;
 }
@@ -899,7 +925,7 @@ export function toAPIGuild(g: DiscordGuild, ds: DiscordStore, opts: GuildSeriali
     const allChannels = ds.channels.findBy("guild_snowflake", g.snowflake);
     const isThreadType = (t: number) => t === 10 || t === 11 || t === 12;
     const members = ds.members.findBy("guild_snowflake", g.snowflake).map((m) => toAPIMember(m, ds));
-    const channels = allChannels.filter((c) => !isThreadType(c.type)).map(toAPIChannel);
+    const channels = allChannels.filter((c) => !isThreadType(c.type)).map((c) => toAPIChannel(c, ds));
     base.channels = channels;
     base.members = members;
     base.member_count = members.length;
@@ -907,7 +933,7 @@ export function toAPIGuild(g: DiscordGuild, ds: DiscordStore, opts: GuildSeriali
     base.unavailable = false;
     base.joined_at = g.created_at;
     // discord.js hydrates these caches from GUILD_CREATE; populate them from current state.
-    base.threads = allChannels.filter((c) => isThreadType(c.type)).map(toAPIChannel);
+    base.threads = allChannels.filter((c) => isThreadType(c.type)).map((c) => toAPIChannel(c, ds));
     base.voice_states = ds.voiceStates
       .findBy("guild_snowflake", g.snowflake)
       .map((v) => {
@@ -971,7 +997,8 @@ export function toAPIScheduledEvent(e: DiscordScheduledEvent, ds: DiscordStore):
     channel_id: e.channel_snowflake,
     creator_id: e.creator_snowflake,
     name: e.name,
-    description: e.description ?? undefined,
+    // Discord returns description as an explicit null when the event has none.
+    description: e.description ?? null,
     scheduled_start_time: e.scheduled_start_time,
     scheduled_end_time: e.scheduled_end_time,
     privacy_level: e.privacy_level,
@@ -989,9 +1016,10 @@ export function toAPIScheduledEvent(e: DiscordScheduledEvent, ds: DiscordStore):
 /** A sticker row may carry pack/sort fields for standard (type 1) stickers from the catalog. */
 export type StickerRow = DiscordSticker & { pack_snowflake?: string | null; sort_value?: number | null };
 
-/** Serialize a sticker row to the Discord Sticker object (guild or standard). */
-export function toAPISticker(s: StickerRow, ds: DiscordStore): Record<string, unknown> {
-  const creator = s.creator_snowflake ? ds.users.findOneBy("snowflake", s.creator_snowflake) : null;
+// `includeUser` lets callers omit the `user` field for guild stickers when the bot lacks the
+// CREATE_GUILD_EXPRESSIONS / MANAGE_GUILD_EXPRESSIONS permission (resources/sticker.mdx).
+export function toAPISticker(s: StickerRow, ds: DiscordStore, includeUser = true): Record<string, unknown> {
+  const creator = includeUser && s.creator_snowflake ? ds.users.findOneBy("snowflake", s.creator_snowflake) : null;
   const out: Record<string, unknown> = {
     id: s.snowflake,
     name: s.name,
@@ -1012,9 +1040,10 @@ export function toAPISticker(s: StickerRow, ds: DiscordStore): Record<string, un
   return out;
 }
 
-/** Serialize a stored soundboard sound to the documented Soundboard Sound object. */
-export function toAPISound(s: DiscordSoundboardSound, ds: DiscordStore): Record<string, unknown> {
-  const creator = s.creator_snowflake ? ds.users.findOneBy("snowflake", s.creator_snowflake) : null;
+// `includeUser` lets callers omit the `user` field when the bot lacks the
+// CREATE_GUILD_EXPRESSIONS / MANAGE_GUILD_EXPRESSIONS permission (resources/soundboard.mdx).
+export function toAPISound(s: DiscordSoundboardSound, ds: DiscordStore, includeUser = true): Record<string, unknown> {
+  const creator = includeUser && s.creator_snowflake ? ds.users.findOneBy("snowflake", s.creator_snowflake) : null;
   return {
     name: s.name,
     sound_id: s.snowflake,

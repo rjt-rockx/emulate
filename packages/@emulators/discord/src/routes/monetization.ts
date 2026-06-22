@@ -204,7 +204,14 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
     const entitlement = ds.entitlements.findOneBy("snowflake", entitlementId);
     if (!entitlement || entitlement.application_snowflake !== appId) return unknownEntitlement(c);
     ds.entitlements.delete(entitlement.id);
-    bus.publish({ t: "ENTITLEMENT_DELETE", guildId: null, requiredIntents: 0, applicationId: appId, d: toAPIEntitlement(entitlement) });
+    // The ENTITLEMENT_DELETE payload reports the entitlement as deleted (entitlement.mdx).
+    bus.publish({
+      t: "ENTITLEMENT_DELETE",
+      guildId: null,
+      requiredIntents: 0,
+      applicationId: appId,
+      d: toAPIEntitlement({ ...entitlement, deleted: true }),
+    });
     return new Response(null, { status: 204 });
   });
 
