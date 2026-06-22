@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { writeFileSync } from "node:fs";
 import { createDiscordTestApp, api, botHeaders, seededIds } from "../helpers.js";
-import { checkResponse, specOperations, generateRequestBody } from "./specValidator.js";
+import { checkResponse, specOperations, generateRequestBody, findOverEmission } from "./specValidator.js";
 
 /**
  * Systematic WRITE sweep: enumerate every POST/PATCH operation in the spec, synthesize a minimal
@@ -10,6 +10,13 @@ import { checkResponse, specOperations, generateRequestBody } from "./specValida
  * (stricter, semantic) validation return 4xx and are reported as "needs-body", not divergences —
  * the value here is catching write-RESPONSE shape divergences automatically.
  */
+
+// Over-emitted keys accepted as real-but-context-specific (see coverage.test.ts for rationale):
+// optional fields per discord-api-types the OpenAPI spec scopes more narrowly. `icon_hash` is
+// documented as "returned when in the template object" but the spec's serialized template-guild
+// schema under-declares it (spec gap), so it appears here only under serialized_source_guild.
+const OVER_EMISSION_KNOWN = new Set(["guild_id", "default_permission", "icon_hash"]);
+const normalizeKey = (k: string): string => k.replace(/^.*?(\w+)$/, "$1");
 
 const KNOWN: Array<{ path: RegExp; error: string }> = [
   { path: /\/guilds\/\d+/, error: "/region must be string" },
@@ -105,6 +112,7 @@ describe("OpenAPI WRITE sweep (POST/PATCH responses)", () => {
     const results: Array<{ op: string; status: number; validated: boolean; errors: string[] }> = [];
     const unmappableOps: string[] = [];
     const needsBodyOps: Array<{ op: string; status: number }> = [];
+    const overEmission = new Map<string, string[]>();
     for (const op of ops) {
       const params = [...op.path.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
       if (!params.every((p) => map[p])) {
@@ -127,6 +135,8 @@ describe("OpenAPI WRITE sweep (POST/PATCH responses)", () => {
       const r = checkResponse(op.method, concrete, res.status, respBody);
       const errors = r.errors.filter((e) => !isKnown(concrete, e));
       results.push({ op: `${op.method} ${op.path}`, status: res.status, validated: r.validated, errors });
+      const extras = findOverEmission(op.method, concrete, res.status, respBody).filter((k) => !OVER_EMISSION_KNOWN.has(normalizeKey(k)));
+      if (extras.length) overEmission.set(`${op.method} ${op.path}`, extras);
     }
 
     const validated = results.filter((r) => r.validated);
@@ -142,9 +152,12 @@ describe("OpenAPI WRITE sweep (POST/PATCH responses)", () => {
     for (const n of needsBodyOps) lines.push(`  [${n.status}] ${n.op}`);
     lines.push("", "--- unmappable (no id for a path param) ---");
     for (const u of unmappableOps) lines.push(`  ${u}`);
+    lines.push("", `--- over-emission (keys absent from spec) endpoints=${overEmission.size} ---`);
+    for (const [op, keys] of overEmission) lines.push(`  ${op}: ${keys.join(", ")}`);
     writeFileSync("/tmp/conformance-write-sweep.txt", lines.join("\n") + "\n");
 
     expect(validated.length).toBeGreaterThanOrEqual(5);
     expect(failing, `Unexpected write-response divergences:\n${lines.join("\n")}`).toHaveLength(0);
+    expect(overEmission.size, `Unexpected write-response over-emission:\n${[...overEmission].map(([o, k]) => `${o}: ${k.join(", ")}`).join("\n")}`).toBe(0);
   });
 });
