@@ -563,7 +563,7 @@ export interface DiscordSubscription extends Entity {
   entitlement_snowflakes: string[];
   current_period_start: string;
   current_period_end: string;
-  status: number; // 0 ACTIVE, 1 ENDING, 2 INACTIVE
+  status: number; // 0 ACTIVE, 1 INACTIVE, 2 ENDING (per subscription.mdx)
   canceled_at: string | null;
   renewal_sku_snowflakes?: string[] | null;
 }

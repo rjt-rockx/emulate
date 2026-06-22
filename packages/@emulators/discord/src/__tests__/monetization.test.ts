@@ -75,12 +75,22 @@ describe("monetization routes", () => {
 
   describe("entitlement lifecycle", () => {
     it("create, list, get, consume, delete", async () => {
+      // A consumable SKU (type 3) — only consumable SKUs can be consumed
+      // (developers/resources/entitlement.mdx "Consume an Entitlement").
+      getDiscordStore(store).skus.insert({
+        snowflake: "100000000000000002",
+        application_snowflake: appId,
+        type: 3,
+        name: "Consumable",
+        slug: "consumable",
+        flags: 0,
+      });
       // CREATE
       const createRes = await app.request(api(`/applications/${appId}/entitlements`), {
         method: "POST",
         headers: botHeaders(),
         body: JSON.stringify({
-          sku_id: "100000000000000001",
+          sku_id: "100000000000000002",
           owner_id: "200000000000000001",
           owner_type: 2, // user
         }),
@@ -88,7 +98,7 @@ describe("monetization routes", () => {
       expect(createRes.status).toBe(200);
       const created = (await createRes.json()) as Record<string, unknown>;
       expect(typeof created.id).toBe("string");
-      expect(created.sku_id).toBe("100000000000000001");
+      expect(created.sku_id).toBe("100000000000000002");
       expect(created.application_id).toBe(appId);
       expect(created.user_id).toBe("200000000000000001");
       expect(created.guild_id).toBeUndefined();

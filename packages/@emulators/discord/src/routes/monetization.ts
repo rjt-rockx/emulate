@@ -1,7 +1,19 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, snowflake } from "../helpers.js";
+import {
+  getAuth,
+  unauthorized,
+  notFound,
+  snowflake,
+  unknownSku,
+  unknownEntitlement,
+  invalidFormBody,
+  discordError,
+} from "../helpers.js";
 import type { DiscordEntitlement, DiscordSubscription } from "../entities.js";
+
+/** SKU types per developers/resources/sku.mdx (SKU Types table). */
+const SKU_TYPE_CONSUMABLE = 3;
 
 // ---------------------------------------------------------------------------
 // Serializers
@@ -25,16 +37,25 @@ function toAPISKU(sku: {
   };
 }
 
-function toAPIEntitlement(e: DiscordEntitlement): Record<string, unknown> {
+/**
+ * Serialize an entitlement to the documented Entitlement object.
+ *
+ * `partial` mode (Create Test Entitlement) returns the partial object that, per the doc,
+ * "will not contain subscription_id, starts_at, or ends_at, as it's valid in perpetuity".
+ */
+function toAPIEntitlement(e: DiscordEntitlement, partial = false): Record<string, unknown> {
   const obj: Record<string, unknown> = {
     id: e.snowflake,
     sku_id: e.sku_snowflake,
     application_id: e.application_snowflake,
     type: e.type,
     deleted: e.deleted,
-    starts_at: e.starts_at,
-    ends_at: e.ends_at,
   };
+  if (!partial) {
+    obj.starts_at = e.starts_at;
+    obj.ends_at = e.ends_at;
+    if (e.subscription_snowflake != null) obj.subscription_id = e.subscription_snowflake;
+  }
   if (e.user_snowflake != null) obj.user_id = e.user_snowflake;
   if (e.guild_snowflake != null) obj.guild_id = e.guild_snowflake;
   if (e.consumed != null) obj.consumed = e.consumed;
@@ -47,6 +68,8 @@ function toAPISubscription(s: DiscordSubscription): Record<string, unknown> {
     user_id: s.user_snowflake,
     sku_ids: s.sku_snowflakes,
     entitlement_ids: s.entitlement_snowflakes,
+    // renewal_sku_ids is documented as a nullable array, always present (null in the example).
+    renewal_sku_ids: s.renewal_sku_snowflakes ?? null,
     current_period_start: s.current_period_start,
     current_period_end: s.current_period_end,
     status: s.status,
@@ -117,7 +140,7 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
 
     results = results.slice(0, limit);
 
-    return c.json(results.map(toAPIEntitlement));
+    return c.json(results.map((e) => toAPIEntitlement(e)));
   });
 
   // 3. GET /applications/:appId/entitlements/:entitlementId
@@ -128,7 +151,7 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
     const entitlementId = c.req.param("entitlementId");
     const appId = c.req.param("appId");
     const entitlement = ds.entitlements.findOneBy("snowflake", entitlementId);
-    if (!entitlement || entitlement.application_snowflake !== appId) return notFound(c);
+    if (!entitlement || entitlement.application_snowflake !== appId) return unknownEntitlement(c);
     return c.json(toAPIEntitlement(entitlement));
   });
 
@@ -140,11 +163,21 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
     const appId = c.req.param("appId");
 
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    const skuId = String(body.sku_id ?? "");
-    const ownerId = String(body.owner_id ?? "");
-    const ownerType = Number(body.owner_type ?? 0);
+    const skuId = body.sku_id == null ? "" : String(body.sku_id);
+    const hasOwnerId = body.owner_id != null && String(body.owner_id) !== "";
+    const ownerId = hasOwnerId ? String(body.owner_id) : "";
+    const ownerType = Number(body.owner_type);
 
-    const now = new Date().toISOString();
+    // Validate the JSON params (Invalid Form Body, 50035).
+    const errors: Record<string, string> = {};
+    if (!hasOwnerId) errors.owner_id = "This field is required";
+    // owner_type must be 1 (guild subscription) or 2 (user subscription).
+    if (ownerType !== 1 && ownerType !== 2) errors.owner_type = "This field is required";
+    if (Object.keys(errors).length > 0) return invalidFormBody(c, errors);
+
+    // The SKU to grant the entitlement to must exist.
+    const sku = ds.skus.findOneBy("snowflake", skuId);
+    if (!sku || sku.application_snowflake !== appId) return unknownSku(c);
 
     const inserted = ds.entitlements.insert({
       snowflake: snowflake(),
@@ -154,13 +187,16 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
       guild_snowflake: ownerType === 1 ? ownerId : null,
       type: 8, // APPLICATION_SUBSCRIPTION
       deleted: false,
-      starts_at: now,
+      // Test entitlements are "valid in perpetuity": no start/end window.
+      starts_at: null,
       ends_at: null,
       consumed: false,
     });
 
-    bus.publish({ t: "ENTITLEMENT_CREATE", guildId: null, requiredIntents: 0, applicationId: appId, d: toAPIEntitlement(inserted) });
-    return c.json(toAPIEntitlement(inserted));
+    // Partial object (no subscription_id/starts_at/ends_at) per the doc.
+    const partial = toAPIEntitlement(inserted, true);
+    bus.publish({ t: "ENTITLEMENT_CREATE", guildId: null, requiredIntents: 0, applicationId: appId, d: partial });
+    return c.json(partial);
   });
 
   // 5. DELETE /applications/:appId/entitlements/:entitlementId
@@ -171,7 +207,7 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
     const entitlementId = c.req.param("entitlementId");
     const appId = c.req.param("appId");
     const entitlement = ds.entitlements.findOneBy("snowflake", entitlementId);
-    if (!entitlement || entitlement.application_snowflake !== appId) return notFound(c);
+    if (!entitlement || entitlement.application_snowflake !== appId) return unknownEntitlement(c);
     ds.entitlements.delete(entitlement.id);
     bus.publish({ t: "ENTITLEMENT_DELETE", guildId: null, requiredIntents: 0, applicationId: appId, d: toAPIEntitlement(entitlement) });
     return new Response(null, { status: 204 });
@@ -185,8 +221,23 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
     const entitlementId = c.req.param("entitlementId");
     const appId = c.req.param("appId");
     const entitlement = ds.entitlements.findOneBy("snowflake", entitlementId);
-    if (!entitlement || entitlement.application_snowflake !== appId) return notFound(c);
+    if (!entitlement || entitlement.application_snowflake !== appId) return unknownEntitlement(c);
+    // Only consumable (type 3) SKUs can be consumed.
+    const sku = ds.skus.findOneBy("snowflake", entitlement.sku_snowflake);
+    if (!sku || sku.type !== SKU_TYPE_CONSUMABLE) {
+      return discordError(c, 400, "Only consumable SKUs can be consumed.", 40018);
+    }
     ds.entitlements.update(entitlement.id, { consumed: true });
+    const updated = ds.entitlements.findOneBy("snowflake", entitlementId);
+    if (updated) {
+      bus.publish({
+        t: "ENTITLEMENT_UPDATE",
+        guildId: null,
+        requiredIntents: 0,
+        applicationId: appId,
+        d: toAPIEntitlement(updated),
+      });
+    }
     return new Response(null, { status: 204 });
   });
 
