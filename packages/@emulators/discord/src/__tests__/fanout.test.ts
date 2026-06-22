@@ -59,6 +59,7 @@ function queue(ws: WebSocket) {
 
 async function identify(emu: RunningDiscordEmulator, intents: number) {
   const ws = new WebSocket(`${emu.gatewayUrl}?v=10&encoding=json`);
+    ws.on("error", () => void 0); // swallow late socket errors after the server closes
   const q = queue(ws);
   await new Promise<void>((resolve, reject) => {
     ws.once("open", () => resolve());

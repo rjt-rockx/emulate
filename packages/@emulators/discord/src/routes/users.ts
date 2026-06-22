@@ -31,6 +31,7 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
     if (body.avatar !== undefined) patch.avatar = body.avatar;
     if (Object.keys(patch).length > 0) ds.users.update(auth.user.id, patch);
     const updated = ds.users.findOneBy("snowflake", auth.user.snowflake) ?? auth.user;
+    bus.publish({ t: "USER_UPDATE", guildId: null, requiredIntents: 0, d: toAPIUser(updated, true) });
     return c.json(toAPIUser(updated, true));
   });
 

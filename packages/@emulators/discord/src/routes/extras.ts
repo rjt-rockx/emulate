@@ -116,7 +116,7 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: Intents.GuildModeration,
       d: { guild_id: guildId, user: toAPIUser(user) },
     });
-    recordAudit(ds, {
+    recordAudit(ds, bus, {
       guildSnowflake: guildId,
       actionType: AuditLogEvent.MemberBanAdd,
       actorSnowflake: auth.user?.snowflake ?? null,
@@ -142,7 +142,7 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: Intents.GuildModeration,
       d: { guild_id: guildId, user: user ? toAPIUser(user) : { id: userId } },
     });
-    recordAudit(ds, {
+    recordAudit(ds, bus, {
       guildSnowflake: guildId,
       actionType: AuditLogEvent.MemberBanRemove,
       actorSnowflake: auth.user?.snowflake ?? null,
@@ -178,7 +178,7 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
         bus.publish({ t: "GUILD_MEMBER_REMOVE", guildId, requiredIntents: Intents.GuildMembers, d: { guild_id: guildId, user: toAPIUser(user) } });
       }
       bus.publish({ t: "GUILD_BAN_ADD", guildId, requiredIntents: Intents.GuildModeration, d: { guild_id: guildId, user: toAPIUser(user) } });
-      recordAudit(ds, {
+      recordAudit(ds, bus, {
         guildSnowflake: guildId,
         actionType: AuditLogEvent.MemberBanAdd,
         actorSnowflake: auth.user?.snowflake ?? null,
@@ -216,6 +216,22 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
       temporary: body.temporary ?? false,
       expires_at: maxAge > 0 ? new Date(Date.now() + maxAge * 1000).toISOString() : null,
     });
+    bus.publish({
+      t: "INVITE_CREATE",
+      guildId: channel.guild_snowflake,
+      requiredIntents: Intents.GuildInvites,
+      d: {
+        channel_id: channel.snowflake,
+        code: invite.code,
+        created_at: invite.created_at,
+        guild_id: channel.guild_snowflake ?? undefined,
+        inviter: auth.user ? toAPIUser(auth.user) : undefined,
+        max_age: invite.max_age,
+        max_uses: invite.max_uses,
+        temporary: invite.temporary,
+        uses: 0,
+      },
+    });
     return c.json(toAPIInvite(invite, ds), 200);
   });
 
@@ -248,6 +264,12 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
     if (!invite) return notFound(c);
     const payload = toAPIInvite(invite, ds);
     ds.invites.delete(invite.id);
+    bus.publish({
+      t: "INVITE_DELETE",
+      guildId: invite.guild_snowflake,
+      requiredIntents: Intents.GuildInvites,
+      d: { channel_id: invite.channel_snowflake, guild_id: invite.guild_snowflake ?? undefined, code: invite.code },
+    });
     return c.json(payload);
   });
 }

@@ -45,6 +45,7 @@ function queue(ws: WebSocket): MsgQueue {
  */
 function connect(url: string): Promise<{ ws: WebSocket; q: MsgQueue }> {
   const ws = new WebSocket(url);
+    ws.on("error", () => void 0); // swallow late socket errors after the server closes
   const q = queue(ws);
   return new Promise((resolve, reject) => {
     ws.once("open", () => resolve({ ws, q }));

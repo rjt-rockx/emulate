@@ -78,6 +78,7 @@ describe("ephemeral interaction responses", () => {
 
     // A second bot listens on the gateway for MESSAGE_CREATE.
     const ws = new WebSocket(`${emu.gatewayUrl}?v=10&encoding=json`);
+    ws.on("error", () => void 0); // swallow late socket errors after the server closes
     sockets.push(ws);
     const frames: Array<{ op: number; t?: string | null; d?: unknown }> = [];
     ws.on("message", (data) => frames.push(JSON.parse(data.toString())));

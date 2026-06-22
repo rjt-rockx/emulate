@@ -14,6 +14,7 @@ interface Frame {
 
 function connect(url: string): Promise<{ ws: WebSocket; frames: Frame[]; waitFor: (t: string, timeout?: number) => Promise<Frame> }> {
   const ws = new WebSocket(url);
+    ws.on("error", () => void 0); // swallow late socket errors after the server closes
   const frames: Frame[] = [];
   const waiters: Array<() => void> = [];
   ws.on("message", (data) => {

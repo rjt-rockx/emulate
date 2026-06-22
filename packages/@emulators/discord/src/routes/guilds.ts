@@ -23,6 +23,17 @@ import { Intents } from "../gateway/intents.js";
 export function guildsRoutes(ctx: DiscordRouteContext): void {
   const { app, store, bus } = ctx;
 
+  // Broadcast the guild's full emoji list (GUILD_EMOJIS_UPDATE) after any emoji change.
+  const emitEmojisUpdate = (guildId: string): void => {
+    const ds = getDiscordStore(store);
+    bus.publish({
+      t: "GUILD_EMOJIS_UPDATE",
+      guildId,
+      requiredIntents: Intents.GuildExpressions,
+      d: { guild_id: guildId, emojis: ds.emojis.findBy("guild_snowflake", guildId).map((e) => toAPIEmoji(e, ds)) },
+    });
+  };
+
   // ---------------------------------------------------------------------------
   // Literal routes that must be registered before their `:param` siblings, since
   // the router matches in registration order (e.g. /members/search vs /members/:userId).
@@ -301,7 +312,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: Intents.Guilds,
       d: { guild_id: guildId, role: apiRole },
     });
-    recordAudit(ds, {
+    recordAudit(ds, bus, {
       guildSnowflake: guildId,
       actionType: AuditLogEvent.RoleCreate,
       actorSnowflake: auth.user?.snowflake ?? null,
@@ -350,7 +361,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       d: { guild_id: guildId, role: apiRole },
     });
     if (roleChanges.length > 0) {
-      recordAudit(ds, {
+      recordAudit(ds, bus, {
         guildSnowflake: guildId,
         actionType: AuditLogEvent.RoleUpdate,
         actorSnowflake: auth.user?.snowflake ?? null,
@@ -378,7 +389,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: Intents.Guilds,
       d: { guild_id: guildId, role_id: roleId },
     });
-    recordAudit(ds, {
+    recordAudit(ds, bus, {
       guildSnowflake: guildId,
       actionType: AuditLogEvent.RoleDelete,
       actorSnowflake: auth.user?.snowflake ?? null,
@@ -490,7 +501,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       if (added.length > 0) roleChanges.push({ key: "$add", new_value: added.map((id) => ({ id })) });
       if (removed.length > 0) roleChanges.push({ key: "$remove", new_value: removed.map((id) => ({ id })) });
       if (roleChanges.length > 0) {
-        recordAudit(ds, {
+        recordAudit(ds, bus, {
           guildSnowflake: guildId,
           actionType: AuditLogEvent.MemberRoleUpdate,
           actorSnowflake: auth.user?.snowflake ?? null,
@@ -524,7 +535,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: Intents.GuildMembers,
       d: { guild_id: guildId, user: user ? toAPIUser(user) : { id: userId } },
     });
-    recordAudit(ds, {
+    recordAudit(ds, bus, {
       guildSnowflake: guildId,
       actionType: AuditLogEvent.MemberKick,
       actorSnowflake: auth.user?.snowflake ?? null,
@@ -553,7 +564,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
         requiredIntents: Intents.GuildMembers,
         d: { ...toAPIMember(updated, ds), guild_id: guildId },
       });
-      recordAudit(ds, {
+      recordAudit(ds, bus, {
         guildSnowflake: guildId,
         actionType: AuditLogEvent.MemberRoleUpdate,
         actorSnowflake: auth.user?.snowflake ?? null,
@@ -584,7 +595,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
         d: { ...toAPIMember(updated, ds), guild_id: guildId },
       });
       const role = ds.roles.findOneBy("snowflake", roleId);
-      recordAudit(ds, {
+      recordAudit(ds, bus, {
         guildSnowflake: guildId,
         actionType: AuditLogEvent.MemberRoleUpdate,
         actorSnowflake: auth.user?.snowflake ?? null,
@@ -642,6 +653,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       creatorSnowflake: auth.user?.snowflake ?? null,
       roles: (body.roles as string[] | undefined) ?? [],
     });
+    emitEmojisUpdate(guildId);
     return c.json(toAPIEmoji(emoji, ds), 201);
   });
 
@@ -666,6 +678,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (body.roles !== undefined) patch.role_snowflakes = body.roles;
     if (Object.keys(patch).length > 0) ds.emojis.update(emoji.id, patch);
     const updated = ds.emojis.findOneBy("snowflake", emojiId)!;
+    emitEmojisUpdate(guildId);
     return c.json(toAPIEmoji(updated, ds));
   });
 
@@ -680,6 +693,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const emoji = ds.emojis.findOneBy("snowflake", emojiId);
     if (!emoji || emoji.guild_snowflake !== guildId) return notFound(c);
     ds.emojis.delete(emoji.id);
+    emitEmojisUpdate(guildId);
     return new Response(null, { status: 204 });
   });
 }

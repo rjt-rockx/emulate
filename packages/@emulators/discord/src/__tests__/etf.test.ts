@@ -52,6 +52,7 @@ describe("gateway over ETF", () => {
   it("completes the handshake with encoding=etf", async () => {
     emu = await startDiscordTestEmulator();
     const ws = new WebSocket(`${emu.gatewayUrl}?v=10&encoding=etf`);
+    ws.on("error", () => void 0); // swallow late socket errors after the server closes
     const messages: Array<{ op: number; t?: string | null; d?: unknown }> = [];
     const waiters: Array<() => void> = [];
     ws.on("message", (data) => {

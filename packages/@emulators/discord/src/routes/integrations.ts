@@ -103,6 +103,12 @@ export function integrationsRoutes(ctx: DiscordRouteContext): void {
         application_id: integ.application_snowflake ?? undefined,
       },
     });
+    bus.publish({
+      t: "GUILD_INTEGRATIONS_UPDATE",
+      guildId,
+      requiredIntents: Intents.GuildIntegrations,
+      d: { guild_id: guildId },
+    });
 
     return new Response(null, { status: 204 });
   });

@@ -52,6 +52,25 @@ function createThread(
 export function threadsRoutes(ctx: DiscordRouteContext): void {
   const { app, store, bus } = ctx;
 
+  const emitThreadMembers = (threadId: string, change: { added?: string[]; removed?: string[] }): void => {
+    const ds = getDiscordStore(store);
+    const thread = ds.channels.findOneBy("snowflake", threadId);
+    if (!thread) return;
+    const d: Record<string, unknown> = {
+      id: threadId,
+      guild_id: thread.guild_snowflake ?? undefined,
+      member_count: thread.member_count ?? 0,
+    };
+    if (change.added?.length) {
+      d.added_members = change.added.map((userId) => {
+        const m = ds.threadMembers.findBy("thread_snowflake", threadId).find((tm) => tm.user_snowflake === userId);
+        return { id: threadId, user_id: userId, join_timestamp: m?.joined_at ?? new Date().toISOString(), flags: 0 };
+      });
+    }
+    if (change.removed?.length) d.removed_member_ids = change.removed;
+    bus.publish({ t: "THREAD_MEMBERS_UPDATE", guildId: thread.guild_snowflake, requiredIntents: Intents.Guilds, d });
+  };
+
   const startThread = async (
     c: Parameters<Parameters<typeof app.post>[1]>[0],
     parentChannelId: string,
@@ -103,6 +122,7 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     if (!ds.channels.findOneBy("snowflake", c.req.param("threadId"))) return notFound(c);
     addThreadMember(ds, c.req.param("threadId"), auth.user.snowflake);
+    emitThreadMembers(c.req.param("threadId"), { added: [auth.user.snowflake] });
     return new Response(null, { status: 204 });
   });
 
@@ -112,6 +132,7 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     if (!ds.channels.findOneBy("snowflake", c.req.param("threadId"))) return notFound(c);
     addThreadMember(ds, c.req.param("threadId"), c.req.param("userId"));
+    emitThreadMembers(c.req.param("threadId"), { added: [c.req.param("userId")] });
     return new Response(null, { status: 204 });
   });
 
@@ -123,6 +144,7 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
       ds.threadMembers.delete(member.id);
       const thread = ds.channels.findOneBy("snowflake", threadId);
       if (thread) ds.channels.update(thread.id, { member_count: Math.max(0, (thread.member_count ?? 1) - 1) });
+      emitThreadMembers(threadId, { removed: [userId] });
     }
     return new Response(null, { status: 204 });
   };

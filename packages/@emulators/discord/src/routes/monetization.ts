@@ -68,7 +68,7 @@ function parseBool(value: string | undefined, defaultValue: boolean): boolean {
 // ---------------------------------------------------------------------------
 
 export function monetizationRoutes(ctx: DiscordRouteContext): void {
-  const { app, store } = ctx;
+  const { app, store, bus } = ctx;
 
   // 1. GET /applications/:appId/skus
   app.get("/api/v:version/applications/:appId/skus", (c) => {
@@ -159,6 +159,7 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
       consumed: false,
     });
 
+    bus.publish({ t: "ENTITLEMENT_CREATE", guildId: null, requiredIntents: 0, applicationId: appId, d: toAPIEntitlement(inserted) });
     return c.json(toAPIEntitlement(inserted));
   });
 
@@ -172,6 +173,7 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
     const entitlement = ds.entitlements.findOneBy("snowflake", entitlementId);
     if (!entitlement || entitlement.application_snowflake !== appId) return notFound(c);
     ds.entitlements.delete(entitlement.id);
+    bus.publish({ t: "ENTITLEMENT_DELETE", guildId: null, requiredIntents: 0, applicationId: appId, d: toAPIEntitlement(entitlement) });
     return new Response(null, { status: 204 });
   });
 

@@ -26,6 +26,15 @@ function toAPIWebhook(w: DiscordWebhook, ds: DiscordStore, baseUrl: string): Rec
 export function webhooksRoutes(ctx: DiscordRouteContext): void {
   const { app, store, baseUrl, bus } = ctx;
 
+  const emitWebhooksUpdate = (guildId: string | null, channelId: string): void => {
+    bus.publish({
+      t: "WEBHOOKS_UPDATE",
+      guildId,
+      requiredIntents: Intents.GuildWebhooks,
+      d: { guild_id: guildId ?? undefined, channel_id: channelId },
+    });
+  };
+
   // ----- Channel / guild webhook management -----
   app.post("/api/v:version/channels/:channelId/webhooks", async (c) => {
     const auth = getAuth(c, store);
@@ -45,13 +54,14 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
       token: `whk_${snowflake()}_${Math.random().toString(36).slice(2)}`,
       application_snowflake: auth.application?.snowflake ?? null,
     });
-    recordAudit(ds, {
+    recordAudit(ds, bus, {
       guildSnowflake: channel.guild_snowflake,
       actionType: AuditLogEvent.WebhookCreate,
       actorSnowflake: auth.user?.snowflake ?? null,
       targetSnowflake: webhook.snowflake,
       changes: [{ key: "name", new_value: webhook.name }],
     });
+    emitWebhooksUpdate(channel.guild_snowflake, channel.snowflake);
     return c.json(toAPIWebhook(webhook, ds, baseUrl), 200);
   });
 
@@ -101,7 +111,9 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
     if (body.avatar !== undefined) patch.avatar = body.avatar;
     if (!requireToken && body.channel_id !== undefined) patch.channel_snowflake = body.channel_id;
     ds.webhooks.update(webhook.id, patch);
-    return c.json(toAPIWebhook(ds.webhooks.findOneBy("snowflake", webhook.snowflake)!, ds, baseUrl));
+    const saved = ds.webhooks.findOneBy("snowflake", webhook.snowflake)!;
+    emitWebhooksUpdate(saved.guild_snowflake, saved.channel_snowflake);
+    return c.json(toAPIWebhook(saved, ds, baseUrl));
   };
 
   app.patch("/api/v:version/webhooks/:webhookId", (c) => {
@@ -117,13 +129,14 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
     if (!webhook) return notFound(c);
     if (requireToken && webhook.token !== c.req.param("token")) return notFound(c);
     ds.webhooks.delete(webhook.id);
-    recordAudit(ds, {
+    recordAudit(ds, bus, {
       guildSnowflake: webhook.guild_snowflake,
       actionType: AuditLogEvent.WebhookDelete,
       actorSnowflake: actorSnowflake ?? null,
       targetSnowflake: webhook.snowflake,
       changes: [{ key: "name", old_value: webhook.name }],
     });
+    emitWebhooksUpdate(webhook.guild_snowflake, webhook.channel_snowflake);
     return new Response(null, { status: 204 });
   };
 

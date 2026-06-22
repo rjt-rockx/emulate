@@ -59,7 +59,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     });
     const payload = toAPIChannel(channel);
     bus.publish({ t: "CHANNEL_CREATE", guildId, requiredIntents: Intents.Guilds, d: payload });
-    recordAudit(ds, {
+    recordAudit(ds, bus, {
       guildSnowflake: guildId,
       actionType: AuditLogEvent.ChannelCreate,
       actorSnowflake: auth.user?.snowflake ?? null,
@@ -146,7 +146,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
       d: payload,
     });
     if (!isThread && channelChanges.length > 0) {
-      recordAudit(ds, {
+      recordAudit(ds, bus, {
         guildSnowflake: updated.guild_snowflake,
         actionType: AuditLogEvent.ChannelUpdate,
         actorSnowflake: auth.user?.snowflake ?? null,
@@ -174,7 +174,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
       d: payload,
     });
     if (!isThread) {
-      recordAudit(ds, {
+      recordAudit(ds, bus, {
         guildSnowflake: channel.guild_snowflake,
         actionType: AuditLogEvent.ChannelDelete,
         actorSnowflake: auth.user?.snowflake ?? null,

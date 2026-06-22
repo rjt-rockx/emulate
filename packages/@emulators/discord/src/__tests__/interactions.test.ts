@@ -75,6 +75,7 @@ describe("discord interactions over the gateway", () => {
 
     // connect a bot and identify
     const ws = new WebSocket(`${emu.gatewayUrl}?v=10&encoding=json`);
+    ws.on("error", () => void 0); // swallow late socket errors after the server closes
     sockets.push(ws);
     const frames: Array<{ op: number; t?: string | null; d?: unknown }> = [];
     const waiters: Array<() => void> = [];

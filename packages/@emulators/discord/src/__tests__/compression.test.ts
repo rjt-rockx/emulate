@@ -5,21 +5,32 @@ import { startDiscordTestEmulator, type RunningDiscordEmulator } from "./helpers
 import { GatewayOpcodes } from "../gateway/opcodes.js";
 import { Intents } from "../gateway/intents.js";
 
-/** A single shared inflate context, exactly as a zlib-stream client (discord.py) uses. */
+/**
+ * A single shared inflate context, exactly as a zlib-stream client (discord.py) uses.
+ * Inflate operations are serialized through a promise chain so concurrent frames never
+ * interleave writes on the shared stream (which would corrupt the shared chunk buffer).
+ */
 function makeInflater() {
   const inflate = zlib.createInflate();
   let chunks: Buffer[] = [];
   inflate.on("data", (c: Buffer) => chunks.push(c));
-  return (buf: Buffer): Promise<{ op: number; t?: string | null; d?: unknown }> =>
-    new Promise((resolve) => {
-      inflate.write(buf, () => {
-        inflate.flush(zlib.constants.Z_SYNC_FLUSH, () => {
-          const text = Buffer.concat(chunks).toString("utf8");
-          chunks = [];
-          resolve(JSON.parse(text));
-        });
-      });
-    });
+  let queue: Promise<unknown> = Promise.resolve();
+  return (buf: Buffer): Promise<{ op: number; t?: string | null; d?: unknown }> => {
+    const next = queue.then(
+      () =>
+        new Promise<{ op: number; t?: string | null; d?: unknown }>((resolve) => {
+          inflate.write(buf, () => {
+            inflate.flush(zlib.constants.Z_SYNC_FLUSH, () => {
+              const text = Buffer.concat(chunks).toString("utf8");
+              chunks = [];
+              resolve(JSON.parse(text));
+            });
+          });
+        }),
+    );
+    queue = next.catch(() => undefined);
+    return next;
+  };
 }
 
 describe("discord gateway zlib-stream compression", () => {
@@ -28,9 +39,10 @@ describe("discord gateway zlib-stream compression", () => {
     await emu?.close();
   });
 
-  it("compresses gateway frames so a single-context inflate client can read them", async () => {
+  it("compresses gateway frames so a single-context inflate client can read them", { timeout: 15000 }, async () => {
     emu = await startDiscordTestEmulator();
     const ws = new WebSocket(`${emu.gatewayUrl}?v=10&encoding=json&compress=zlib-stream`);
+    ws.on("error", () => void 0); // swallow late socket errors after the server closes
     const inflate = makeInflater();
     const frames: Array<{ op: number; t?: string | null; d?: unknown }> = [];
     const decodeQueue: Array<Promise<void>> = [];

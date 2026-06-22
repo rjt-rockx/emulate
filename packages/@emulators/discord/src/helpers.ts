@@ -1,5 +1,7 @@
 import { type Context, type AppEnv, type ContentfulStatusCode, type Store } from "@emulators/core";
 import { getDiscordStore, type DiscordStore } from "./store.js";
+import { Intents } from "./gateway/intents.js";
+import type { DiscordEventBus } from "./gateway/dispatcher.js";
 import type {
   DiscordUser,
   DiscordRole,
@@ -149,6 +151,7 @@ export const AuditLogEvent = {
 
 export function recordAudit(
   ds: DiscordStore,
+  bus: DiscordEventBus,
   input: {
     guildSnowflake: string | null;
     actionType: number;
@@ -159,7 +162,7 @@ export function recordAudit(
   },
 ): void {
   if (!input.guildSnowflake) return;
-  ds.auditLog.insert({
+  const entry = ds.auditLog.insert({
     snowflake: snowflake(),
     guild_snowflake: input.guildSnowflake,
     user_snowflake: input.actorSnowflake ?? null,
@@ -167,6 +170,20 @@ export function recordAudit(
     action_type: input.actionType,
     changes: input.changes ?? [],
     reason: input.reason ?? null,
+  });
+  bus.publish({
+    t: "GUILD_AUDIT_LOG_ENTRY_CREATE",
+    guildId: input.guildSnowflake,
+    requiredIntents: Intents.GuildModeration,
+    d: {
+      id: entry.snowflake,
+      target_id: entry.target_snowflake,
+      user_id: entry.user_snowflake,
+      action_type: entry.action_type,
+      changes: entry.changes,
+      reason: entry.reason ?? undefined,
+      guild_id: input.guildSnowflake,
+    },
   });
 }
 

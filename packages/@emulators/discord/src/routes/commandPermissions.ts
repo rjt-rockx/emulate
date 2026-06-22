@@ -22,7 +22,17 @@ const GUILD_PERMISSIONS_RE =
   /^\/api\/v[^/]+\/applications\/([^/]+)\/guilds\/([^/]+)\/commands\/permissions$/;
 
 export function commandPermissionsRoutes(ctx: DiscordRouteContext): void {
-  const { app, store } = ctx;
+  const { app, store, bus } = ctx;
+
+  const emitPermsUpdate = (appId: string, guildId: string, commandId: string, permissions: unknown): void => {
+    bus.publish({
+      t: "APPLICATION_COMMAND_PERMISSIONS_UPDATE",
+      guildId,
+      requiredIntents: 0,
+      applicationId: appId,
+      d: { id: commandId, application_id: appId, guild_id: guildId, permissions },
+    });
+  };
 
   // GET /api/v:version/applications/:appId/guilds/:guildId/commands/permissions
   // Returns ALL command-permission objects in the guild for the application.
@@ -63,6 +73,7 @@ export function commandPermissionsRoutes(ctx: DiscordRouteContext): void {
         if (existing) ds.commandPermissions.update(existing.id, { permissions });
         else ds.commandPermissions.insert({ application_snowflake: appId, guild_snowflake: guildId, command_snowflake: entry.id, permissions });
         result.push({ id: entry.id, application_id: appId, guild_id: guildId, permissions });
+        emitPermsUpdate(appId, guildId, entry.id, permissions);
       }
       return c.json(result);
     }
@@ -120,6 +131,7 @@ export function commandPermissionsRoutes(ctx: DiscordRouteContext): void {
         permissions,
       });
     }
+    emitPermsUpdate(appId, guildId, commandId, permissions);
     return c.json({
       id: commandId,
       application_id: appId,
