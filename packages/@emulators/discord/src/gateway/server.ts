@@ -344,6 +344,9 @@ export class GatewayServer {
       v: API_VERSION,
       user: { ...toAPIUser(botUser, true), bot: true },
       guilds: [...guildIds].map((id) => ({ id, unavailable: true })),
+      // Always present on a bot READY (empty for bots); some libraries (Eris) iterate it
+      // unconditionally and crash if it is absent.
+      private_channels: [],
       session_id: session.sessionId,
       resume_gateway_url: gatewayUrlFromBaseUrl(this.baseUrl),
       // `shard` is echoed back only when the client supplied it when identifying.

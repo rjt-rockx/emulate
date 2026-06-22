@@ -91,10 +91,13 @@ describe("discord gateway", () => {
       resume_gateway_url: string;
       user: { bot: boolean };
       application: { id: string };
+      private_channels: unknown[];
     };
     expect(readyData.session_id).toBeTruthy();
     expect(readyData.resume_gateway_url).toBe(emu.gatewayUrl);
     expect(readyData.user.bot).toBe(true);
+    // Always present on a bot READY (empty for bots); Eris and others iterate it unconditionally.
+    expect(readyData.private_channels).toEqual([]);
 
     const guildCreate = await q.waitFor("GUILD_CREATE");
     expect((guildCreate.d as { name: string }).name).toBe("Emulate Server");

@@ -1,0 +1,58 @@
+# Real-bot acceptance campaign
+
+The strongest fidelity signal for a Discord API double is a **real third-party bot** driving it: the
+client library parses every byte through its own strict models and fails on any wire divergence.
+This file tracks bots run against the emulator (via `launch-emulator.mjs` on a fixed port, with the
+client's REST base pointed at it and the gateway resolved from `GET /gateway(/bot)`), and the
+fidelity gaps each surfaced.
+
+Control-plane hooks used by these tests (not real Discord routes): `POST /__emulate/interactions`
+(trigger a slash/component/modal interaction), `POST /__emulate/messages` (post a message as an
+arbitrary human user, so message/prefix command handlers — which ignore bot authors — can run),
+`POST /__emulate/poll-vote`, `POST /__emulate/event-webhook`.
+
+## Round 1 — library diversity (templates) → 6 fixes
+
+| Bot / lib | Lang | Outcome |
+|---|---|---|
+| TFAGaming/DiscordJS-V14-Bot-Template (discord.js 14) | JS | READY + full interaction lifecycle (slash/buttons/selects/modals/autocomplete/context menus, guild+global command deploy, ephemeral flags, 40060) — clean. |
+| kkrypt0nn/Python-Discord-Bot-Template (discord.py 2.7) | Py | on_ready + sync of 28 app commands + REST round-trips + interaction dispatch — clean. |
+| bwmarrin/discordgo examples (discordgo 0.29) | Go | Open()+Ready, command CRUD, full message + interaction round-trips after fixes. |
+
+Fixes driven by round 1 (commit `065a2ba`):
+1. **[discordgo, critical]** Identify-level `compress:true` was served via the streaming
+   zlib-stream compressor (shared context); now each payload is an independent zlib block.
+2. **[discordgo, high]** command create 500'd on `choices:null` / 400'd on `channel_types:null`
+   (discordgo emits null for every option, no omitempty) — null is now treated as "not set".
+3. **[discord.py, high]** interaction callback returned 204 instead of the resource for
+   `with_response=1` (only matched `=true`; discord.py 2.7+ sends `1`).
+4. **[discord.js]** `application.id` now equals the bot user id (one shared snowflake), as on Discord.
+5. **[discord.js]** added `__emulate/messages` so message/prefix commands are testable.
+6. **[discord.py, low]** reject opening a DM with yourself (50007).
+
+## Round 2 — more libraries + real-world bots (in progress)
+
+Libraries: JDA (Java), Eris (JS), discordrb (Ruby), a discord.py feature bot.
+Real-world bots: JMusicBot (jagrosh, JDA), Discord Tickets (discord-tickets/bot, discord.js).
+
+Findings so far:
+- **Eris 0.18 (high)** — the gateway READY payload omitted `private_channels`. Eris iterates it
+  unconditionally (`Shard.js`), so it threw before setting `client.application`, breaking all command
+  registration. Real Discord always sends it (`[]` for bots). Fixed: READY now includes
+  `private_channels: []`. (Note: Eris also can't target a plaintext `http://host:port` REST endpoint
+  without monkeypatching `https.request` — an Eris-config artifact, not an emulator bug.)
+
+## Backlog (from the curated lists)
+
+Deployable, modern, prioritized by tractability in a no-network-egress-to-Discord, no-Lavalink,
+no-API-key sandbox:
+- Red-DiscordBot (Python, cogs) — high value; scripted setup.
+- ModBot / aternosorg/modbot (Node, MIT) — moderation, tractable.
+- PaulMarisOUMary/Discord-Bot (discord.py 2.7) — full bot, Docker.
+- MonitoRSS (RSS) — needs MongoDB.
+- Loritta (multipurpose) — large.
+
+Blocked by heavy infra (tracked, lower priority): YAGPDB (Postgres+Redis), Lavamusic / Music-Disc /
+VectoBeat (Lavalink), GPTDiscord (OpenAI key), YueBot / MODUS / Rostra (Postgres/Redis/dashboards).
+For these, the testable surface is login + command registration + the non-music/non-AI command paths;
+music/AI features fail at their own subsystem, not the emulator.
