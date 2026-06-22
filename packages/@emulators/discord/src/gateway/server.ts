@@ -7,6 +7,7 @@ import { snowflake, toAPIUser, toAPIGuild, gatewayUrlFromBaseUrl } from "../help
 import { GatewayOpcodes, GatewayCloseCodes, HEARTBEAT_INTERVAL, type GatewayPayload } from "./opcodes.js";
 import { Intents, hasIntent, intentsAllow } from "./intents.js";
 import { type DiscordEventBus, type GatewayEvent } from "./dispatcher.js";
+import { ZlibCompressor } from "./compression.js";
 import type { GatewaySession } from "./session.js";
 
 const API_VERSION = 10;
@@ -44,6 +45,7 @@ export class GatewayServer {
   private onConnection(ws: WebSocket, req: IncomingMessage): void {
     const url = new URL(req.url ?? "/", "http://localhost");
     const encoding = (url.searchParams.get("encoding") ?? "json") as "json" | "etf";
+    const compress = url.searchParams.get("compress");
 
     const session: GatewaySession = {
       ws,
@@ -64,6 +66,10 @@ export class GatewayServer {
       this.closeSession(session, GatewayCloseCodes.UnknownError, "Only JSON encoding is supported");
       return;
     }
+
+    // discord.py defaults to transport compression; honor zlib-stream (a single zlib
+    // context for the connection). Other schemes (e.g. zstd-stream) fall back to plain.
+    if (compress === "zlib-stream") session.compressor = new ZlibCompressor();
 
     this.send(session, { op: GatewayOpcodes.Hello, d: { heartbeat_interval: HEARTBEAT_INTERVAL } });
 
@@ -205,8 +211,17 @@ export class GatewayServer {
   }
 
   private send(session: GatewaySession, payload: GatewayPayload): void {
-    if (session.ws.readyState === session.ws.OPEN) {
-      session.ws.send(JSON.stringify(payload));
+    if (session.ws.readyState !== session.ws.OPEN) return;
+    const json = JSON.stringify(payload);
+    if (session.compressor) {
+      session.compressor
+        .compress(json)
+        .then((buf) => {
+          if (session.ws.readyState === session.ws.OPEN) session.ws.send(buf);
+        })
+        .catch(() => {});
+    } else {
+      session.ws.send(json);
     }
   }
 
@@ -222,6 +237,7 @@ export class GatewayServer {
   private removeSession(session: GatewaySession): void {
     if (!this.sessions.has(session)) return;
     this.sessions.delete(session);
+    session.compressor?.close();
     const ds = getDiscordStore(this.store);
     const record = ds.gatewaySessions.findOneBy("session_id", session.sessionId);
     if (record) ds.gatewaySessions.delete(record.id);

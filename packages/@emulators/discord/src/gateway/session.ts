@@ -1,4 +1,5 @@
 import type { WebSocket } from "ws";
+import type { ZlibCompressor } from "./compression.js";
 
 /** Per-connection Gateway state held in memory by the GatewayServer. */
 export interface GatewaySession {
@@ -16,5 +17,7 @@ export interface GatewaySession {
   /** Last sequence number sent on this connection. */
   seq: number;
   encoding: "json" | "etf";
+  /** Set when the connection requested transport compression (zlib-stream). */
+  compressor?: ZlibCompressor;
   heartbeatAckPending: boolean;
 }
