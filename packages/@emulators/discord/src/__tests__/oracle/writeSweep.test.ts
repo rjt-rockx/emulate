@@ -45,6 +45,7 @@ describe("OpenAPI WRITE sweep (POST/PATCH responses)", () => {
     const webhook = await postFull(`/channels/${ids.general}/webhooks`, { name: "ws-hook" });
     const sound = await postFull(`/guilds/${ids.guild}/soundboard-sounds`, { name: "ws-sound", sound: "data:audio/ogg;base64,AAAA" });
     const template = await postFull(`/guilds/${ids.guild}/templates`, { name: "ws-template" });
+    const stageChannelId = await postId(`/guilds/${ids.guild}/channels`, { name: "ws-stage", type: 13 });
     const map: Record<string, string | undefined> = {
       guild_id: ids.guild,
       channel_id: ids.general,
@@ -76,6 +77,30 @@ describe("OpenAPI WRITE sweep (POST/PATCH responses)", () => {
     // Resolve id-shaped body fields (recipient_id, channel_id, ...) to real ids when we have them.
     const idFor = (field: string): string | undefined => map[field];
 
+    // Hand-crafted valid bodies for create endpoints whose semantic validation the minimal
+    // generated body can't satisfy — so the sweep can validate their real 2xx response shapes.
+    const BODY_OVERRIDES: Record<string, unknown> = {
+      "POST /channels/{channel_id}/messages": { content: "oracle sweep" },
+      "POST /applications/{application_id}/commands": { name: "sweepcmd", description: "d", type: 1 },
+      "POST /applications/{application_id}/guilds/{guild_id}/commands": { name: "sweepgcmd", description: "d", type: 1 },
+      "POST /guilds/{guild_id}/auto-moderation/rules": {
+        name: "sweep-rule",
+        event_type: 1,
+        trigger_type: 1,
+        trigger_metadata: { keyword_filter: ["x"] },
+        actions: [{ type: 1 }],
+      },
+      "POST /guilds/{guild_id}/scheduled-events": {
+        name: "Sweep Event",
+        privacy_level: 2,
+        scheduled_start_time: startsAt,
+        scheduled_end_time: endsAt,
+        entity_type: 3,
+        entity_metadata: { location: "x" },
+      },
+      "POST /stage-instances": { topic: "oracle stage", channel_id: stageChannelId },
+    };
+
     const ops = specOperations().filter((o) => o.method === "POST" || o.method === "PATCH");
     const results: Array<{ op: string; status: number; validated: boolean; errors: string[] }> = [];
     const unmappableOps: string[] = [];
@@ -87,7 +112,8 @@ describe("OpenAPI WRITE sweep (POST/PATCH responses)", () => {
         continue;
       }
       const concrete = op.path.replace(/\{(\w+)\}/g, (_, p) => map[p]!);
-      const body = generateRequestBody(op.path, op.method, idFor);
+      const overrideKey = `${op.method} ${op.path}`;
+      const body = overrideKey in BODY_OVERRIDES ? BODY_OVERRIDES[overrideKey] : generateRequestBody(op.path, op.method, idFor);
       const res = await app.request(api(concrete), {
         method: op.method,
         headers: botHeaders(),

@@ -51,10 +51,14 @@ function serializeSourceGuild(ds: DiscordStore, sourceGuildSnowflake: string): R
   });
 
   // Channels get sequential placeholder ids; build a map from snowflake -> placeholder id so
-  // children can reference their parent category's placeholder id.
+  // children can reference their parent category's placeholder id. Templates only snapshot
+  // templatable channel types: GUILD_TEXT(0), GUILD_VOICE(2), GUILD_CATEGORY(4), GUILD_FORUM(15).
+  // Announcement(5)/stage(13)/threads(10-12)/directory(14) are excluded per the serialized
+  // template channel type enum.
+  const TEMPLATABLE_CHANNEL_TYPES = new Set([0, 2, 4, 15]);
   const channels = ds.channels
     .findBy("guild_snowflake", sourceGuildSnowflake)
-    .filter((c) => c.type !== 10 && c.type !== 11 && c.type !== 12) // exclude threads
+    .filter((c) => TEMPLATABLE_CHANNEL_TYPES.has(c.type))
     .slice()
     .sort((a, b) => a.position - b.position);
   const channelIdMap = new Map<string, number>();
