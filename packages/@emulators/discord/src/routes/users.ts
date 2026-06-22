@@ -245,6 +245,10 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
 
     // Single-recipient DM path.
     const recipientId = typeof body.recipient_id === "string" ? body.recipient_id : "";
+    // You cannot open a DM with yourself.
+    if (recipientId === caller.snowflake) {
+      return discordError(c, 400, "Cannot send messages to this user", 50007);
+    }
     const recipient = ds.users.findOneBy("snowflake", recipientId);
     if (!recipient) return unknownUser(c);
 

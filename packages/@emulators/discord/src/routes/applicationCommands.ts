@@ -87,28 +87,30 @@ function validateOptions(
       optErrors[`${prefix}.description`] = { _errors: [{ code: "BASE_TYPE_BAD_LENGTH", message: "Must be between 1 and 100 in length." }] };
     }
 
-    // Choices: max 25, XOR autocomplete.
-    if (opt.choices !== undefined) {
+    // Choices: max 25, XOR autocomplete. Real Discord tolerates `choices: null` (libraries like
+    // discordgo emit it for every option without omitempty) — treat null/absent as "no choices".
+    if (Array.isArray(opt.choices)) {
       if (opt.choices.length > 25) {
         optErrors[`${prefix}.choices`] = { _errors: [{ code: "BASE_TYPE_MAX_LENGTH", message: "Must be 25 or fewer in length." }] };
       }
-      if (opt.autocomplete) {
+      if (opt.choices.length > 0 && opt.autocomplete) {
         optErrors[`${prefix}.autocomplete`] = { _errors: [{ code: "APPLICATION_COMMAND_CHOICES_AND_AUTOCOMPLETE_MUTUALLY_EXCLUSIVE", message: "choices and autocomplete are mutually exclusive." }] };
       }
     }
 
-    // min_value / max_value: only INTEGER (4) or NUMBER (10).
-    if ((opt.min_value !== undefined || opt.max_value !== undefined) && type !== OptionType.Integer && type !== OptionType.Number) {
+    // min_value / max_value: only INTEGER (4) or NUMBER (10). null (not set) is ignored.
+    if ((opt.min_value != null || opt.max_value != null) && type !== OptionType.Integer && type !== OptionType.Number) {
       optErrors[`${prefix}.min_value`] = { _errors: [{ code: "APPLICATION_COMMAND_INVALID_OPTION_TYPE", message: "min_value/max_value only valid on INTEGER or NUMBER options." }] };
     }
 
-    // min_length / max_length: only STRING (3).
-    if ((opt.min_length !== undefined || opt.max_length !== undefined) && type !== OptionType.String) {
+    // min_length / max_length: only STRING (3). null (not set) is ignored.
+    if ((opt.min_length != null || opt.max_length != null) && type !== OptionType.String) {
       optErrors[`${prefix}.min_length`] = { _errors: [{ code: "APPLICATION_COMMAND_INVALID_OPTION_TYPE", message: "min_length/max_length only valid on STRING options." }] };
     }
 
-    // channel_types: only CHANNEL (7).
-    if (opt.channel_types !== undefined && type !== OptionType.Channel) {
+    // channel_types: only CHANNEL (7). Real Discord ignores `channel_types: null` / `[]` on
+    // non-channel options (discordgo emits null for every option) — only a non-empty array is an error.
+    if (Array.isArray(opt.channel_types) && opt.channel_types.length > 0 && type !== OptionType.Channel) {
       optErrors[`${prefix}.channel_types`] = { _errors: [{ code: "APPLICATION_COMMAND_INVALID_OPTION_TYPE", message: "channel_types only valid on CHANNEL options." }] };
     }
 

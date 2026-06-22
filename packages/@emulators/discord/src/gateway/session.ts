@@ -28,8 +28,14 @@ export interface GatewaySession {
   /** Recently dispatched events, retained for RESUME replay (bounded). */
   buffer: BufferedEvent[];
   encoding: "json" | "etf";
-  /** Set when the connection requested transport compression (zlib-stream). */
+  /** Set when the connection requested transport compression (zlib-stream): one shared zlib stream. */
   compressor?: ZlibCompressor;
+  /**
+   * Set when the connection requested Identify-level payload compression (`compress: true`) and no
+   * transport compression. Each dispatched payload is its own independent, complete zlib block —
+   * distinct from the shared-context `compressor` stream above.
+   */
+  payloadDeflate?: boolean;
   /** Heartbeat interval (ms) advertised to this connection; drives zombie detection. */
   heartbeatInterval: number;
   /** Timer that closes the connection (4009) if no heartbeat arrives in time. */

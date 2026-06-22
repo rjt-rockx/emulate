@@ -78,4 +78,46 @@ describe("discord gateway zlib-stream compression", () => {
     await waitFor(() => frames.some((f) => f.t === "GUILD_CREATE"));
     ws.close();
   });
+
+  it("serves Identify compress:true as independent per-message zlib blocks (discordgo default)", { timeout: 15000 }, async () => {
+    emu = await startDiscordTestEmulator();
+    // No transport compression on the URL — payload compression is requested via IDENTIFY instead.
+    const ws = new WebSocket(`${emu.gatewayUrl}?v=10&encoding=json`);
+    ws.on("error", () => void 0);
+    const frames: Array<{ op: number; t?: string | null; d?: unknown }> = [];
+    let binaryFrames = 0;
+    ws.on("message", (data: Buffer, isBinary: boolean) => {
+      if (isBinary) {
+        binaryFrames++;
+        // Each frame must be a complete, standalone zlib block — decode with a FRESH context.
+        // (The pre-fix streaming compressor failed here on the 2nd+ frame: "zlib: invalid header".)
+        frames.push(JSON.parse(zlib.inflateSync(data).toString("utf8")));
+      } else {
+        frames.push(JSON.parse(data.toString("utf8")));
+      }
+    });
+    await new Promise<void>((resolve, reject) => {
+      ws.once("open", () => resolve());
+      ws.once("error", reject);
+    });
+
+    const waitFor = async (predicate: () => boolean, timeout = 4000) => {
+      const deadline = Date.now() + timeout;
+      while (Date.now() < deadline) {
+        if (predicate()) return;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      throw new Error("timeout");
+    };
+
+    // HELLO is sent before IDENTIFY, so it is plain text.
+    await waitFor(() => frames.some((f) => f.op === GatewayOpcodes.Hello));
+    ws.send(JSON.stringify({ op: GatewayOpcodes.Identify, d: { token: "test_bot_token", intents: Intents.Guilds, compress: true } }));
+
+    // READY and the following GUILD_CREATE arrive as separate, independently-decodable zlib blocks.
+    await waitFor(() => frames.some((f) => f.t === "READY"));
+    await waitFor(() => frames.some((f) => f.t === "GUILD_CREATE"));
+    expect(binaryFrames).toBeGreaterThanOrEqual(2);
+    ws.close();
+  });
 });

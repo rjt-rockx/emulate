@@ -1,5 +1,6 @@
 import type { Server, IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
+import { deflateSync } from "node:zlib";
 import { WebSocketServer, type WebSocket, type RawData } from "ws";
 import { type Store } from "@emulators/core";
 import { getDiscordStore } from "../store.js";
@@ -297,9 +298,11 @@ export class GatewayServer {
         : 50;
     void _largeThreshold;
 
-    // Honor Identify-level payload compression (compress: true) when no transport
-    // compression was negotiated on the URL.
-    if (d.compress === true && !session.compressor) session.compressor = new ZlibCompressor();
+    // Honor Identify-level payload compression (compress: true) when no transport compression was
+    // negotiated on the URL. Unlike transport zlib-stream (one shared context), Identify-level
+    // compression makes each payload an independent, complete zlib block, so it uses a per-message
+    // deflate rather than the streaming ZlibCompressor.
+    if (d.compress === true && !session.compressor) session.payloadDeflate = true;
 
     const ds = getDiscordStore(this.store);
     const tokenRecord = ds.tokens.findOneBy("token", token);
@@ -605,12 +608,16 @@ export class GatewayServer {
     if (session.ws.readyState !== session.ws.OPEN) return;
     const encoded: string | Buffer = session.encoding === "etf" ? packETF(payload) : JSON.stringify(payload);
     if (session.compressor) {
+      // Transport zlib-stream: one shared, Z_SYNC_FLUSH-terminated stream.
       session.compressor
         .compress(encoded)
         .then((buf) => {
           if (session.ws.readyState === session.ws.OPEN) session.ws.send(buf);
         })
         .catch(() => {});
+    } else if (session.payloadDeflate) {
+      // Identify-level compress:true: each payload is an independent, complete zlib block.
+      session.ws.send(deflateSync(typeof encoded === "string" ? Buffer.from(encoded) : encoded));
     } else {
       session.ws.send(encoded);
     }

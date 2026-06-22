@@ -72,7 +72,10 @@ export function interactionsRoutes(ctx: DiscordRouteContext): void {
 
     const result = applyInteractionResponse(ds, bus, store, interaction, response);
 
-    if (c.req.query("with_response") === "true") {
+    // with_response is a boolean query param; Discord accepts both `true` and `1` (discord.py 2.7+
+    // sends `1`). Treat any documented truthy value as true.
+    const withResponse = c.req.query("with_response");
+    if (withResponse === "true" || withResponse === "1") {
       const msgSnowflake = result.message?.snowflake;
       const msgFlags = result.message?.flags ?? 0;
       const isEph = (msgFlags & 64) !== 0;

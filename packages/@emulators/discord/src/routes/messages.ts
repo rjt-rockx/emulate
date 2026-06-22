@@ -783,4 +783,42 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
     }
     return new Response(null, { status: 204 });
   });
+
+  // Emulator control plane: post a message AS AN ARBITRARY user (e.g. a human), so message/prefix
+  // command handlers — which ignore bot-authored messages (`if (message.author.bot) return`) — can
+  // be exercised end-to-end. Not a real Discord route. Dispatches MESSAGE_CREATE like a real post.
+  app.post("/__emulate/messages", async (c) => {
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
+    const body = (await c.req.json().catch(() => ({}))) as { channel_id?: string; author_id?: string; content?: string; tts?: boolean };
+    const channel = body.channel_id ? ds.channels.findOneBy("snowflake", body.channel_id) : undefined;
+    if (!channel) return discordError(c, 404, "Unknown Channel", 10003);
+    const author = body.author_id ? ds.users.findOneBy("snowflake", body.author_id) : undefined;
+    if (!author) return discordError(c, 404, "Unknown User", 10013);
+    const content = typeof body.content === "string" ? body.content : "";
+    const mentions = applyAllowedMentions(parseMentions(content), undefined);
+    const message = createMessage(ds, {
+      channelSnowflake: channel.snowflake,
+      guildSnowflake: channel.guild_snowflake,
+      authorSnowflake: author.snowflake,
+      content,
+      tts: body.tts === true,
+      type: 0,
+      mentionSnowflakes: mentions.users,
+      mentionRoleSnowflakes: mentions.roles,
+      mentionEveryone: mentions.everyone,
+    });
+    const payload = toAPIMessage(message, ds);
+    bus.publish({
+      t: "MESSAGE_CREATE",
+      guildId: channel.guild_snowflake,
+      requiredIntents: messageIntents(channel.guild_snowflake),
+      d: gatewayMessagePayload(message, ds, payload),
+      redactedData: redactMessageContent(gatewayMessagePayload(message, ds, payload)),
+      messageAuthorId: author.snowflake,
+      messageMentionIds: message.mention_snowflakes,
+    });
+    return c.json(payload);
+  });
 }

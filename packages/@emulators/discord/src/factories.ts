@@ -65,7 +65,10 @@ export function createApplication(
   ds: DiscordStore,
   input: CreateApplicationInput,
 ): { application: DiscordApplication; botUser: DiscordUser } {
-  const botUser = createUser(ds, { username: input.botUsername, bot: true, global_name: input.botUsername });
+  // On Discord an application's id IS its bot user's id (same snowflake). Mint one and share it so
+  // `application.id === bot_user.id === users/@me.id`, as real bots/tooling assume.
+  const appSnowflake = snowflake();
+  const botUser = createUser(ds, { username: input.botUsername, bot: true, global_name: input.botUsername, snowflake: appSnowflake });
   let publicKey = input.publicKey;
   let privateKey = input.privateKey;
   if (!publicKey || !privateKey) {
@@ -74,7 +77,7 @@ export function createApplication(
     privateKey = privateKey ?? pair.privateKeyPem;
   }
   const application = ds.applications.insert({
-    snowflake: snowflake(),
+    snowflake: appSnowflake,
     name: input.name,
     description: input.description ?? "",
     icon: null,
