@@ -95,7 +95,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   // the router matches in registration order (e.g. /members/search vs /members/:userId).
   // ---------------------------------------------------------------------------
 
-  // Modify the current member (nick, etc.).
+  // Modify the current member (nick/avatar/banner/bio).
   app.patch("/api/v:version/guilds/:guildId/members/@me", async (c) => {
     const auth = getAuth(c, store);
     if (!auth || !auth.user) return unauthorized(c);
@@ -103,11 +103,26 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const guildId = c.req.param("guildId");
     const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === auth.user!.snowflake);
     if (!member) return unknownMember(c);
-    const body = (await c.req.json().catch(() => ({}))) as { nick?: string | null };
-    if (body.nick !== undefined) ds.members.update(member.id, { nick: body.nick });
+    const body = (await c.req.json().catch(() => ({}))) as {
+      nick?: string | null;
+      avatar?: string | null;
+      banner?: string | null;
+      bio?: string | null;
+    };
+    const patch: Record<string, unknown> = {};
+    if (body.nick !== undefined) patch.nick = body.nick;
+    if (body.avatar !== undefined) patch.avatar = body.avatar;
+    if (Object.keys(patch).length > 0) ds.members.update(member.id, patch);
     const updated = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === auth.user!.snowflake)!;
     const apiMember = toAPIMember(updated, ds);
-    bus.publish({ t: "GUILD_MEMBER_UPDATE", guildId, requiredIntents: Intents.GuildMembers, d: { ...apiMember, guild_id: guildId } });
+    // The bot's own GUILD_MEMBER_UPDATE is always delivered, even without GUILD_MEMBERS intent.
+    bus.publish({
+      t: "GUILD_MEMBER_UPDATE",
+      guildId,
+      requiredIntents: 0,
+      targetUserId: auth.user.snowflake,
+      d: { ...apiMember, guild_id: guildId },
+    });
     return c.json(apiMember);
   });
 
@@ -244,6 +259,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (body.name !== undefined) patch.name = body.name;
     if (body.description !== undefined) patch.description = body.description;
     if (body.icon !== undefined) patch.icon = body.icon;
+    if (body.splash !== undefined) patch.splash = body.splash;
     if (body.verification_level !== undefined) patch.verification_level = body.verification_level;
     if (body.default_message_notifications !== undefined)
       patch.default_message_notifications = body.default_message_notifications;
@@ -253,6 +269,20 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (body.system_channel_id !== undefined) patch.system_channel_snowflake = body.system_channel_id;
     if (body.preferred_locale !== undefined) patch.preferred_locale = body.preferred_locale;
     if (body.owner_id !== undefined) patch.owner_snowflake = body.owner_id;
+    // Community/discovery/boost fields backed by their own entity columns (round-tripped fully).
+    if (body.features !== undefined) patch.features = body.features;
+    if (body.mfa_level !== undefined) patch.mfa_level = body.mfa_level;
+    if (body.nsfw_level !== undefined) patch.nsfw_level = body.nsfw_level;
+    if (body.banner !== undefined) patch.banner = body.banner;
+    if (body.discovery_splash !== undefined) patch.discovery_splash = body.discovery_splash;
+    if (body.system_channel_flags !== undefined) patch.system_channel_flags = body.system_channel_flags;
+    if (body.rules_channel_id !== undefined) patch.rules_channel_snowflake = body.rules_channel_id;
+    if (body.public_updates_channel_id !== undefined)
+      patch.public_updates_channel_snowflake = body.public_updates_channel_id;
+    if (body.safety_alerts_channel_id !== undefined)
+      patch.safety_alerts_channel_snowflake = body.safety_alerts_channel_id;
+    if (body.premium_progress_bar_enabled !== undefined)
+      patch.premium_progress_bar_enabled = body.premium_progress_bar_enabled;
     if (Object.keys(patch).length > 0) {
       ds.guilds.update(guild.id, patch);
     }
@@ -526,7 +556,18 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const guildId = c.req.param("guildId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
     if (!guild) return unknownGuild(c);
-    const members = ds.members.findBy("guild_snowflake", guildId).map((m) => toAPIMember(m, ds));
+    // Pagination: ascending by user id, `limit` (1-1000, default 1) members after `after`.
+    const limitRaw = Number(c.req.query("limit"));
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.floor(limitRaw), 1000) : 1;
+    const afterRaw = c.req.query("after");
+    const after = afterRaw !== undefined && afterRaw !== "" ? BigInt(afterRaw) : 0n;
+    const members = ds.members
+      .findBy("guild_snowflake", guildId)
+      .slice()
+      .sort((a, b) => (BigInt(a.user_snowflake) < BigInt(b.user_snowflake) ? -1 : 1))
+      .filter((m) => BigInt(m.user_snowflake) > after)
+      .slice(0, limit)
+      .map((m) => toAPIMember(m, ds));
     return c.json(members);
   });
 
@@ -615,10 +656,13 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (Object.keys(patch).length > 0) ds.members.update(member.id, patch);
     const updated = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId)!;
     const apiMember = toAPIMember(updated, ds);
+    // A bot's own member update is delivered regardless of the GUILD_MEMBERS intent.
+    const isSelf = auth.user?.snowflake === userId;
     bus.publish({
       t: "GUILD_MEMBER_UPDATE",
       guildId,
-      requiredIntents: Intents.GuildMembers,
+      requiredIntents: isSelf ? 0 : Intents.GuildMembers,
+      ...(isSelf ? { targetUserId: userId } : {}),
       d: { ...apiMember, guild_id: guildId },
     });
     // MemberUpdate for non-role field changes (nick, deaf, mute, timeout).
@@ -818,8 +862,22 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     } catch {
       // no-op
     }
+    // Validate the documented Create Guild Emoji params: name (required, 2-32 of [A-Za-z0-9_]).
+    // `image` is documented as required image data; when supplied it must be non-empty. Failures
+    // surface as Invalid Form Body (50035).
+    const emojiErrors: Record<string, string> = {};
+    const name = body.name;
+    if (typeof name !== "string" || name.length < 2 || name.length > 32) {
+      emojiErrors.name = "Must be between 2 and 32 in length.";
+    } else if (!/^[A-Za-z0-9_]+$/.test(name)) {
+      emojiErrors.name = "String value did not match validation regex.";
+    }
+    if (body.image !== undefined && (body.image === null || body.image === "")) {
+      emojiErrors.image = "This field is required.";
+    }
+    if (Object.keys(emojiErrors).length > 0) return invalidFormBody(c, emojiErrors);
     const emoji = createEmoji(ds, guildId, {
-      name: (body.name as string | undefined) ?? "emoji",
+      name: name as string,
       animated: (body.animated as boolean | undefined) ?? false,
       creatorSnowflake: auth.user?.snowflake ?? null,
       roles: (body.roles as string[] | undefined) ?? [],

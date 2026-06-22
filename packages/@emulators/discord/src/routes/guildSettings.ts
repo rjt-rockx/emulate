@@ -45,7 +45,7 @@ export function guildSettingsRoutes(ctx: DiscordRouteContext): void {
       instant_invite: null,
       channels: ds.channels
         .findBy("guild_snowflake", guild.snowflake)
-        .filter((ch) => ch.type === 2)
+        .filter((ch) => ch.type === 2 || ch.type === 13)
         .map((ch) => ({ id: ch.snowflake, name: ch.name, position: ch.position })),
       members: [],
       presence_count: guild.member_snowflakes.length,
