@@ -295,6 +295,29 @@ export interface DiscordScheduledEvent extends Entity {
   user_count: number;
 }
 
+export interface DiscordStageInstance extends Entity {
+  snowflake: string;
+  guild_snowflake: string;
+  channel_snowflake: string;
+  topic: string;
+  privacy_level: number; // 2 = guild only
+  discoverable_disabled: boolean;
+}
+
+export interface DiscordAutoModRule extends Entity {
+  snowflake: string;
+  guild_snowflake: string;
+  creator_snowflake: string | null;
+  name: string;
+  event_type: number;
+  trigger_type: number;
+  trigger_metadata: Record<string, unknown>;
+  actions: unknown[];
+  enabled: boolean;
+  exempt_roles: string[];
+  exempt_channels: string[];
+}
+
 /** Lightweight mirror of a live gateway connection, for the inspector. */
 export interface DiscordGatewaySession extends Entity {
   session_id: string;

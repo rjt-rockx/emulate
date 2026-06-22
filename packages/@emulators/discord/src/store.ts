@@ -19,6 +19,8 @@ import type {
   DiscordSticker,
   DiscordScheduledEvent,
   DiscordThreadMember,
+  DiscordStageInstance,
+  DiscordAutoModRule,
   DiscordGatewaySession,
 } from "./entities.js";
 
@@ -42,6 +44,8 @@ export interface DiscordStore {
   stickers: Collection<DiscordSticker>;
   scheduledEvents: Collection<DiscordScheduledEvent>;
   threadMembers: Collection<DiscordThreadMember>;
+  stageInstances: Collection<DiscordStageInstance>;
+  autoModRules: Collection<DiscordAutoModRule>;
   gatewaySessions: Collection<DiscordGatewaySession>;
 }
 
@@ -77,6 +81,8 @@ export function getDiscordStore(store: Store): DiscordStore {
     stickers: store.collection<DiscordSticker>("discord.stickers", ["snowflake", "guild_snowflake"]),
     scheduledEvents: store.collection<DiscordScheduledEvent>("discord.scheduled_events", ["snowflake", "guild_snowflake"]),
     threadMembers: store.collection<DiscordThreadMember>("discord.thread_members", ["thread_snowflake", "user_snowflake"]),
+    stageInstances: store.collection<DiscordStageInstance>("discord.stage_instances", ["snowflake", "channel_snowflake"]),
+    autoModRules: store.collection<DiscordAutoModRule>("discord.automod_rules", ["snowflake", "guild_snowflake"]),
     gatewaySessions: store.collection<DiscordGatewaySession>("discord.gateway_sessions", ["session_id"]),
   };
 }
