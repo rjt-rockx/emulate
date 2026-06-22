@@ -116,4 +116,52 @@ describe("voice gateway handshake", () => {
     }
     ws.close();
   });
+
+  it("relays RTP audio between two participants in the same guild", async () => {
+    emu = await startDiscordTestEmulator();
+
+    // Bring two voice connections (same server_id) to the media stage.
+    const join = async (userId: string) => {
+      const { ws, next } = await connectVoice(`${emu.gatewayUrl}voice?v=4`);
+      sockets.push(ws);
+      await next(); // Hello
+      ws.send(JSON.stringify({ op: VoiceOpcodes.Identify, d: { server_id: "guild-1", user_id: userId, session_id: "s", token: "t" } }));
+      const ready = await next();
+      return { ws, ...(ready.d as { ssrc: number; ip: string; port: number }) };
+    };
+    const a = await join("user-a");
+    const b = await join("user-b");
+
+    const udpA = dgram.createSocket("udp4");
+    const udpB = dgram.createSocket("udp4");
+    try {
+      // B binds and registers its UDP address by sending one packet (so the server learns it).
+      const primer = Buffer.alloc(32);
+      primer[0] = 0x80;
+      primer.writeUInt32BE(b.ssrc, 8);
+      await new Promise<void>((r) => udpB.send(primer, b.port, b.ip, () => r()));
+      await new Promise((r) => setTimeout(r, 50));
+
+      // A sends an audio packet; the server should relay it to B's UDP socket.
+      const received = new Promise<Buffer>((resolve, reject) => {
+        udpB.on("message", (m) => resolve(m));
+        setTimeout(() => reject(new Error("no relayed packet")), 2000);
+      });
+      const packet = Buffer.alloc(40);
+      packet[0] = 0x80;
+      packet[1] = 0x78;
+      packet.writeUInt32BE(a.ssrc, 8);
+      packet.write("AUDIO", 12, "ascii");
+      await new Promise<void>((r) => udpA.send(packet, a.port, a.ip, () => r()));
+
+      const relayed = await received;
+      expect(relayed.readUInt32BE(8)).toBe(a.ssrc); // carries A's SSRC
+      expect(relayed.subarray(12, 17).toString("ascii")).toBe("AUDIO");
+    } finally {
+      udpA.close();
+      udpB.close();
+    }
+    a.ws.close();
+    b.ws.close();
+  });
 });

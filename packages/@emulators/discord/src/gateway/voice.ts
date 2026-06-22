@@ -43,11 +43,22 @@ interface VoicePayload {
   seq?: number;
 }
 
+interface VoiceParticipant {
+  ssrc: number;
+  guildId: string;
+  userId: string;
+  ws: WebSocket;
+  /** Learned from the participant's first RTP packet, used to relay audio to it. */
+  udpRemote?: { address: string; port: number };
+}
+
 export class VoiceGatewayServer {
   private readonly wss = new WebSocketServer({ noServer: true });
   private readonly sockets = new Set<WebSocket>();
   private readonly udp = dgram.createSocket("udp4");
   private udpPort = 0;
+  /** Connected participants keyed by SSRC, used to relay RTP packets within a guild. */
+  private readonly participants = new Map<number, VoiceParticipant>();
   /** Count of RTP audio packets received (visible to tests/inspector). */
   rtpPacketsReceived = 0;
 
@@ -67,16 +78,23 @@ export class VoiceGatewayServer {
   private onConnection(ws: WebSocket): void {
     this.sockets.add(ws);
     const ssrc = Math.floor(Math.random() * 0xffffffff) >>> 0;
+    const participant: VoiceParticipant = { ssrc, guildId: "", userId: "", ws };
+    this.participants.set(ssrc, participant);
     this.send(ws, { op: VoiceOpcodes.Hello, d: { heartbeat_interval: VOICE_HEARTBEAT_INTERVAL } });
-    ws.on("message", (raw) => this.onMessage(ws, raw, ssrc));
-    ws.on("close", () => this.sockets.delete(ws));
-    ws.on("error", () => this.sockets.delete(ws));
+    ws.on("message", (raw) => this.onMessage(ws, raw, participant));
+    const cleanup = () => {
+      this.sockets.delete(ws);
+      this.participants.delete(ssrc);
+    };
+    ws.on("close", cleanup);
+    ws.on("error", cleanup);
   }
 
   /**
    * Handle a UDP datagram: the 74-byte IP-discovery request (type 0x1) is answered with a
-   * discovery response (type 0x2) echoing the sender's external address/port; anything else is
-   * treated as an RTP audio packet and accepted (received, not relayed).
+   * discovery response (type 0x2) echoing the sender's external address/port. Anything else is
+   * an RTP audio packet — its SSRC (bytes 8-12) identifies the sender, whose UDP address we
+   * learn, and the packet is relayed to every other participant in the same guild.
    */
   private onUdpMessage(msg: Buffer, rinfo: dgram.RemoteInfo): void {
     if (msg.length >= 74 && msg.readUInt16BE(0) === 0x0001) {
@@ -91,9 +109,19 @@ export class VoiceGatewayServer {
       return;
     }
     this.rtpPacketsReceived += 1;
+    if (msg.length < 12) return;
+    const sender = this.participants.get(msg.readUInt32BE(8));
+    if (!sender) return;
+    sender.udpRemote = { address: rinfo.address, port: rinfo.port };
+    // Relay to other participants in the same guild that have a known UDP address.
+    for (const p of this.participants.values()) {
+      if (p === sender || !p.udpRemote || p.guildId !== sender.guildId) continue;
+      this.udp.send(msg, p.udpRemote.port, p.udpRemote.address);
+    }
   }
 
-  private onMessage(ws: WebSocket, raw: RawData, ssrc: number): void {
+  private onMessage(ws: WebSocket, raw: RawData, participant: VoiceParticipant): void {
+    const ssrc = participant.ssrc;
     let payload: VoicePayload;
     try {
       payload = JSON.parse(raw.toString()) as VoicePayload;
@@ -101,13 +129,18 @@ export class VoiceGatewayServer {
       return;
     }
     switch (payload.op) {
-      case VoiceOpcodes.Identify:
+      case VoiceOpcodes.Identify: {
+        // Bind this participant to its guild (server_id) so RTP can be relayed within it.
+        const d = (payload.d ?? {}) as { server_id?: string; user_id?: string };
+        participant.guildId = typeof d.server_id === "string" ? d.server_id : "";
+        participant.userId = typeof d.user_id === "string" ? d.user_id : "";
         // Ready advertises the SSRC, the UDP media endpoint, and supported encryption modes.
         this.send(ws, {
           op: VoiceOpcodes.Ready,
           d: { ssrc, ip: "127.0.0.1", port: this.udpPort, modes: VOICE_ENCRYPTION_MODES, experiments: [] },
         });
         break;
+      }
       case VoiceOpcodes.SelectProtocol: {
         const d = (payload.d ?? {}) as { data?: { mode?: string } };
         const mode = d.data?.mode && VOICE_ENCRYPTION_MODES.includes(d.data.mode) ? d.data.mode : VOICE_ENCRYPTION_MODES[0];
