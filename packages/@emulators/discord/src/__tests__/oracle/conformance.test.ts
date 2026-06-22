@@ -110,4 +110,79 @@ describe("OpenAPI conformance (official discord-api-spec oracle)", () => {
     expect(matchSpecPath("/api/v10/channels/123/messages")).toBe("/channels/{channel_id}/messages");
     expect(matchSpecPath("/api/v10/users/@me")).toBe("/users/@me");
   });
+
+  it("write-path responses (create + read-back) match the spec", async () => {
+    const { app, store } = createDiscordTestApp();
+    const ids = seededIds(store);
+    const png = "data:image/png;base64,iVBORw0KGgo=";
+    const startsAt = new Date(Date.now() + 3_600_000).toISOString();
+    const endsAt = new Date(Date.now() + 7_200_000).toISOString();
+
+    // Each step: POST a valid body, then (optionally) GET the created resource back. Both
+    // responses are validated against the spec for their operation.
+    const steps: Array<{ method: string; path: string; body?: unknown; readBack?: (id: string) => string }> = [
+      { method: "POST", path: `/guilds/${ids.guild}/roles`, body: { name: "oracle-role" } },
+      { method: "POST", path: `/guilds/${ids.guild}/channels`, body: { name: "oracle-chan", type: 0 }, readBack: (id) => `/channels/${id}` },
+      { method: "POST", path: `/channels/${ids.general}/messages`, body: { content: "oracle hi" }, readBack: (id) => `/channels/${ids.general}/messages/${id}` },
+      { method: "POST", path: `/channels/${ids.general}/webhooks`, body: { name: "oracle-hook" }, readBack: (id) => `/webhooks/${id}` },
+      { method: "POST", path: `/guilds/${ids.guild}/emojis`, body: { name: "oracle_emoji", image: png } },
+      { method: "POST", path: `/channels/${ids.general}/invites`, body: {} },
+      {
+        method: "POST",
+        path: `/guilds/${ids.guild}/scheduled-events`,
+        body: { name: "Oracle Event", privacy_level: 2, scheduled_start_time: startsAt, scheduled_end_time: endsAt, entity_type: 3, entity_metadata: { location: "somewhere" } },
+      },
+      {
+        method: "POST",
+        path: `/guilds/${ids.guild}/auto-moderation/rules`,
+        body: { name: "oracle-rule", event_type: 1, trigger_type: 1, trigger_metadata: { keyword_filter: ["x"] }, actions: [{ type: 1 }] },
+      },
+    ];
+
+    const all: Array<{ label: string; status: number; validated: boolean; errors: string[] }> = [];
+    const record = (method: string, path: string, status: number, body: unknown) => {
+      const r = checkResponse(method, path, status, body);
+      const errors = r.errors.filter((e) => !isKnown(path, e));
+      all.push({ label: `${method} ${path} [${status}]`, status, validated: r.validated, errors });
+    };
+
+    for (const step of steps) {
+      const res = await app.request(api(step.path), {
+        method: step.method,
+        headers: botHeaders(),
+        body: step.body !== undefined ? JSON.stringify(step.body) : undefined,
+      });
+      let body: Record<string, unknown> | null = null;
+      try {
+        body = (await res.json()) as Record<string, unknown>;
+      } catch {
+        body = null;
+      }
+      record(step.method, step.path, res.status, body);
+      if (step.readBack && body && typeof body.id === "string") {
+        const getPath = step.readBack(body.id);
+        const getRes = await app.request(api(getPath), { headers: botHeaders() });
+        let getBody: unknown = null;
+        try {
+          getBody = await getRes.json();
+        } catch {
+          getBody = null;
+        }
+        record("GET", getPath, getRes.status, getBody);
+      }
+    }
+
+    const validated = all.filter((a) => a.validated);
+    const failing = validated.filter((a) => a.errors.length > 0);
+    const lines = [`write-path validated=${validated.length} divergent=${failing.length}`];
+    for (const f of failing) {
+      lines.push(`DIVERGENCE ${f.label}`);
+      for (const e of f.errors.slice(0, 12)) lines.push(`    - ${e}`);
+    }
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync("/tmp/conformance-write-report.txt", lines.join("\n") + "\n");
+
+    expect(validated.length).toBeGreaterThanOrEqual(8);
+    expect(failing, `Unexpected write-path divergences:\n${lines.join("\n")}`).toHaveLength(0);
+  });
 });

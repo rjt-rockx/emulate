@@ -47,7 +47,24 @@ function toAPIInvite(inv: DiscordInvite, ds: DiscordStore, opts: InviteSerialize
   const payload: Record<string, unknown> = {
     code: inv.code,
     type: 0,
-    guild: guild ? { id: guild.snowflake, name: guild.name, icon: guild.icon, features: guild.features } : null,
+    // InviteGuildResponse: a fuller guild subset than a bare partial (per the OpenAPI spec).
+    guild: guild
+      ? {
+          id: guild.snowflake,
+          name: guild.name,
+          splash: guild.splash ?? null,
+          banner: guild.banner ?? null,
+          description: guild.description ?? null,
+          icon: guild.icon,
+          features: guild.features,
+          verification_level: guild.verification_level,
+          vanity_url_code: guild.vanity_url_code ?? null,
+          nsfw_level: guild.nsfw_level,
+          nsfw: guild.nsfw ?? false,
+          premium_subscription_count: guild.premium_subscription_count ?? 0,
+        }
+      : null,
+    guild_id: guild ? guild.snowflake : undefined,
     channel: channel ? { id: channel.snowflake, name: channel.name, type: channel.type } : null,
     inviter: inviter ? toAPIUser(inviter) : undefined,
     uses: inv.uses,
