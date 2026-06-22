@@ -84,4 +84,73 @@ describe("discord oauth2", () => {
     });
     expect(tokenRes.status).toBe(401);
   });
+
+  it("client_credentials issues no refresh token", async () => {
+    const { app } = createDiscordTestApp(seed);
+    const res = await app.request(api("/oauth2/token"), {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "client_credentials", client_id: "cid", client_secret: "secret", scope: "identify" }).toString(),
+    });
+    const token = (await res.json()) as { access_token: string; refresh_token?: string };
+    expect(token.access_token).toBeTruthy();
+    expect(token.refresh_token).toBeUndefined();
+  });
+
+  async function issueViaCode(app: ReturnType<typeof createDiscordTestApp>["app"], store: ReturnType<typeof createDiscordTestApp>["store"]) {
+    const dev = (await import("../store.js")).getDiscordStore(store).users.findOneBy("username", "developer")!;
+    const cb = await app.request(`${TEST_BASE_URL}/oauth2/authorize/callback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ user_id: dev.snowflake, client_id: "cid", redirect_uri: "http://localhost:3000/cb", scope: "identify guilds" }).toString(),
+    });
+    const code = new URL(cb.headers.get("location")!).searchParams.get("code")!;
+    const res = await app.request(api("/oauth2/token"), {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "authorization_code", code, client_id: "cid", client_secret: "secret", redirect_uri: "http://localhost:3000/cb" }).toString(),
+    });
+    return (await res.json()) as { access_token: string; refresh_token: string };
+  }
+
+  it("exchanges a refresh_token for a fresh access token (rotating it)", async () => {
+    const { app, store } = createDiscordTestApp(seed);
+    const first = await issueViaCode(app, store);
+    expect(first.refresh_token).toBeTruthy();
+
+    const refreshed = await app.request(api("/oauth2/token"), {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "refresh_token", client_id: "cid", client_secret: "secret", refresh_token: first.refresh_token }).toString(),
+    });
+    expect(refreshed.status).toBe(200);
+    const next = (await refreshed.json()) as { access_token: string; refresh_token: string; scope: string };
+    expect(next.access_token).not.toBe(first.access_token);
+    expect(next.scope).toContain("identify");
+
+    // The old refresh token is now invalid (rotation).
+    const reuse = await app.request(api("/oauth2/token"), {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "refresh_token", client_id: "cid", client_secret: "secret", refresh_token: first.refresh_token }).toString(),
+    });
+    expect(reuse.status).toBe(400);
+  });
+
+  it("revokes a token so it no longer authenticates", async () => {
+    const { app, store } = createDiscordTestApp(seed);
+    const tok = await issueViaCode(app, store);
+    const before = await app.request(api("/oauth2/@me"), { headers: { Authorization: `Bearer ${tok.access_token}` } });
+    expect(before.status).toBe(200);
+
+    const revoke = await app.request(api("/oauth2/token/revoke"), {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token: tok.access_token, client_id: "cid", client_secret: "secret" }).toString(),
+    });
+    expect(revoke.status).toBe(200);
+
+    const after = await app.request(api("/oauth2/@me"), { headers: { Authorization: `Bearer ${tok.access_token}` } });
+    expect(after.status).toBe(401);
+  });
 });

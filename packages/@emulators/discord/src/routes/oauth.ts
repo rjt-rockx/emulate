@@ -100,9 +100,10 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
     }
 
     const application = oauthApp ? ds.applications.findOneBy("snowflake", oauthApp.application_snowflake) : ds.applications.all()[0];
-    const issue = (userSnowflake: string, scope: string) => {
+    const issue = (userSnowflake: string, scope: string, opts: { refresh?: boolean } = {}) => {
+      const withRefresh = opts.refresh !== false;
       const accessToken = `disc_at_${randomBytes(16).toString("hex")}`;
-      const refreshToken = `disc_rt_${randomBytes(16).toString("hex")}`;
+      const refreshToken = withRefresh ? `disc_rt_${randomBytes(16).toString("hex")}` : null;
       const scopes = scope.split(/[ ,]+/).filter(Boolean);
       createToken(ds, {
         token: accessToken,
@@ -117,9 +118,10 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
         access_token: accessToken,
         token_type: "Bearer",
         expires_in: 604800,
-        refresh_token: refreshToken,
         scope: scopes.join(" "),
       };
+      // client_credentials does not issue a refresh token.
+      if (withRefresh) result.refresh_token = refreshToken;
       if (scopes.includes("bot")) {
         const guild = ds.guilds.all()[0];
         if (guild) result.guild = toAPIGuild(guild, ds);
@@ -141,7 +143,16 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
 
     if (grantType === "client_credentials") {
       const botUser = application ? ds.users.findOneBy("snowflake", application.bot_user_snowflake) : ds.users.all()[0];
-      return issue(botUser?.snowflake ?? "", bodyStr(form.scope));
+      return issue(botUser?.snowflake ?? "", bodyStr(form.scope), { refresh: false });
+    }
+
+    if (grantType === "refresh_token") {
+      const refreshToken = bodyStr(form.refresh_token);
+      const existing = ds.tokens.all().find((t) => t.type === "bearer" && t.refresh_token === refreshToken);
+      if (!existing) return c.json({ error: "invalid_grant" }, 400);
+      // Rotate: invalidate the old token pair and issue a fresh one with the same grant.
+      ds.tokens.delete(existing.id);
+      return issue(existing.user_snowflake, existing.scopes.join(" "));
     }
 
     return c.json({ error: "unsupported_grant_type" }, 400);
@@ -150,17 +161,34 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
   app.post("/api/oauth2/token", tokenHandler);
   app.post("/api/v:version/oauth2/token", tokenHandler);
 
+  // Token revocation (RFC 7009): revoke an access or refresh token.
+  const revokeHandler = async (c: Context<AppEnv>): Promise<Response> => {
+    const ds = getDiscordStore(store);
+    const form = await c.req.parseBody();
+    const token = bodyStr(form.token);
+    const rec = ds.tokens.findOneBy("token", token) ?? ds.tokens.all().find((t) => t.refresh_token === token);
+    if (rec) ds.tokens.delete(rec.id);
+    return c.json({});
+  };
+  app.post("/api/oauth2/token/revoke", revokeHandler);
+  app.post("/api/v:version/oauth2/token/revoke", revokeHandler);
+
   app.get("/api/v:version/oauth2/@me", (c) => {
     const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
+    if (!auth) return unauthorized(c);
     const ds = getDiscordStore(store);
     const app0 = auth.application ?? ds.applications.all()[0];
-    return c.json({
-      application: app0 ? { id: app0.snowflake, name: app0.name, verify_key: app0.verify_key } : undefined,
+    const tokenRecord = ds.tokens.findOneBy("token", auth.token);
+    const result: Record<string, unknown> = {
+      application: app0 ? { id: app0.snowflake, name: app0.name, verify_key: app0.verify_key, bot_public: true } : undefined,
       scopes: auth.scopes,
-      expires: new Date(Date.now() + 604800 * 1000).toISOString(),
-      user: toAPIUser(auth.user, auth.scopes.includes("email")),
-    });
+      expires: tokenRecord?.expires_at ?? new Date(Date.now() + 604800 * 1000).toISOString(),
+    };
+    // The user object is only included when the token was granted the `identify` scope.
+    if (auth.user && auth.scopes.includes("identify")) {
+      result.user = toAPIUser(auth.user, auth.scopes.includes("email"));
+    }
+    return c.json(result);
   });
 
   app.get("/api/v:version/oauth2/applications/@me", (c) => {
