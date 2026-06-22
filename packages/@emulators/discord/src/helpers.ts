@@ -826,7 +826,9 @@ export function toAPIMessage(m: DiscordMessage, ds: DiscordStore, meSnowflake?: 
   return {
     id: m.snowflake,
     channel_id: m.channel_snowflake,
-    guild_id: m.guild_snowflake ?? undefined,
+    // NOTE: guild_id is intentionally NOT part of the REST message shape (the spec MessageResponse
+    // and the docs' Example Message both omit it). It is a gateway-only field, injected into
+    // MESSAGE_CREATE/MESSAGE_UPDATE payloads by the gateway server's dataFor chokepoint.
     author,
     content: m.content,
     timestamp: m.timestamp,

@@ -24,15 +24,10 @@ const isKnown = (p: string, e: string) => KNOWN.some((k) => k.path.test(p.split(
  * Over-emitted keys that are real-but-context-specific and accepted (the OpenAPI spec scopes them
  * more narrowly than reality / discord-api-types). Each is a valid optional field per
  * discord-api-types, so emitting it does not violate the typed contract:
- *  - message `guild_id`: optional on APIMessage. The spec MessageResponse and the docs' Example
- *    Message both omit it from the REST shape, but gateway MESSAGE_* events legitimately carry it,
- *    and several sites reuse one payload for both the REST body and the gateway event. Splitting
- *    those (REST excludes / gateway includes) is a scoped follow-up; until then it's emitted on REST
- *    too, which is type-valid (optional on APIMessage) and tolerated by every client.
  *  - application command `default_permission`: a documented (deprecated) command field still present
  *    on APIApplicationCommand; the OpenAPI spec dropped it but the docs/types retain it.
  */
-const OVER_EMISSION_KNOWN = new Set(["guild_id", "default_permission"]);
+const OVER_EMISSION_KNOWN = new Set(["default_permission"]);
 const normalizeKey = (k: string): string => k.replace(/^.*?(\w+)$/, "$1");
 
 const PNG = "data:image/png;base64,iVBORw0KGgo=";

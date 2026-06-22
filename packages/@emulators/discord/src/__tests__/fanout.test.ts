@@ -97,6 +97,10 @@ describe("discord gateway fan-out from REST mutations", () => {
     const event = await q.waitFor("MESSAGE_CREATE");
     expect((event.d as { content: string; channel_id: string }).content).toBe("live message");
     expect((event.d as { channel_id: string }).channel_id).toBe(channelId);
+    // guild_id is a gateway-only field (not part of the REST message shape): the server injects it
+    // into MESSAGE_CREATE/MESSAGE_UPDATE payloads even though toAPIMessage omits it.
+    const guildId = getDiscordStore(emu.store).guilds.findOneBy("name", "Emulate Server")!.snowflake;
+    expect((event.d as { guild_id?: string }).guild_id).toBe(guildId);
   });
 
   it("does NOT dispatch MESSAGE_CREATE to a bot lacking the GuildMessages intent", async () => {

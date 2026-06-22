@@ -17,7 +17,7 @@ import { checkResponse, specOperations, generateRequestBody, findOverEmission } 
 // optional fields per discord-api-types the OpenAPI spec scopes more narrowly. `icon_hash` is
 // documented as "returned when in the template object" but the spec's serialized template-guild
 // schema under-declares it (spec gap), so it appears here only under serialized_source_guild.
-const OVER_EMISSION_KNOWN = new Set(["guild_id", "default_permission", "icon_hash"]);
+const OVER_EMISSION_KNOWN = new Set(["default_permission", "icon_hash"]);
 const normalizeKey = (k: string): string => k.replace(/^.*?(\w+)$/, "$1");
 
 const KNOWN: Array<{ path: RegExp; error: string }> = [

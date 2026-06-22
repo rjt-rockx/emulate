@@ -569,6 +569,11 @@ export class GatewayServer {
    * authored by, nor mentions, the recipient's bot (matching real Discord behavior).
    */
   private dataFor(intents: number, botUserSnowflake: string | null, event: GatewayEvent): unknown {
+    return this.withGatewayGuildId(event, this.chooseData(intents, botUserSnowflake, event));
+  }
+
+  /** Pick the (possibly content-redacted) base payload for a recipient. */
+  private chooseData(intents: number, botUserSnowflake: string | null, event: GatewayEvent): unknown {
     if (event.redactedData === undefined) return event.d;
     if (hasIntent(intents, Intents.MessageContent)) return event.d;
     if (event.guildId == null) return event.d; // DMs always include content
@@ -576,6 +581,17 @@ export class GatewayServer {
     if (event.messageAuthorId && event.messageAuthorId === bot) return event.d;
     if (event.messageMentionIds && event.messageMentionIds.includes(bot)) return event.d;
     return event.redactedData;
+  }
+
+  /**
+   * The REST message shape omits guild_id (it is not part of MessageResponse), but gateway
+   * MESSAGE_CREATE/MESSAGE_UPDATE payloads carry it. Inject it here — cloning, never mutating the
+   * shared REST payload object — so the one serializer stays REST-correct.
+   */
+  private withGatewayGuildId(event: GatewayEvent, data: unknown): unknown {
+    if (event.t !== "MESSAGE_CREATE" && event.t !== "MESSAGE_UPDATE") return data;
+    if (event.guildId == null || data == null || typeof data !== "object") return data;
+    return { ...(data as Record<string, unknown>), guild_id: event.guildId };
   }
 
   private dispatch(session: GatewaySession, t: string, d: unknown): void {
