@@ -226,6 +226,23 @@ describe("guild.mdx — incident actions", () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it("incidents_data written by PUT round-trips on GET /guilds/:id (guild.mdx: incidents_data field)", async () => {
+    // The PUT must persist onto the guild entity so subsequent GET /guilds/:id reflects it.
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const until = "2099-06-01T12:00:00.000Z";
+    await app.request(api(`/guilds/${guild}/incident-actions`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify({ invites_disabled_until: until }),
+    });
+    const getRes = await app.request(api(`/guilds/${guild}`), { headers: botHeaders() });
+    expect(getRes.status).toBe(200);
+    const g = (await getRes.json()) as { incidents_data?: Record<string, unknown> | null };
+    expect(g.incidents_data).toBeTruthy();
+    expect((g.incidents_data as Record<string, unknown>).invites_disabled_until).toBe(until);
+  });
 });
 
 // ---------------------------------------------------------------------------

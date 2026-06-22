@@ -169,6 +169,22 @@ describe("application.mdx — Application Object (Get Current Application)", () 
     expect(typeof a.approximate_guild_count).toBe("number");
   });
 
+  it("emits approximate_user_install_count as a number (application.mdx:39)", async () => {
+    const { app } = createDiscordTestApp();
+    const a = await getApp(app);
+    expect("approximate_user_install_count" in a).toBe(true);
+    expect(typeof a.approximate_user_install_count).toBe("number");
+    expect(a.approximate_user_install_count as number).toBeGreaterThanOrEqual(0);
+  });
+
+  it("emits approximate_user_authorization_count as a number (application.mdx:40)", async () => {
+    const { app } = createDiscordTestApp();
+    const a = await getApp(app);
+    expect("approximate_user_authorization_count" in a).toBe(true);
+    expect(typeof a.approximate_user_authorization_count).toBe("number");
+    expect(a.approximate_user_authorization_count as number).toBeGreaterThanOrEqual(0);
+  });
+
   it("emits the event_webhooks fields with documented defaults (status disabled = 1)", async () => {
     const { app } = createDiscordTestApp();
     const a = await getApp(app);

@@ -99,7 +99,8 @@ export function miscRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
-    if (!ds.guilds.findOneBy("snowflake", guildId)) return notFound(c);
+    const guild = ds.guilds.findOneBy("snowflake", guildId);
+    if (!guild) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as { invites_disabled_until?: string | null; dms_disabled_until?: string | null };
     const data = {
       invites_disabled_until: body.invites_disabled_until ?? null,
@@ -107,7 +108,8 @@ export function miscRoutes(ctx: DiscordRouteContext): void {
       dm_spam_detected_at: null,
       raid_detected_at: null,
     };
-    store.setData(`discord.incident_actions.${guildId}`, data);
+    // Persist onto the guild entity so GET /guilds/:id round-trips incidents_data.
+    ds.guilds.update(guild.id, { incidents_data: data });
     return c.json(data);
   });
 
@@ -147,6 +149,15 @@ export function miscRoutes(ctx: DiscordRouteContext): void {
   app.get("/api/v:version/invites/:code/target-users/job-status", (c) => {
     const auth = getAuth(c, store);
     if (!auth) return unauthorized(c);
-    return c.json({ status: "completed" });
+    // Doc (invite.mdx:227-246): status is an integer enum 0-3 (0=NOT_STARTED, 1=IN_PROGRESS,
+    // 2=COMPLETED, 3=ERROR). The stub returns 2 (COMPLETED) with all documented fields present.
+    return c.json({
+      status: 2,
+      total_users: 0,
+      processed_users: 0,
+      created_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+      error_message: null,
+    });
   });
 }

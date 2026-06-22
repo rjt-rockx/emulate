@@ -14,7 +14,7 @@
  */
 import { describe, it, expect, afterEach } from "vitest";
 import WebSocket from "ws";
-import { startDiscordTestEmulator, api, botHeaders, type RunningDiscordEmulator } from "../helpers.js";
+import { startDiscordTestEmulator, createDiscordTestApp, api, botHeaders, type RunningDiscordEmulator } from "../helpers.js";
 import { GatewayOpcodes, GatewayCloseCodes } from "../../gateway/opcodes.js";
 import { Intents, PRIVILEGED_INTENTS, hasIntent, intentsAllow } from "../../gateway/intents.js";
 import { getDiscordStore } from "../../store.js";
@@ -786,7 +786,8 @@ describe("gateway spec: intent gating of Gateway events (gateway.mdx List of Int
     await fetch(api(`/guilds/${gid}/emojis`, emu.baseUrl), {
       method: "POST",
       headers: botHeaders(),
-      body: JSON.stringify({ name: "blobspec" }),
+      // image is a required field on Create Guild Emoji.
+      body: JSON.stringify({ name: "blobspec", image: "data:image/png;base64,iVBORw0KGgo=" }),
     });
     const event = await conn.waitFor("GUILD_EMOJIS_UPDATE");
     expect((event.d as { emojis: Array<{ name: string }> }).emojis.some((e) => e.name === "blobspec")).toBe(true);
@@ -905,6 +906,60 @@ describe("gateway spec: MESSAGE_CONTENT redaction (gateway.mdx Message Content I
     });
     const event = await conn.waitFor("MESSAGE_CREATE");
     expect((event.d as { content: string }).content).toBe("my own message");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /gateway — no auth required (gateway.mdx:717-733)
+// GET /gateway/bot — bot auth, returns url/shards/session_start_limit (gateway.mdx:738-779)
+// ---------------------------------------------------------------------------
+
+describe("gateway spec: GET /gateway and GET /gateway/bot REST shapes (gateway.mdx:717-779)", () => {
+  it("GET /gateway returns 200 with a url string and requires no auth", async () => {
+    const { app } = createDiscordTestApp();
+    // No Authorization header — must succeed.
+    const res = await app.request(api("/gateway"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(typeof body.url).toBe("string");
+    expect((body.url as string).length).toBeGreaterThan(0);
+  });
+
+  it("GET /gateway does not include session_start_limit (that is a /gateway/bot field)", async () => {
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api("/gateway"));
+    const body = (await res.json()) as Record<string, unknown>;
+    // GET /gateway returns only {url}; no shards or session_start_limit.
+    expect("session_start_limit" in body).toBe(false);
+    expect("shards" in body).toBe(false);
+  });
+
+  it("GET /gateway/bot session_start_limit has all four documented fields at correct types (gateway.mdx:769-779)", async () => {
+    // Doc: session_start_limit = { total, remaining, reset_after, max_concurrency } (all integers).
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api("/gateway/bot"), { headers: botHeaders() });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { session_start_limit: Record<string, unknown>; shards: unknown };
+    const ssl = body.session_start_limit;
+    expect(typeof ssl).toBe("object");
+    expect(ssl).not.toBeNull();
+    expect(typeof ssl.total).toBe("number");
+    expect(typeof ssl.remaining).toBe("number");
+    expect(typeof ssl.reset_after).toBe("number");
+    expect(typeof ssl.max_concurrency).toBe("number");
+    // Documented invariants: total >= remaining >= 0; max_concurrency >= 1.
+    expect(ssl.total as number).toBeGreaterThanOrEqual(ssl.remaining as number);
+    expect(ssl.remaining as number).toBeGreaterThanOrEqual(0);
+    expect(ssl.max_concurrency as number).toBeGreaterThanOrEqual(1);
+    // shards is an integer (gateway.mdx:769).
+    expect(typeof body.shards).toBe("number");
+    expect(Number.isInteger(body.shards)).toBe(true);
+  });
+
+  it("GET /gateway/bot requires a bot token (401 without auth)", async () => {
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api("/gateway/bot"));
+    expect(res.status).toBe(401);
   });
 });
 

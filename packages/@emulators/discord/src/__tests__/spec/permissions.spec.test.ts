@@ -701,7 +701,118 @@ describe("permissions.mdx -- channel overwrite computation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Section 4: hasPermission helper
+// Section 4: Permissions For Timed Out Members (permissions.mdx:308-310)
+//
+// A member with communication_disabled_until in the future temporarily loses all
+// permissions except VIEW_CHANNEL and READ_MESSAGE_HISTORY. Guild owners and
+// ADMINISTRATOR holders are exempt.
+// ---------------------------------------------------------------------------
+
+describe("permissions.mdx -- Permissions For Timed Out Members", () => {
+  /**
+   * Set communication_disabled_until on an existing guild member.
+   */
+  function timeoutMember(ds: ReturnType<typeof getDiscordStore>, guildSnowflake: string, userSnowflake: string, until: string): void {
+    const m = ds.members.findBy("guild_snowflake", guildSnowflake).find((x) => x.user_snowflake === userSnowflake)!;
+    ds.members.update(m.id, { communication_disabled_until: until });
+  }
+
+  it("a timed-out member retains ONLY VIEW_CHANNEL and READ_MESSAGE_HISTORY in a channel", () => {
+    const { ds, member, guild, channel } = setup();
+    // Grant the member SendMessages so we can verify it is stripped.
+    const everyoneRole = ds.roles.findOneBy("snowflake", guild.snowflake)!;
+    ds.roles.update(everyoneRole.id, {
+      permissions: String(PermissionFlags.ViewChannel | PermissionFlags.ReadMessageHistory | PermissionFlags.SendMessages),
+    });
+
+    // Confirm the member has SendMessages before the timeout.
+    const before = computePermissions(ds, member.snowflake, channel.snowflake);
+    expect(before & PermissionFlags.SendMessages).toBe(PermissionFlags.SendMessages);
+
+    // Time out the member (disabled until 1 hour from now).
+    const until = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    timeoutMember(ds, guild.snowflake, member.snowflake, until);
+
+    const perms = computePermissions(ds, member.snowflake, channel.snowflake);
+    // Only VIEW_CHANNEL and READ_MESSAGE_HISTORY should remain.
+    expect(perms & PermissionFlags.ViewChannel).toBe(PermissionFlags.ViewChannel);
+    expect(perms & PermissionFlags.ReadMessageHistory).toBe(PermissionFlags.ReadMessageHistory);
+    expect(perms & PermissionFlags.SendMessages).toBe(0n);
+    expect(perms & PermissionFlags.ManageMessages).toBe(0n);
+    expect(perms & PermissionFlags.AddReactions).toBe(0n);
+  });
+
+  it("a timed-out member retains ONLY VIEW_CHANNEL and READ_MESSAGE_HISTORY at guild level", () => {
+    const { ds, member, guild } = setup();
+    const everyoneRole = ds.roles.findOneBy("snowflake", guild.snowflake)!;
+    ds.roles.update(everyoneRole.id, {
+      permissions: String(PermissionFlags.ViewChannel | PermissionFlags.ReadMessageHistory | PermissionFlags.SendMessages),
+    });
+
+    const until = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    timeoutMember(ds, guild.snowflake, member.snowflake, until);
+
+    const perms = computeGuildPermissions(ds, member.snowflake, guild.snowflake);
+    expect(perms & PermissionFlags.ViewChannel).toBe(PermissionFlags.ViewChannel);
+    expect(perms & PermissionFlags.ReadMessageHistory).toBe(PermissionFlags.ReadMessageHistory);
+    expect(perms & PermissionFlags.SendMessages).toBe(0n);
+  });
+
+  it("the guild owner is NOT affected by a timeout", () => {
+    const { ds, owner, guild, channel } = setup();
+    const until = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const ownerMember = ds.members.findBy("guild_snowflake", guild.snowflake).find((m) => m.user_snowflake === owner.snowflake);
+    if (ownerMember) ds.members.update(ownerMember.id, { communication_disabled_until: until });
+
+    const perms = computePermissions(ds, owner.snowflake, channel.snowflake);
+    expect(perms).toBe(ALL_PERMISSIONS);
+  });
+
+  it("a member with ADMINISTRATOR is NOT affected by a timeout", () => {
+    const { ds, member, guild, channel } = setup();
+    const adminRole = ds.roles.insert({
+      snowflake: "admin_role",
+      guild_snowflake: guild.snowflake,
+      name: "Admin",
+      color: 0,
+      hoist: false,
+      icon: null,
+      unicode_emoji: null,
+      position: 1,
+      permissions: String(PermissionFlags.Administrator),
+      managed: false,
+      mentionable: false,
+      flags: 0,
+      tags: null,
+    });
+    const m = ds.members.findBy("guild_snowflake", guild.snowflake).find((x) => x.user_snowflake === member.snowflake)!;
+    ds.members.update(m.id, { role_snowflakes: [adminRole.snowflake] });
+
+    const until = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    timeoutMember(ds, guild.snowflake, member.snowflake, until);
+
+    const perms = computePermissions(ds, member.snowflake, channel.snowflake);
+    expect(perms).toBe(ALL_PERMISSIONS);
+  });
+
+  it("a past communication_disabled_until does NOT restrict permissions", () => {
+    const { ds, member, guild, channel } = setup();
+    const everyoneRole = ds.roles.findOneBy("snowflake", guild.snowflake)!;
+    ds.roles.update(everyoneRole.id, {
+      permissions: String(PermissionFlags.ViewChannel | PermissionFlags.SendMessages),
+    });
+
+    // Timeout expired 1 hour ago.
+    const expired = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    timeoutMember(ds, guild.snowflake, member.snowflake, expired);
+
+    const perms = computePermissions(ds, member.snowflake, channel.snowflake);
+    expect(perms & PermissionFlags.SendMessages).toBe(PermissionFlags.SendMessages);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 5: hasPermission helper
 // ---------------------------------------------------------------------------
 
 describe("permissions.mdx -- hasPermission helper", () => {

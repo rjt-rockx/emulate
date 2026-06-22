@@ -147,6 +147,11 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
   });
 
   const tokenHandler = async (c: Context<AppEnv>): Promise<Response> => {
+    // Doc (oauth2.mdx:23-25): token URL accepts ONLY application/x-www-form-urlencoded.
+    const contentType = c.req.header("content-type") ?? "";
+    if (!contentType.includes("application/x-www-form-urlencoded")) {
+      return c.json({ error: "invalid_request", error_description: "Only application/x-www-form-urlencoded is accepted." }, 400);
+    }
     const ds = getDiscordStore(store);
     const form = await c.req.parseBody();
     const grantType = bodyStr(form.grant_type);
@@ -251,6 +256,11 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
 
   // Token revocation (RFC 7009): revoke an access or refresh token.
   const revokeHandler = async (c: Context<AppEnv>): Promise<Response> => {
+    // Doc (oauth2.mdx:23-25): revoke URL accepts ONLY application/x-www-form-urlencoded.
+    const contentType = c.req.header("content-type") ?? "";
+    if (!contentType.includes("application/x-www-form-urlencoded")) {
+      return c.json({ error: "invalid_request", error_description: "Only application/x-www-form-urlencoded is accepted." }, 400);
+    }
     const ds = getDiscordStore(store);
     const form = await c.req.parseBody();
     const token = bodyStr(form.token);

@@ -327,7 +327,8 @@ describe("discord lobbies", () => {
   });
 
   it("invite endpoints return lobby_id and code", async () => {
-    const { app } = build();
+    const { app, store } = build();
+    const ds = getDiscordStore(store);
 
     // Create lobby
     const createRes = await app.request(api("/lobbies"), {
@@ -337,6 +338,16 @@ describe("discord lobbies", () => {
     });
     const lobby = (await createRes.json()) as { id: string };
     const lobbyId = lobby.id;
+
+    // Link a channel so invite endpoints are accessible (lobby.mdx:292,301).
+    const textChannel = ds.channels.all().find((ch: { type: number; snowflake: string }) => ch.type === 0);
+    if (textChannel) {
+      await app.request(api(`/lobbies/${lobbyId}/channel-linking`), {
+        method: "PATCH",
+        headers: botHeaders(),
+        body: JSON.stringify({ channel_id: textChannel.snowflake }),
+      });
+    }
 
     // @me invites
     const meInviteRes = await app.request(api(`/lobbies/${lobbyId}/members/@me/invites`), {
@@ -348,8 +359,34 @@ describe("discord lobbies", () => {
     expect(meInvite.lobby_id).toBe(lobbyId);
     expect(typeof meInvite.code).toBe("string");
 
+    // Insert a user to serve as the invite target.
+    const targetUser = ds.users.insert({
+      snowflake: "123456789000000001",
+      username: "invitetarget",
+      discriminator: "0",
+      global_name: null,
+      avatar: null,
+      bot: false,
+      system: false,
+      mfa_enabled: false,
+      email: null,
+      verified: false,
+      flags: 0,
+      public_flags: 0,
+      premium_type: 0,
+      accent_color: null,
+      banner: null,
+      locale: "en-US",
+    });
+
+    // Add the target user as a lobby member so the invite endpoint accepts them.
+    await app.request(api(`/lobbies/${lobbyId}/members/${targetUser.snowflake}`), {
+      method: "PUT",
+      headers: botHeaders(),
+    });
+
     // user invites
-    const userInviteRes = await app.request(api(`/lobbies/${lobbyId}/members/123456789/invites`), {
+    const userInviteRes = await app.request(api(`/lobbies/${lobbyId}/members/${targetUser.snowflake}/invites`), {
       method: "POST",
       headers: botHeaders(),
     });

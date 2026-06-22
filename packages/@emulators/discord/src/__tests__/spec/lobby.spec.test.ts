@@ -508,11 +508,56 @@ describe("lobby.mdx — Channel invites (membership + linked channel)", () => {
       headers: botHeaders(),
       body: JSON.stringify({ channel_id: textChannel }),
     });
+    // target must be a lobby member before the invite endpoint is called
+    await app.request(api(`/lobbies/${lobby.id}/members/${target.snowflake}`), {
+      method: "PUT",
+      headers: botHeaders(),
+    });
     const res = await app.request(api(`/lobbies/${lobby.id}/members/${target.snowflake}/invites`), {
       method: "POST",
       headers: botHeaders(),
     });
     expect(res.status).toBe(200);
     expect(typeof ((await res.json()) as { code: string }).code).toBe("string");
+  });
+
+  it("@me/invites fails (403) when the lobby has no linked channel", async () => {
+    const { app } = setup();
+    const { lobby } = await createLobby(app);
+    // No channel-linking step -- lobby has no linked_channel_snowflake
+    const res = await app.request(api(`/lobbies/${lobby.id}/members/@me/invites`), {
+      method: "POST",
+      headers: botHeaders(),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it(":userId/invites fails (403) when the lobby has no linked channel", async () => {
+    const { app, ds } = setup();
+    const target = createUser(ds, { username: "target2" });
+    const { lobby } = await createLobby(app);
+    // No channel-linking step
+    const res = await app.request(api(`/lobbies/${lobby.id}/members/${target.snowflake}/invites`), {
+      method: "POST",
+      headers: botHeaders(),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it(":userId/invites fails (403) when the target user is not a lobby member", async () => {
+    const { app, ds, textChannel } = setup();
+    const target = createUser(ds, { username: "nonmember" });
+    const { lobby } = await createLobby(app);
+    await app.request(api(`/lobbies/${lobby.id}/channel-linking`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ channel_id: textChannel }),
+    });
+    // target is NOT added as a lobby member
+    const res = await app.request(api(`/lobbies/${lobby.id}/members/${target.snowflake}/invites`), {
+      method: "POST",
+      headers: botHeaders(),
+    });
+    expect(res.status).toBe(403);
   });
 });

@@ -449,6 +449,23 @@ describe("invite.mdx — target-users endpoints", () => {
     expect(res.status).toBe(200);
     expect("status" in ((await res.json()) as Record<string, unknown>)).toBe(true);
   });
+
+  it("GET /invites/{code}/target-users/job-status: status is an integer enum 0-3 with all documented fields", async () => {
+    // Doc (invite.mdx:227-246): status is an integer (0=NOT_STARTED,1=IN_PROGRESS,2=COMPLETED,3=ERROR).
+    // The response must also carry total_users, processed_users, created_at, completed_at, error_message.
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api("/invites/abc/target-users/job-status"), { headers: botHeaders() });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(typeof body.status).toBe("number");
+    expect(body.status).toBeGreaterThanOrEqual(0);
+    expect(body.status).toBeLessThanOrEqual(3);
+    expect("total_users" in body).toBe(true);
+    expect("processed_users" in body).toBe(true);
+    expect("created_at" in body).toBe(true);
+    expect("completed_at" in body).toBe(true);
+    expect("error_message" in body).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

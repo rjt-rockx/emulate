@@ -365,6 +365,46 @@ describe("oauth2.mdx — Webhooks (webhook.incoming)", () => {
   });
 });
 
+describe("oauth2.mdx — Token endpoint content-type enforcement (oauth2.mdx:23-25)", () => {
+  // Doc: token and revoke URLs accept ONLY application/x-www-form-urlencoded; JSON -> error.
+
+  it("POST /oauth2/token rejects a JSON body (non-form content-type)", async () => {
+    const { app } = createDiscordTestApp(seed);
+    const res = await app.request(api("/oauth2/token"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ grant_type: "client_credentials", scope: "identify" }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("invalid_request");
+  });
+
+  it("POST /oauth2/token/revoke rejects a JSON body (non-form content-type)", async () => {
+    const { app } = createDiscordTestApp(seed);
+    const res = await app.request(api("/oauth2/token/revoke"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: "some_token" }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("invalid_request");
+  });
+
+  it("POST /oauth2/token with unsupported grant_type returns unsupported_grant_type (oauth2.mdx:8)", async () => {
+    const { app } = createDiscordTestApp(seed);
+    const res = await app.request(api("/oauth2/token"), {
+      method: "POST",
+      headers: FORM_HEADERS,
+      body: form({ grant_type: "password", scope: "identify" }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("unsupported_grant_type");
+  });
+});
+
 describe("oauth2.mdx — Token Revocation", () => {
   it("revokes a token so it no longer authenticates", async () => {
     const ctx = createDiscordTestApp(seed);

@@ -59,6 +59,20 @@ export const PermissionFlags = {
 
 const ALL = Object.values(PermissionFlags).reduce((acc, bit) => acc | bit, 0n);
 
+/**
+ * Permissions allowed for a timed-out (communication_disabled) member.
+ * Doc (permissions.mdx:308-310): a timed-out member temporarily loses all permissions
+ * except VIEW_CHANNEL and READ_MESSAGE_HISTORY. Guild owners and ADMINISTRATOR holders
+ * are exempt from this masking.
+ */
+const TIMEOUT_ALLOWED_PERMISSIONS = PermissionFlags.ViewChannel | PermissionFlags.ReadMessageHistory;
+
+/** Return true when the member is currently timed out (communication_disabled_until is in the future). */
+function isTimedOut(member: { communication_disabled_until?: string | null } | undefined): boolean {
+  if (!member?.communication_disabled_until) return false;
+  return new Date(member.communication_disabled_until) > new Date();
+}
+
 function parse(value: string | null | undefined): bigint {
   if (!value) return 0n;
   try {
@@ -73,6 +87,10 @@ function parse(value: string | null | undefined): bigint {
  * guild owner and ADMINISTRATOR short-circuit to all permissions; otherwise base role
  * permissions are combined, then channel overwrites are applied in order (@everyone, then
  * the union of the member's role overwrites, then the member-specific overwrite).
+ *
+ * Timed-out members (communication_disabled_until in the future) have their effective
+ * permissions collapsed to only VIEW_CHANNEL + READ_MESSAGE_HISTORY, unless they are
+ * the guild owner or hold ADMINISTRATOR (permissions.mdx:308-310).
  */
 export function computePermissions(ds: DiscordStore, userSnowflake: string, channelSnowflake: string): bigint {
   const channel = ds.channels.findOneBy("snowflake", channelSnowflake);
@@ -107,6 +125,10 @@ export function computePermissions(ds: DiscordStore, userSnowflake: string, chan
   const memberOw = overwrites.find((o) => o.type === 1 && o.id === userSnowflake);
   if (memberOw) base = (base & ~parse(memberOw.deny)) | parse(memberOw.allow);
 
+  // Timed-out members lose all permissions except VIEW_CHANNEL + READ_MESSAGE_HISTORY.
+  // Guild owners and ADMINISTRATOR holders are already returned early above.
+  if (isTimedOut(member)) base &= TIMEOUT_ALLOWED_PERMISSIONS;
+
   return base;
 }
 
@@ -125,7 +147,10 @@ export function computeGuildPermissions(ds: DiscordStore, userSnowflake: string,
   for (const role of ds.roles.findBy("guild_snowflake", guildSnowflake)) {
     if (memberRoleIds.has(role.snowflake)) base |= parse(role.permissions);
   }
-  return base & PermissionFlags.Administrator ? ALL : base;
+  if (base & PermissionFlags.Administrator) return ALL;
+  // Timed-out members lose all permissions except VIEW_CHANNEL + READ_MESSAGE_HISTORY.
+  if (isTimedOut(member)) base &= TIMEOUT_ALLOWED_PERMISSIONS;
+  return base;
 }
 
 export function hasPermission(perms: bigint, flag: bigint): boolean {

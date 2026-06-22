@@ -76,7 +76,10 @@ describe("misc documented endpoints", () => {
     });
     expect(res.status).toBe(200);
     expect(((await res.json()) as { invites_disabled_until: string }).invites_disabled_until).toBe(until);
-    expect((store.getData(`discord.incident_actions.${guild}`) as { invites_disabled_until: string }).invites_disabled_until).toBe(until);
+    // Verify persistence: the incidents_data is now stored on the guild entity (not the side-channel).
+    const ds = getDiscordStore(store);
+    const guildEntity = ds.guilds.findOneBy("snowflake", guild)!;
+    expect((guildEntity.incidents_data as { invites_disabled_until: string } | undefined)?.invites_disabled_until).toBe(until);
   });
 
   it("returns a widget png with the right content type", async () => {

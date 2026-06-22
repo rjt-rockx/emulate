@@ -442,6 +442,8 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
     const lobbyId = c.req.param("lobbyId");
     const lobby = ds.lobbies.findOneBy("snowflake", lobbyId);
     if (!lobby) return notFound(c);
+    // Doc (lobby.mdx:292): "The lobby must have a linked channel."
+    if (!lobby.linked_channel_snowflake) return forbidden(c);
     // The caller must be a member of the lobby.
     const user = callerUser(ds, auth);
     if (!user || !lobbyMemberFor(ds, lobbyId, user.snowflake)) return forbidden(c);
@@ -470,6 +472,11 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
     const lobbyId = c.req.param("lobbyId");
     const lobby = ds.lobbies.findOneBy("snowflake", lobbyId);
     if (!lobby) return notFound(c);
+    // Doc (lobby.mdx:301): "The lobby must have a linked channel."
+    if (!lobby.linked_channel_snowflake) return forbidden(c);
+    // The target user must be a member of the lobby.
+    const targetUserId = c.req.param("userId");
+    if (!lobbyMemberFor(ds, lobbyId, targetUserId)) return forbidden(c);
     return c.json({ lobby_id: lobbyId, code: snowflake() });
   });
 

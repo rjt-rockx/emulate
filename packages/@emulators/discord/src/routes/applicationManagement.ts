@@ -133,6 +133,13 @@ function toAPIApplication(
   const approximateGuildCount = botUser
     ? ds.members.findBy("user_snowflake", botUser.snowflake).length
     : 0;
+  // Approximate count of user installs for this application (application.mdx:39).
+  const approximateUserInstallCount = ds.tokens.all().filter(
+    (t: { type: string; application_snowflake: string | null }) => t.type === "bearer" && t.application_snowflake === application.snowflake,
+  ).length;
+  // Approximate count of user authorizations for this application (application.mdx:40).
+  // Modeled as the same set: each active bearer token represents an authorization.
+  const approximateUserAuthorizationCount = approximateUserInstallCount;
   // Team is null when the application is not owned by a team. A team can be configured for
   // testing by writing a TeamData value to the store side-channel via APP_TEAM_KEY.
   const team = store.getData<TeamData>(APP_TEAM_KEY(application.snowflake)) ?? null;
@@ -152,6 +159,8 @@ function toAPIApplication(
     team,
     flags: application.flags,
     approximate_guild_count: approximateGuildCount,
+    approximate_user_install_count: approximateUserInstallCount,
+    approximate_user_authorization_count: approximateUserAuthorizationCount,
     redirect_uris: [],
     interactions_endpoint_url: application.interactions_endpoint_url ?? null,
     role_connections_verification_url: extras.role_connections_verification_url ?? null,
