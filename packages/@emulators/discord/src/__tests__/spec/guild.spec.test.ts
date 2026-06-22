@@ -9,20 +9,17 @@
  * Roles are already covered by __tests__/roles.test.ts — role CRUD is NOT duplicated here.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 import type { DiscordChannel, DiscordGuildMember } from "../../entities.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
-  const ds = getDiscordStore(store);
-  const guild = ds.guilds.findOneBy("name", "Emulate Server")!;
-  const app = ds.applications.all()[0]!;
-  const developer = ds.users.findOneBy("username", "developer")!;
+  const s = seededIds(store);
   return {
-    guildId: guild.snowflake,
-    appId: app.snowflake,
-    botSnowflake: app.bot_user_snowflake,
-    developerSnowflake: developer.snowflake,
+    guildId: s.guild,
+    appId: s.app,
+    botSnowflake: s.bot,
+    developerSnowflake: s.developer,
   };
 }
 
@@ -36,7 +33,7 @@ describe("guild.mdx — Guild object shape", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const g = (await res.json()) as Record<string, unknown>;
+    const g = await json(res);
 
     // Snowflake identifiers.
     expect(typeof g.id).toBe("string");
@@ -126,7 +123,7 @@ describe("guild.mdx — Guild object shape", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}?with_counts=true`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const g = (await res.json()) as Record<string, unknown>;
+    const g = await json(res);
     expect(typeof g.approximate_member_count).toBe("number");
     expect(typeof g.approximate_presence_count).toBe("number");
   });
@@ -135,7 +132,7 @@ describe("guild.mdx — Guild object shape", () => {
     const { app, store } = createDiscordTestApp();
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}`), { headers: botHeaders() });
-    const g = (await res.json()) as Record<string, unknown>;
+    const g = await json(res);
     expect("approximate_member_count" in g).toBe(false);
     expect("approximate_presence_count" in g).toBe(false);
   });
@@ -144,7 +141,7 @@ describe("guild.mdx — Guild object shape", () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/guilds/999999999999999999"), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10004);
+    expect((await json<{ code: number }>(res)).code).toBe(10004);
   });
 });
 
@@ -158,7 +155,7 @@ describe("guild.mdx — Guild Member object shape", () => {
     const { guildId, botSnowflake } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/members/${botSnowflake}`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const m = (await res.json()) as Record<string, unknown>;
+    const m = await json(res);
     expect(Array.isArray(m.roles)).toBe(true);
     expect("joined_at" in m).toBe(true);
     expect(typeof m.deaf).toBe("boolean");
@@ -206,7 +203,7 @@ describe("guild.mdx — Guild Member object shape", () => {
       body: JSON.stringify({ flags: BYPASSES_VERIFICATION }),
     });
     expect(res.status).toBe(200);
-    const m = (await res.json()) as Record<string, unknown>;
+    const m = await json(res);
     expect(m.flags).toBe(BYPASSES_VERIFICATION);
     // Verify persistence via a follow-up GET.
     const fetched = (await (
@@ -220,7 +217,7 @@ describe("guild.mdx — Guild Member object shape", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/members/999999999999999999`), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10007);
+    expect((await json<{ code: number }>(res)).code).toBe(10007);
   });
 });
 
@@ -237,7 +234,7 @@ describe("guild.mdx — Create Guild", () => {
       body: JSON.stringify({ name: "New Test Guild" }),
     });
     expect(res.status).toBe(201);
-    const g = (await res.json()) as Record<string, unknown>;
+    const g = await json(res);
     expect(typeof g.id).toBe("string");
     expect(g.name).toBe("New Test Guild");
   });
@@ -257,7 +254,7 @@ describe("guild.mdx — Modify Guild", () => {
       body: JSON.stringify({ name: "Renamed Server" }),
     });
     expect(res.status).toBe(200);
-    const g = (await res.json()) as Record<string, unknown>;
+    const g = await json(res);
     expect(g.name).toBe("Renamed Server");
   });
 
@@ -270,7 +267,7 @@ describe("guild.mdx — Modify Guild", () => {
       body: JSON.stringify({ verification_level: 2 }),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { verification_level: number }).verification_level).toBe(2);
+    expect((await json<{ verification_level: number }>(res)).verification_level).toBe(2);
   });
 
   it("PATCH /guilds/:id updates default_message_notifications", async () => {
@@ -282,7 +279,7 @@ describe("guild.mdx — Modify Guild", () => {
       body: JSON.stringify({ default_message_notifications: 1 }),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { default_message_notifications: number }).default_message_notifications).toBe(1);
+    expect((await json<{ default_message_notifications: number }>(res)).default_message_notifications).toBe(1);
   });
 
   it("PATCH /guilds/:id updates explicit_content_filter", async () => {
@@ -294,7 +291,7 @@ describe("guild.mdx — Modify Guild", () => {
       body: JSON.stringify({ explicit_content_filter: 2 }),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { explicit_content_filter: number }).explicit_content_filter).toBe(2);
+    expect((await json<{ explicit_content_filter: number }>(res)).explicit_content_filter).toBe(2);
   });
 
   it("PATCH /guilds/:id updates system_channel_flags", async () => {
@@ -307,7 +304,7 @@ describe("guild.mdx — Modify Guild", () => {
       body: JSON.stringify({ system_channel_flags: SUPPRESS_JOIN_NOTIFICATIONS }),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { system_channel_flags: number }).system_channel_flags).toBe(SUPPRESS_JOIN_NOTIFICATIONS);
+    expect((await json<{ system_channel_flags: number }>(res)).system_channel_flags).toBe(SUPPRESS_JOIN_NOTIFICATIONS);
   });
 
   it("PATCH /guilds/:id updates features array", async () => {
@@ -319,7 +316,7 @@ describe("guild.mdx — Modify Guild", () => {
       body: JSON.stringify({ features: ["COMMUNITY", "NEWS"] }),
     });
     expect(res.status).toBe(200);
-    const g = (await res.json()) as { features: string[] };
+    const g = await json<{ features: string[] }>(res);
     expect(g.features).toContain("COMMUNITY");
     expect(g.features).toContain("NEWS");
   });
@@ -332,7 +329,7 @@ describe("guild.mdx — Modify Guild", () => {
       body: JSON.stringify({ name: "X" }),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10004);
+    expect((await json<{ code: number }>(res)).code).toBe(10004);
   });
 });
 
@@ -354,7 +351,7 @@ describe("guild.mdx — Delete Guild", () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/guilds/999999999999999999"), { method: "DELETE", headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10004);
+    expect((await json<{ code: number }>(res)).code).toBe(10004);
   });
 });
 
@@ -368,7 +365,7 @@ describe("guild.mdx — Get Guild Preview", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/preview`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const p = (await res.json()) as Record<string, unknown>;
+    const p = await json(res);
     expect(typeof p.id).toBe("string");
     expect(typeof p.name).toBe("string");
     expect("icon" in p).toBe(true);
@@ -414,7 +411,7 @@ describe("guild.mdx — List Active Guild Threads", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/threads/active`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = await json(res);
     expect(Array.isArray(body.threads)).toBe(true);
     expect(Array.isArray(body.members)).toBe(true);
   });
@@ -430,7 +427,7 @@ describe("guild.mdx — List Guild Members", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/members`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const members = (await res.json()) as unknown[];
+    const members = await json<unknown[]>(res);
     expect(Array.isArray(members)).toBe(true);
     expect(members.length).toBeGreaterThan(0);
   });
@@ -440,7 +437,7 @@ describe("guild.mdx — List Guild Members", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/members?limit=1`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const members = (await res.json()) as unknown[];
+    const members = await json<unknown[]>(res);
     expect(members.length).toBeLessThanOrEqual(1);
   });
 
@@ -450,7 +447,7 @@ describe("guild.mdx — List Guild Members", () => {
     // Using "0" as after returns all members; using a real snowflake filters them.
     const res = await app.request(api(`/guilds/${guildId}/members?after=0&limit=1000`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const members = (await res.json()) as Array<{ user?: { id: string } }>;
+    const members = await json<Array<{ user?: { id: string } }>>(res);
     // All returned members should have user id > 0.
     for (const m of members) {
       if (m.user) expect(BigInt(m.user.id)).toBeGreaterThan(0n);
@@ -476,7 +473,7 @@ describe("guild.mdx — Search Guild Members", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/members/search?query=deve`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const members = (await res.json()) as Array<{ user?: { username: string } }>;
+    const members = await json<Array<{ user?: { username: string } }>>(res);
     expect(Array.isArray(members)).toBe(true);
     // Should contain the seeded developer user.
     const found = members.some((m) => m.user?.username.startsWith("deve"));
@@ -487,7 +484,7 @@ describe("guild.mdx — Search Guild Members", () => {
     const { app, store } = createDiscordTestApp();
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/members/search?query=&limit=1`), { headers: botHeaders() });
-    const members = (await res.json()) as unknown[];
+    const members = await json<unknown[]>(res);
     expect(members.length).toBeLessThanOrEqual(1);
   });
 });
@@ -570,7 +567,7 @@ describe("guild.mdx — Ban endpoints", () => {
     // List with after=0 returns bans.
     const res = await app.request(api(`/guilds/${guildId}/bans?after=0&limit=100`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const bans = (await res.json()) as unknown[];
+    const bans = await json<unknown[]>(res);
     expect(Array.isArray(bans)).toBe(true);
   });
 
@@ -579,7 +576,7 @@ describe("guild.mdx — Ban endpoints", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/bans/999999999999999999`), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10026);
+    expect((await json<{ code: number }>(res)).code).toBe(10026);
   });
 });
 
@@ -593,7 +590,7 @@ describe("guild.mdx — Prune endpoints", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/prune?days=7`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { pruned: number };
+    const body = await json<{ pruned: number }>(res);
     expect(typeof body.pruned).toBe("number");
   });
 
@@ -647,7 +644,7 @@ describe("guild.mdx — Prune endpoints", () => {
       body: JSON.stringify({ days: 1, compute_prune_count: true }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { pruned: number };
+    const body = await json<{ pruned: number }>(res);
     expect(typeof body.pruned).toBe("number");
     expect(body.pruned).toBeGreaterThan(0);
     const countAfter = ds.members.findBy("guild_snowflake", guildId).length;
@@ -663,7 +660,7 @@ describe("guild.mdx — Prune endpoints", () => {
       body: JSON.stringify({ days: 1, compute_prune_count: false }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { pruned: null };
+    const body = await json<{ pruned: null }>(res);
     expect(body.pruned).toBeNull();
   });
 
@@ -735,7 +732,7 @@ describe("guild.mdx — Get Guild Voice Regions", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/regions`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const regions = (await res.json()) as Array<Record<string, unknown>>;
+    const regions = await json<Array<Record<string, unknown>>>(res);
     expect(Array.isArray(regions)).toBe(true);
     expect(regions.length).toBeGreaterThan(0);
     const r = regions[0];
@@ -757,7 +754,7 @@ describe("guild.mdx — Integration endpoints", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/integrations`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const integrations = (await res.json()) as unknown[];
+    const integrations = await json<unknown[]>(res);
     expect(Array.isArray(integrations)).toBe(true);
   });
 
@@ -836,7 +833,7 @@ describe("guild.mdx — Widget Settings", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/widget`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const w = (await res.json()) as Record<string, unknown>;
+    const w = await json(res);
     expect(typeof w.enabled).toBe("boolean");
     expect("channel_id" in w).toBe(true);
   });
@@ -850,7 +847,7 @@ describe("guild.mdx — Widget Settings", () => {
       body: JSON.stringify({ enabled: true }),
     });
     expect(res.status).toBe(200);
-    const w = (await res.json()) as Record<string, unknown>;
+    const w = await json(res);
     expect(w.enabled).toBe(true);
   });
 });
@@ -865,7 +862,7 @@ describe("guild.mdx — Get Guild Widget (widget.json)", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/widget.json`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const w = (await res.json()) as Record<string, unknown>;
+    const w = await json(res);
     expect(typeof w.id).toBe("string");
     expect(typeof w.name).toBe("string");
     expect("instant_invite" in w).toBe(true);
@@ -885,7 +882,7 @@ describe("guild.mdx — Vanity URL", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/vanity-url`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const v = (await res.json()) as Record<string, unknown>;
+    const v = await json(res);
     expect("code" in v).toBe(true);
     expect("uses" in v).toBe(true);
   });
@@ -915,7 +912,7 @@ describe("guild.mdx — Welcome Screen", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/welcome-screen`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const ws = (await res.json()) as Record<string, unknown>;
+    const ws = await json(res);
     expect("description" in ws).toBe(true);
     expect(Array.isArray(ws.welcome_channels)).toBe(true);
   });
@@ -929,7 +926,7 @@ describe("guild.mdx — Welcome Screen", () => {
       body: JSON.stringify({ description: "Welcome to our server!", welcome_channels: [] }),
     });
     expect(res.status).toBe(200);
-    const ws = (await res.json()) as Record<string, unknown>;
+    const ws = await json(res);
     expect(ws.description).toBe("Welcome to our server!");
   });
 });
@@ -944,7 +941,7 @@ describe("guild.mdx — Onboarding", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/onboarding`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const ob = (await res.json()) as Record<string, unknown>;
+    const ob = await json(res);
     expect(ob.guild_id).toBe(guildId);
     expect(Array.isArray(ob.prompts)).toBe(true);
     expect(Array.isArray(ob.default_channel_ids)).toBe(true);
@@ -961,7 +958,7 @@ describe("guild.mdx — Onboarding", () => {
       body: JSON.stringify({ prompts: [], default_channel_ids: [], enabled: true, mode: 1 }),
     });
     expect(res.status).toBe(200);
-    const ob = (await res.json()) as Record<string, unknown>;
+    const ob = await json(res);
     expect(ob.enabled).toBe(true);
     expect(ob.mode).toBe(1);
   });
@@ -981,7 +978,7 @@ describe("guild.mdx — Bulk Guild Ban", () => {
       body: JSON.stringify({ user_ids: [developerSnowflake] }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { banned_users: string[]; failed_users: string[] };
+    const body = await json<{ banned_users: string[]; failed_users: string[] }>(res);
     expect(Array.isArray(body.banned_users)).toBe(true);
     expect(Array.isArray(body.failed_users)).toBe(true);
     expect(body.banned_users).toContain(developerSnowflake);
@@ -1000,7 +997,7 @@ describe("guild.mdx — Bulk Guild Ban", () => {
     // Either 200 (some banned) or 400 code 500000 (none could be banned — all unknown).
     expect([200, 400]).toContain(res.status);
     if (res.status === 400) {
-      const err = (await res.json()) as { code: number };
+      const err = await json<{ code: number }>(res);
       expect(err.code).toBe(500000);
     }
   });
@@ -1014,7 +1011,7 @@ describe("guild.mdx — Bulk Guild Ban", () => {
       body: JSON.stringify({ user_ids: ["999999999999999990", "999999999999999991"] }),
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { code: number };
+    const body = await json<{ code: number }>(res);
     expect(body.code).toBe(500000);
   });
 });
@@ -1053,7 +1050,7 @@ describe("guild.mdx — Add and Remove Guild Member", () => {
       body: JSON.stringify({}),
     });
     expect(res.status).toBe(201);
-    const m = (await res.json()) as Record<string, unknown>;
+    const m = await json(res);
     // Must return a member object with the documented fields.
     expect(Array.isArray(m.roles)).toBe(true);
     expect("joined_at" in m).toBe(true);
@@ -1112,7 +1109,7 @@ describe("guild.mdx — Modify Current Member", () => {
       body: JSON.stringify({ nick: "my-nick" }),
     });
     expect(res.status).toBe(200);
-    const m = (await res.json()) as Record<string, unknown>;
+    const m = await json(res);
     expect(m.nick).toBe("my-nick");
     expect(Array.isArray(m.roles)).toBe(true);
     expect("joined_at" in m).toBe(true);
@@ -1210,7 +1207,7 @@ describe("guild.mdx — Get Guild Role Member Counts", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/roles/member-counts`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const counts = (await res.json()) as Record<string, number>;
+    const counts = await json<Record<string, number>>(res);
     expect(typeof counts).toBe("object");
     // All values are numbers.
     for (const v of Object.values(counts)) {
@@ -1222,7 +1219,7 @@ describe("guild.mdx — Get Guild Role Member Counts", () => {
     const { app, store } = createDiscordTestApp();
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/roles/member-counts`), { headers: botHeaders() });
-    const counts = (await res.json()) as Record<string, number>;
+    const counts = await json<Record<string, number>>(res);
     // The @everyone role has the same id as the guild — must be absent.
     expect(guildId in counts).toBe(false);
   });

@@ -13,13 +13,13 @@
  * Nothing is seeded by default, so each test inserts subscriptions via the store.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 
 const SKU_ID = "1158857122189168803";
 
 function appId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).applications.all()[0]!.snowflake;
+  return seededIds(store).app;
 }
 
 function seedSub(
@@ -52,7 +52,7 @@ describe("subscription.mdx — Subscription object", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(200);
-    const s = (await res.json()) as Record<string, unknown>;
+    const s = await json(res);
     expect(s.id).toBe("1278078770116427839");
     expect(s.user_id).toBe("1088605110638227537");
     expect(s.sku_ids).toEqual([SKU_ID]);
@@ -75,7 +75,7 @@ describe("subscription.mdx — Subscription object", () => {
     const res = await app.request(api(`/skus/${SKU_ID}/subscriptions/1278078770116427840`), {
       headers: botHeaders(),
     });
-    const s = (await res.json()) as Record<string, unknown>;
+    const s = await json(res);
     expect(s.renewal_sku_ids).toEqual(["9990000000000000001", "9990000000000000002"]);
   });
 
@@ -89,7 +89,7 @@ describe("subscription.mdx — Subscription object", () => {
     const res = await app.request(api(`/skus/${SKU_ID}/subscriptions/1278078770116427841`), {
       headers: botHeaders(),
     });
-    const s = (await res.json()) as Record<string, unknown>;
+    const s = await json(res);
     expect(s.canceled_at).toBe("2024-09-01T00:00:00.000Z");
     expect(s.status).toBe(2);
   });
@@ -105,7 +105,7 @@ describe("subscription.mdx — Subscription Statuses", () => {
       i++;
     }
     const res = await app.request(api(`/skus/${SKU_ID}/subscriptions`), { headers: botHeaders() });
-    const body = (await res.json()) as Array<Record<string, unknown>>;
+    const body = await json<Array<Record<string, unknown>>>(res);
     const seen = new Set(body.map((s) => s.status));
     expect(seen.has(0)).toBe(true);
     expect(seen.has(1)).toBe(true);
@@ -129,7 +129,7 @@ describe("subscription.mdx — List SKU Subscriptions", () => {
     seedMany(store);
     const res = await app.request(api(`/skus/${SKU_ID}/subscriptions`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Array<Record<string, unknown>>;
+    const body = await json<Array<Record<string, unknown>>>(res);
     const ids = body.map((s) => s.id);
     expect(ids).toContain("1280000000000000001");
     expect(ids).toContain("1280000000000000002");
@@ -144,7 +144,7 @@ describe("subscription.mdx — List SKU Subscriptions", () => {
     const res = await app.request(api(`/skus/${SKU_ID}/subscriptions?user_id=user_sub_2`), {
       headers: botHeaders(),
     });
-    const body = (await res.json()) as Array<Record<string, unknown>>;
+    const body = await json<Array<Record<string, unknown>>>(res);
     expect(body.length).toBe(1);
     expect(body[0]!.user_id).toBe("user_sub_2");
   });
@@ -170,7 +170,7 @@ describe("subscription.mdx — List SKU Subscriptions", () => {
     const { app, store } = createDiscordTestApp();
     seedMany(store);
     const res = await app.request(api(`/skus/${SKU_ID}/subscriptions?limit=1`), { headers: botHeaders() });
-    const body = (await res.json()) as unknown[];
+    const body = await json<unknown[]>(res);
     expect(body.length).toBe(1);
   });
 
@@ -191,7 +191,7 @@ describe("subscription.mdx — Get SKU Subscription", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as Record<string, unknown>).id).toBe("1281000000000000001");
+    expect((await json(res)).id).toBe("1281000000000000001");
   });
 
   it("returns 404 when the subscription does not contain the requested SKU", async () => {

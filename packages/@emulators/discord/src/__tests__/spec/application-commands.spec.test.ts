@@ -10,14 +10,14 @@
  * the implementation is built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders, bearerHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, bearerHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 
 function appId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).applications.all()[0]!.snowflake;
+  return seededIds(store).app;
 }
 function guildId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).guilds.findOneBy("name", "Emulate Server")!.snowflake;
+  return seededIds(store).guild;
 }
 
 async function createGlobal(
@@ -38,7 +38,7 @@ describe("application-commands.mdx — Application Command object structure", ()
     const aid = appId(store);
     const res = await createGlobal(app, aid, { name: "blep", type: 1, description: "Send a photo" });
     expect(res.status).toBe(201);
-    const cmd = (await res.json()) as Record<string, unknown>;
+    const cmd = await json(res);
     // id, application_id, name, description, version, type
     expect(typeof cmd.id).toBe("string");
     expect(cmd.application_id).toBe(aid);
@@ -68,7 +68,7 @@ describe("application-commands.mdx — Application Command object structure", ()
   it("defaults type to 1 (CHAT_INPUT) when omitted", async () => {
     const { app, store } = createDiscordTestApp();
     const res = await createGlobal(app, appId(store), { name: "noop", description: "x" });
-    expect(((await res.json()) as { type: number }).type).toBe(1);
+    expect((await json<{ type: number }>(res)).type).toBe(1);
   });
 
   it("persists and echoes name_localizations and description_localizations", async () => {
@@ -80,7 +80,7 @@ describe("application-commands.mdx — Application Command object structure", ()
       name_localizations: { "zh-CN": "生日", el: "γενέθλια" },
       description_localizations: { "zh-CN": "祝你朋友生日快乐" },
     });
-    const cmd = (await res.json()) as Record<string, Record<string, string>>;
+    const cmd = await json<Record<string, Record<string, string>>>(res);
     expect(cmd.name_localizations["zh-CN"]).toBe("生日");
     expect(cmd.name_localizations.el).toBe("γενέθλια");
     expect(cmd.description_localizations["zh-CN"]).toBe("祝你朋友生日快乐");
@@ -95,7 +95,7 @@ describe("application-commands.mdx — Application Command object structure", ()
       integration_types: [0, 1],
       contexts: [0, 1, 2],
     });
-    const cmd = (await res.json()) as Record<string, number[]>;
+    const cmd = await json<Record<string, number[]>>(res);
     expect(cmd.integration_types).toEqual([0, 1]);
     expect(cmd.contexts).toEqual([0, 1, 2]);
   });
@@ -108,7 +108,7 @@ describe("application-commands.mdx — Application Command object structure", ()
       description: "x",
       default_permission: false,
     });
-    expect(((await res.json()) as { default_permission: boolean }).default_permission).toBe(false);
+    expect((await json<{ default_permission: boolean }>(res)).default_permission).toBe(false);
   });
 
   it("persists default_member_permissions as a bit-set string ('0' = admins only)", async () => {
@@ -119,13 +119,13 @@ describe("application-commands.mdx — Application Command object structure", ()
       description: "x",
       default_member_permissions: "0",
     });
-    expect(((await res.json()) as { default_member_permissions: string }).default_member_permissions).toBe("0");
+    expect((await json<{ default_member_permissions: string }>(res)).default_member_permissions).toBe("0");
   });
 
   it("persists nsfw=true (age-restricted)", async () => {
     const { app, store } = createDiscordTestApp();
     const res = await createGlobal(app, appId(store), { name: "adult", type: 1, description: "x", nsfw: true });
-    expect(((await res.json()) as { nsfw: boolean }).nsfw).toBe(true);
+    expect((await json<{ nsfw: boolean }>(res)).nsfw).toBe(true);
   });
 });
 
@@ -144,7 +144,7 @@ describe("application-commands.mdx — Command Types", () => {
   it("USER/MESSAGE commands fetch back with an EMPTY string description (not null)", async () => {
     const { app, store } = createDiscordTestApp();
     const res = await createGlobal(app, appId(store), { name: "High Five", type: 2 });
-    const cmd = (await res.json()) as { description: string };
+    const cmd = await json<{ description: string }>(res);
     expect(cmd.description).toBe("");
   });
 
@@ -152,7 +152,7 @@ describe("application-commands.mdx — Command Types", () => {
     const { app, store } = createDiscordTestApp();
     const res = await createGlobal(app, appId(store), { name: "High Five", type: 2, description: "not allowed" });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { code: number; errors: { description?: unknown } };
+    const body = await json<{ code: number; errors: { description?: unknown } }>(res);
     expect(body.code).toBe(50035);
     expect(body.errors.description).toBeTruthy();
   });
@@ -166,7 +166,7 @@ describe("application-commands.mdx — Command Types", () => {
       handler: 2,
     });
     expect(res.status).toBe(201);
-    const cmd = (await res.json()) as { type: number; handler: number };
+    const cmd = await json<{ type: number; handler: number }>(res);
     expect(cmd.type).toBe(4);
     expect(cmd.handler).toBe(2);
   });
@@ -177,7 +177,7 @@ describe("application-commands.mdx — Application Command naming", () => {
     const { app, store } = createDiscordTestApp();
     const res = await createGlobal(app, appId(store), { name: "Ping", type: 1, description: "x" });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { code: number; errors: { name?: unknown } };
+    const body = await json<{ code: number; errors: { name?: unknown } }>(res);
     expect(body.code).toBe(50035);
     expect(body.errors.name).toBeTruthy();
   });
@@ -186,14 +186,14 @@ describe("application-commands.mdx — Application Command naming", () => {
     const { app, store } = createDiscordTestApp();
     const res = await createGlobal(app, appId(store), { name: "my command", type: 1, description: "x" });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects a CHAT_INPUT name longer than 32 characters", async () => {
     const { app, store } = createDiscordTestApp();
     const res = await createGlobal(app, appId(store), { name: "a".repeat(33), type: 1, description: "x" });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("accepts a CHAT_INPUT name with hyphen, underscore and digits", async () => {
@@ -214,14 +214,14 @@ describe("application-commands.mdx — Application Command description rules (CH
     const { app, store } = createDiscordTestApp();
     const res = await createGlobal(app, appId(store), { name: "ping", type: 1 });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects a CHAT_INPUT description longer than 100 characters", async () => {
     const { app, store } = createDiscordTestApp();
     const res = await createGlobal(app, appId(store), { name: "ping", type: 1, description: "x".repeat(101) });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
 
@@ -231,7 +231,7 @@ describe("application-commands.mdx — Option validation rules", () => {
     const options = Array.from({ length: 26 }, (_, i) => ({ type: 3, name: `opt${i}`, description: "d" }));
     const res = await createGlobal(app, appId(store), { name: "many", type: 1, description: "x", options });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { code: number; errors: { options?: unknown } };
+    const body = await json<{ code: number; errors: { options?: unknown } }>(res);
     expect(body.code).toBe(50035);
     expect(body.errors.options).toBeTruthy();
   });
@@ -244,7 +244,7 @@ describe("application-commands.mdx — Option validation rules", () => {
     ];
     const res = await createGlobal(app, appId(store), { name: "order", type: 1, description: "x", options });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("accepts options when required precede optional", async () => {
@@ -266,7 +266,7 @@ describe("application-commands.mdx — Option validation rules", () => {
       options: [{ type: 3, name: "Bad Name", description: "d" }],
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects an option with an empty or >100 char description (50035)", async () => {
@@ -298,7 +298,7 @@ describe("application-commands.mdx — Option validation rules", () => {
       options: [{ type: 3, name: "pick", description: "d", choices }],
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects an option with BOTH choices and autocomplete (mutually exclusive, 50035)", async () => {
@@ -310,7 +310,7 @@ describe("application-commands.mdx — Option validation rules", () => {
       options: [{ type: 3, name: "q", description: "d", autocomplete: true, choices: [{ name: "a", value: "a" }] }],
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects min_value/max_value on a non-INTEGER/NUMBER option (50035)", async () => {
@@ -322,7 +322,7 @@ describe("application-commands.mdx — Option validation rules", () => {
       options: [{ type: 3, name: "s", description: "d", min_value: 1 }],
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("accepts min_value/max_value on an INTEGER option", async () => {
@@ -345,7 +345,7 @@ describe("application-commands.mdx — Option validation rules", () => {
       options: [{ type: 4, name: "n", description: "d", min_length: 1 }],
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects channel_types on a non-CHANNEL option (50035)", async () => {
@@ -357,7 +357,7 @@ describe("application-commands.mdx — Option validation rules", () => {
       options: [{ type: 3, name: "s", description: "d", channel_types: [0] }],
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("accepts channel_types on a CHANNEL option", async () => {
@@ -498,7 +498,7 @@ describe("application-commands.mdx — Get/Edit/Delete Global Application Comman
     };
     const res = await app.request(api(`/applications/${aid}/commands/${created.id}`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { name: string }).name).toBe("fetchme");
+    expect((await json<{ name: string }>(res)).name).toBe("fetchme");
   });
 
   it("Edit returns 200 and applies name/description/options/default_member_permissions/dm_permission/nsfw/type", async () => {
@@ -519,7 +519,7 @@ describe("application-commands.mdx — Get/Edit/Delete Global Application Comman
       }),
     });
     expect(res.status).toBe(200);
-    const cmd = (await res.json()) as Record<string, unknown>;
+    const cmd = await json(res);
     expect(cmd.description).toBe("updated");
     expect(cmd.default_member_permissions).toBe("8");
     expect(cmd.nsfw).toBe(true);
@@ -539,7 +539,7 @@ describe("application-commands.mdx — Get/Edit/Delete Global Application Comman
       body: JSON.stringify({ options: [{ type: 3, name: "Bad Name", description: "d" }] }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("Delete returns 204 and removes the command", async () => {
@@ -571,7 +571,7 @@ describe("application-commands.mdx — Bulk Overwrite Global Application Command
       ]),
     });
     expect(res.status).toBe(200);
-    const list = (await res.json()) as Array<{ name: string }>;
+    const list = await json<Array<{ name: string }>>(res);
     expect(list.map((c) => c.name).sort()).toEqual(["new1", "new2"]);
     const all = (await (await app.request(api(`/applications/${aid}/commands`), { headers: botHeaders() })).json()) as Array<{
       name: string;
@@ -587,7 +587,7 @@ describe("application-commands.mdx — Bulk Overwrite Global Application Command
       body: JSON.stringify([{ name: "Bad Name", type: 1, description: "d" }]),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
 
@@ -752,7 +752,7 @@ describe("application-commands.mdx — Application Command Permissions endpoints
       { headers: botHeaders() },
     );
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10066);
+    expect((await json<{ code: number }>(res)).code).toBe(10066);
   });
 
   it("PUT command permissions requires a Bearer token; bot token -> 403 (AC4)", async () => {
@@ -792,7 +792,7 @@ describe("application-commands.mdx — Application Command Permissions endpoints
       },
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { id: string; application_id: string; guild_id: string; permissions: unknown[] };
+    const body = await json<{ id: string; application_id: string; guild_id: string; permissions: unknown[] }>(res);
     expect(body.id).toBe(cmd.id);
     expect(body.application_id).toBe(aid);
     expect(body.guild_id).toBe(gid);
@@ -822,7 +822,7 @@ describe("application-commands.mdx — Application Command Permissions endpoints
       { headers: botHeaders() },
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { id: string; permissions: Array<{ type: number; permission: boolean }> };
+    const body = await json<{ id: string; permissions: Array<{ type: number; permission: boolean }> }>(res);
     expect(body.id).toBe(cmd.id);
     expect(body.permissions[0]?.type).toBe(2);
     expect(body.permissions[0]?.permission).toBe(false);
@@ -850,7 +850,7 @@ describe("application-commands.mdx — Application Command Permissions endpoints
       { headers: botHeaders() },
     );
     expect(res.status).toBe(200);
-    const list = (await res.json()) as Array<{ id: string }>;
+    const list = await json<Array<{ id: string }>>(res);
     expect(list.some((entry) => entry.id === cmd.id)).toBe(true);
   });
 
@@ -887,7 +887,7 @@ describe("application-commands.mdx — Guild Bulk Overwrite Application Commands
       ]),
     });
     expect(res.status).toBe(200);
-    const list = (await res.json()) as Array<{ name: string }>;
+    const list = await json<Array<{ name: string }>>(res);
     expect(list.map((c) => c.name).sort()).toEqual(["newguild1", "newguild2"]);
     // Old command gone
     const all = (await (

@@ -9,7 +9,7 @@
  * Written from the doc first; the implementation is built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 import { getDiscordRuntime } from "../../runtime.js";
 import type { GatewayEvent } from "../../gateway/dispatcher.js";
@@ -43,7 +43,7 @@ async function createSound(
     headers: botHeaders(),
     body: JSON.stringify(body),
   });
-  return { res, sound: (await res.json()) as Record<string, unknown> };
+  return { res, sound: await json(res)};
 }
 
 describe("soundboard.mdx — Soundboard Sound object", () => {
@@ -51,7 +51,7 @@ describe("soundboard.mdx — Soundboard Sound object", () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/soundboard-default-sounds"), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const sounds = (await res.json()) as Array<Record<string, unknown>>;
+    const sounds = await json<Array<Record<string, unknown>>>(res);
     expect(Array.isArray(sounds)).toBe(true);
     expect(sounds.length).toBeGreaterThan(0);
     for (const s of sounds) {
@@ -154,7 +154,7 @@ describe("soundboard.mdx — Create Guild Soundboard Sound", () => {
       body: JSON.stringify({ name: "bad-sound", sound: "" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects a volume outside 0-1 (50035)", async () => {
@@ -192,7 +192,7 @@ describe("soundboard.mdx — List / Get Guild Soundboard Sound", () => {
     const { sound: created } = await createSound(app, guild);
     const res = await app.request(api(`/guilds/${guild}/soundboard-sounds`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { items: Array<Record<string, unknown>> };
+    const body = await json<{ items: Array<Record<string, unknown>> }>(res);
     expect(Array.isArray(body.items)).toBe(true);
     expect(body.items.some((s) => s.sound_id === created.sound_id)).toBe(true);
   });
@@ -205,7 +205,7 @@ describe("soundboard.mdx — List / Get Guild Soundboard Sound", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(200);
-    const s = (await res.json()) as Record<string, unknown>;
+    const s = await json(res);
     expect(s.sound_id).toBe(created.sound_id);
     expect(s.guild_id).toBe(guild);
   });
@@ -232,7 +232,7 @@ describe("soundboard.mdx — Modify Guild Soundboard Sound", () => {
       body: JSON.stringify({ name: "renamed", volume: 0.5, emoji_name: "\u{1F525}" }),
     });
     expect(res.status).toBe(200);
-    const s = (await res.json()) as Record<string, unknown>;
+    const s = await json(res);
     expect(s.name).toBe("renamed");
     expect(s.volume).toBe(0.5);
     expect(s.emoji_name).toBe("\u{1F525}");
@@ -249,7 +249,7 @@ describe("soundboard.mdx — Modify Guild Soundboard Sound", () => {
       body: JSON.stringify({ name: "z".repeat(33) }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("Modify on an unknown sound returns 404", async () => {

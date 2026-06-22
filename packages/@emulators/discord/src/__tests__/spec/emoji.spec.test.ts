@@ -6,14 +6,12 @@
  * documented name/image validation.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
-  const ds = getDiscordStore(store);
-  const guild = ds.guilds.findOneBy("name", "Emulate Server")!;
-  const app = ds.applications.all()[0]!;
-  return { guildId: guild.snowflake, appId: app.snowflake };
+  const s = seededIds(store);
+  return { guildId: s.guild, appId: s.app };
 }
 
 // ---------------------------------------------------------------------------
@@ -70,7 +68,7 @@ describe("emoji.mdx — List Guild Emojis", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/emojis`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const emojis = (await res.json()) as unknown[];
+    const emojis = await json<unknown[]>(res);
     expect(Array.isArray(emojis)).toBe(true);
   });
 
@@ -78,7 +76,7 @@ describe("emoji.mdx — List Guild Emojis", () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/guilds/999999999999999999/emojis"), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10004);
+    expect((await json<{ code: number }>(res)).code).toBe(10004);
   });
 });
 
@@ -100,7 +98,7 @@ describe("emoji.mdx — Get Guild Emoji", () => {
 
     const res = await app.request(api(`/guilds/${guildId}/emojis/${created.id}`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const emoji = (await res.json()) as Record<string, unknown>;
+    const emoji = await json(res);
     expect(emoji.id).toBe(created.id);
   });
 
@@ -109,7 +107,7 @@ describe("emoji.mdx — Get Guild Emoji", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/emojis/999999999999999999`), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10014);
+    expect((await json<{ code: number }>(res)).code).toBe(10014);
   });
 });
 
@@ -127,7 +125,7 @@ describe("emoji.mdx — Create Guild Emoji validation", () => {
       body: JSON.stringify({ name: "x", image: "data:image/png;base64,AAAA" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("name longer than 32 characters returns 400 Invalid Form Body (50035)", async () => {
@@ -139,7 +137,7 @@ describe("emoji.mdx — Create Guild Emoji validation", () => {
       body: JSON.stringify({ name: "a".repeat(33), image: "data:image/png;base64,AAAA" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("name with invalid characters (non-alphanumeric/underscore) returns 400 Invalid Form Body (50035)", async () => {
@@ -151,7 +149,7 @@ describe("emoji.mdx — Create Guild Emoji validation", () => {
       body: JSON.stringify({ name: "bad-name!", image: "data:image/png;base64,AAAA" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("valid name with alphanumeric and underscores succeeds", async () => {
@@ -174,7 +172,7 @@ describe("emoji.mdx — Create Guild Emoji validation", () => {
       body: JSON.stringify({ name: "imgtest", image: "" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("absent image field returns 400 Invalid Form Body (50035) — image is required", async () => {
@@ -187,7 +185,7 @@ describe("emoji.mdx — Create Guild Emoji validation", () => {
       body: JSON.stringify({ name: "noimgfield" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("Create Guild Emoji returns 201 with a fully-formed emoji object", async () => {
@@ -199,7 +197,7 @@ describe("emoji.mdx — Create Guild Emoji validation", () => {
       body: JSON.stringify({ name: "goodemoji", image: "data:image/png;base64,AAAA", roles: [] }),
     });
     expect(res.status).toBe(201);
-    const e = (await res.json()) as Record<string, unknown>;
+    const e = await json(res);
     expect(typeof e.id).toBe("string");
     expect(e.name).toBe("goodemoji");
     expect(Array.isArray(e.roles)).toBe(true);
@@ -240,7 +238,7 @@ describe("emoji.mdx — Modify Guild Emoji", () => {
       body: JSON.stringify({ name: "renamed" }),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10014);
+    expect((await json<{ code: number }>(res)).code).toBe(10014);
   });
 });
 
@@ -277,7 +275,7 @@ describe("emoji.mdx — Delete Guild Emoji", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10014);
+    expect((await json<{ code: number }>(res)).code).toBe(10014);
   });
 });
 
@@ -291,7 +289,7 @@ describe("emoji.mdx — Application Emoji endpoints", () => {
     const { appId } = ids(store);
     const res = await app.request(api(`/applications/${appId}/emojis`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = await json(res);
     expect(Array.isArray(body.items)).toBe(true);
   });
 

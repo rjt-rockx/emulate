@@ -7,7 +7,7 @@
  * the implementation is built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 import { createMessage } from "../../factories.js";
 import { snowflake } from "../../helpers.js";
@@ -80,7 +80,7 @@ describe("channel.mdx — pinned messages", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10008);
+    expect((await json<{ code: number }>(res)).code).toBe(10008);
   });
 
   it("Get Pinned Messages requires authorization (401)", async () => {
@@ -132,7 +132,7 @@ describe("webhook.mdx — GitHub / Slack compatible execute", () => {
       body: JSON.stringify({ action: "opened", repository: { full_name: "octo/repo" } }),
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as Record<string, unknown>;
+    const msg = await json(res);
     expect(typeof msg.id).toBe("string");
     expect(String(msg.content)).toContain("octo/repo");
   });
@@ -146,7 +146,7 @@ describe("webhook.mdx — GitHub / Slack compatible execute", () => {
       body: JSON.stringify({ text: "hello from slack" }),
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as Record<string, unknown>;
+    const msg = await json(res);
     expect(msg.content).toBe("hello from slack");
   });
 
@@ -174,7 +174,7 @@ describe("guild message search", () => {
     createMessage(ds, { channelSnowflake: textChannel, guildSnowflake: guild, authorSnowflake: developer, content: "unrelated" });
     const res = await app.request(api(`/guilds/${guild}/messages/search?content=needle`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { messages: Array<Array<Record<string, unknown>>>; total_results: number };
+    const body = await json<{ messages: Array<Array<Record<string, unknown>>>; total_results: number }>(res);
     expect(body.total_results).toBe(1);
     // Each match is a one-element array (the matched message), per Discord's grouped search shape.
     expect(Array.isArray(body.messages[0])).toBe(true);
@@ -210,7 +210,7 @@ describe("guild.mdx — incident actions", () => {
       body: JSON.stringify({ invites_disabled_until: until, dms_disabled_until: until }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = await json(res);
     expect(body.invites_disabled_until).toBe(until);
     expect(body.dms_disabled_until).toBe(until);
     expect("dm_spam_detected_at" in body).toBe(true);
@@ -278,7 +278,7 @@ describe("application — get activity instance", () => {
     const { appId } = ids(store);
     const res = await app.request(api(`/applications/${appId}/activity-instances/abc123`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = await json(res);
     expect(body.application_id).toBe(appId);
     expect(body.instance_id).toBe("abc123");
     expect(body.location).toBeDefined();

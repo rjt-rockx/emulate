@@ -8,7 +8,7 @@
  * built/fixed until this is green. "Even the slightest difference from the docs is a failure."
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 import { createChannel, createMessage } from "../../factories.js";
 
@@ -222,14 +222,14 @@ describe("channel.mdx — Get Channel", () => {
     const { general } = ids(store);
     const res = await app.request(api(`/channels/${general.snowflake}`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { id: string }).id).toBe(general.snowflake);
+    expect((await json<{ id: string }>(res)).id).toBe(general.snowflake);
   });
 
   it("an unknown channel id returns 404 Unknown Channel (10003)", async () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/channels/999999999999999999"), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10003);
+    expect((await json<{ code: number }>(res)).code).toBe(10003);
   });
 
   it("when the channel is a thread, includes a thread member object for the current user", async () => {
@@ -264,7 +264,7 @@ describe("channel.mdx — Modify Channel (Guild channel)", () => {
       body: JSON.stringify({ name: "renamed", topic: "new topic", nsfw: true, rate_limit_per_user: 30 }),
     });
     expect(res.status).toBe(200);
-    const ch = (await res.json()) as Record<string, unknown>;
+    const ch = await json(res);
     expect(ch.name).toBe("renamed");
     expect(ch.topic).toBe("new topic");
     expect(ch.nsfw).toBe(true);
@@ -279,7 +279,7 @@ describe("channel.mdx — Modify Channel (Guild channel)", () => {
       headers: botHeaders(),
       body: JSON.stringify({ permission_overwrites: [{ id: developer, type: 1, allow: "1024", deny: "0" }] }),
     });
-    const ch = (await res.json()) as { permission_overwrites: Array<{ id: string; allow: string }> };
+    const ch = await json<{ permission_overwrites: Array<{ id: string; allow: string }> }>(res);
     expect(ch.permission_overwrites.some((o) => o.id === developer && o.allow === "1024")).toBe(true);
   });
 
@@ -291,7 +291,7 @@ describe("channel.mdx — Modify Channel (Guild channel)", () => {
       headers: botHeaders(),
       body: JSON.stringify({ rtc_region: "us-east", video_quality_mode: 2 }),
     });
-    const ch = (await res.json()) as Record<string, unknown>;
+    const ch = await json(res);
     expect(ch.rtc_region).toBe("us-east");
     expect(ch.video_quality_mode).toBe(2);
   });
@@ -304,7 +304,7 @@ describe("channel.mdx — Modify Channel (Guild channel)", () => {
       headers: botHeaders(),
       body: JSON.stringify({ default_auto_archive_duration: 10080 }),
     });
-    expect(((await res.json()) as { default_auto_archive_duration: number }).default_auto_archive_duration).toBe(10080);
+    expect((await json<{ default_auto_archive_duration: number }>(res)).default_auto_archive_duration).toBe(10080);
   });
 
   it("persists the forum config (available_tags/default_reaction_emoji/default_sort_order/default_forum_layout/default_thread_rate_limit_per_user)", async () => {
@@ -328,7 +328,7 @@ describe("channel.mdx — Modify Channel (Guild channel)", () => {
         default_thread_rate_limit_per_user: 15,
       }),
     });
-    const ch = (await res.json()) as Record<string, unknown>;
+    const ch = await json(res);
     expect(Array.isArray(ch.available_tags) && (ch.available_tags as unknown[]).length).toBe(1);
     expect((ch.default_reaction_emoji as { emoji_name: string }).emoji_name).toBe("🔥");
     expect(ch.default_sort_order).toBe(1);
@@ -344,7 +344,7 @@ describe("channel.mdx — Modify Channel (Guild channel)", () => {
       body: JSON.stringify({ name: "x" }),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10003);
+    expect((await json<{ code: number }>(res)).code).toBe(10003);
   });
 });
 
@@ -364,7 +364,7 @@ describe("channel.mdx — Modify Channel (Thread)", () => {
       headers: botHeaders(),
       body: JSON.stringify({ archived: true, locked: true, auto_archive_duration: 60 }),
     });
-    const ch = (await res.json()) as { thread_metadata: Record<string, unknown> };
+    const ch = await json<{ thread_metadata: Record<string, unknown> }>(res);
     expect(ch.thread_metadata.archived).toBe(true);
     expect(ch.thread_metadata.locked).toBe(true);
     expect(ch.thread_metadata.auto_archive_duration).toBe(60);
@@ -390,7 +390,7 @@ describe("channel.mdx — Create Channel persists extended params", () => {
       }),
     });
     expect(res.status).toBe(201);
-    const ch = (await res.json()) as { rate_limit_per_user: number; permission_overwrites: Array<{ id: string }> };
+    const ch = await json<{ rate_limit_per_user: number; permission_overwrites: Array<{ id: string }> }>(res);
     expect(ch.rate_limit_per_user).toBe(42);
     expect(ch.permission_overwrites.some((o) => o.id === developer)).toBe(true);
   });
@@ -403,7 +403,7 @@ describe("channel.mdx — Create Channel persists extended params", () => {
       headers: botHeaders(),
       body: JSON.stringify({ name: "vc", type: 2, rtc_region: "us-west", video_quality_mode: 2 }),
     });
-    const ch = (await res.json()) as Record<string, unknown>;
+    const ch = await json(res);
     expect(ch.rtc_region).toBe("us-west");
     expect(ch.video_quality_mode).toBe(2);
   });
@@ -424,7 +424,7 @@ describe("channel.mdx — Create Channel persists extended params", () => {
         available_tags: [{ name: "help" }],
       }),
     });
-    const ch = (await res.json()) as Record<string, unknown>;
+    const ch = await json(res);
     expect(ch.default_sort_order).toBe(1);
     expect(ch.default_forum_layout).toBe(1);
     expect(ch.default_thread_rate_limit_per_user).toBe(10);
@@ -450,7 +450,7 @@ describe("channel.mdx — Delete/Close Channel", () => {
     ).json()) as { id: string };
     const res = await app.request(api(`/channels/${created.id}`), { method: "DELETE", headers: botHeaders() });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { id: string }).id).toBe(created.id);
+    expect((await json<{ id: string }>(res)).id).toBe(created.id);
     expect(getDiscordStore(store).channels.findOneBy("snowflake", created.id)).toBeUndefined();
   });
 
@@ -458,7 +458,7 @@ describe("channel.mdx — Delete/Close Channel", () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/channels/999999999999999999"), { method: "DELETE", headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10003);
+    expect((await json<{ code: number }>(res)).code).toBe(10003);
   });
 });
 
@@ -530,7 +530,7 @@ describe("channel.mdx — Get/Create Channel Invite", () => {
       body: JSON.stringify({}),
     });
     expect(res.status).toBe(200);
-    const invite = (await res.json()) as Record<string, unknown>;
+    const invite = await json(res);
     expect(typeof invite.code).toBe("string");
     // Documented defaults: max_age 86400, max_uses 0, temporary false.
     expect(invite.max_age).toBe(86400);
@@ -546,7 +546,7 @@ describe("channel.mdx — Get/Create Channel Invite", () => {
       headers: botHeaders(),
       body: JSON.stringify({ max_age: 3600, max_uses: 5, temporary: true }),
     });
-    const invite = (await res.json()) as Record<string, unknown>;
+    const invite = await json(res);
     expect(invite.max_age).toBe(3600);
     expect(invite.max_uses).toBe(5);
     expect(invite.temporary).toBe(true);
@@ -562,7 +562,7 @@ describe("channel.mdx — Get/Create Channel Invite", () => {
     });
     const res = await app.request(api(`/channels/${general.snowflake}/invites`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const invites = (await res.json()) as Array<{ code: string }>;
+    const invites = await json<Array<{ code: string }>>(res);
     expect(invites.length).toBeGreaterThan(0);
   });
 });
@@ -583,7 +583,7 @@ describe("channel.mdx — Follow Announcement Channel", () => {
       body: JSON.stringify({ webhook_channel_id: general.snowflake }),
     });
     expect(res.status).toBe(200);
-    const followed = (await res.json()) as { channel_id: string; webhook_id: string };
+    const followed = await json<{ channel_id: string; webhook_id: string }>(res);
     expect(followed.channel_id).toBe(announcement.snowflake);
     expect(typeof followed.webhook_id).toBe("string");
     const webhook = ds.webhooks.findOneBy("snowflake", followed.webhook_id)!;
@@ -605,7 +605,7 @@ describe("channel.mdx — Follow Announcement Channel", () => {
       body: JSON.stringify({ webhook_channel_id: "999999999999999999" }),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10003);
+    expect((await json<{ code: number }>(res)).code).toBe(10003);
   });
 });
 
@@ -703,7 +703,7 @@ describe("channel.mdx — Modify Channel validation (50035)", () => {
       body: JSON.stringify({ name: "" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects name longer than 100 characters", async () => {
@@ -715,7 +715,7 @@ describe("channel.mdx — Modify Channel validation (50035)", () => {
       body: JSON.stringify({ name: "a".repeat(101) }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("accepts name at boundary length of 100", async () => {
@@ -738,7 +738,7 @@ describe("channel.mdx — Modify Channel validation (50035)", () => {
       body: JSON.stringify({ topic: "x".repeat(1025) }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects rate_limit_per_user above 21600", async () => {
@@ -750,7 +750,7 @@ describe("channel.mdx — Modify Channel validation (50035)", () => {
       body: JSON.stringify({ rate_limit_per_user: 21601 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("accepts rate_limit_per_user at boundary of 21600", async () => {
@@ -773,7 +773,7 @@ describe("channel.mdx — Modify Channel validation (50035)", () => {
       body: JSON.stringify({ bitrate: 7999 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("accepts bitrate exactly 8000", async () => {
@@ -796,7 +796,7 @@ describe("channel.mdx — Modify Channel validation (50035)", () => {
       body: JSON.stringify({ default_auto_archive_duration: 999 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("accepts default_auto_archive_duration values 60, 1440, 4320, 10080", async () => {
@@ -835,7 +835,7 @@ describe("channel.mdx — Modify Channel validation (50035)", () => {
       body: JSON.stringify({ available_tags: Array.from({ length: 21 }, (_, i) => ({ name: `tag${i}` })) }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects applied_tags with more than 5 entries", async () => {
@@ -854,7 +854,7 @@ describe("channel.mdx — Modify Channel validation (50035)", () => {
       body: JSON.stringify({ applied_tags: ["1", "2", "3", "4", "5", "6"] }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
 
@@ -872,7 +872,7 @@ describe("channel.mdx — Create Channel validation (50035)", () => {
       body: JSON.stringify({ name: "a".repeat(101), type: 0 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects rate_limit_per_user above 21600 on create", async () => {
@@ -884,7 +884,7 @@ describe("channel.mdx — Create Channel validation (50035)", () => {
       body: JSON.stringify({ name: "slow", type: 0, rate_limit_per_user: 99999 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects bitrate below 8000 on create", async () => {
@@ -896,7 +896,7 @@ describe("channel.mdx — Create Channel validation (50035)", () => {
       body: JSON.stringify({ name: "vc", type: 2, bitrate: 100 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects available_tags with more than 20 entries on create", async () => {
@@ -908,7 +908,7 @@ describe("channel.mdx — Create Channel validation (50035)", () => {
       body: JSON.stringify({ name: "forum-over", type: 15, available_tags: Array.from({ length: 21 }, (_, i) => ({ name: `t${i}` })) }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
 
@@ -926,7 +926,7 @@ describe("channel.mdx — Modify Channel type conversion", () => {
       body: JSON.stringify({ type: 5 }),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { type: number }).type).toBe(5);
+    expect((await json<{ type: number }>(res)).type).toBe(5);
   });
 
   it("allows converting a GUILD_ANNOUNCEMENT (5) back to GUILD_TEXT (0)", async () => {
@@ -945,7 +945,7 @@ describe("channel.mdx — Modify Channel type conversion", () => {
       body: JSON.stringify({ type: 0 }),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { type: number }).type).toBe(0);
+    expect((await json<{ type: number }>(res)).type).toBe(0);
   });
 
   it("rejects converting a GUILD_TEXT (0) to GUILD_VOICE (2)", async () => {
@@ -957,7 +957,7 @@ describe("channel.mdx — Modify Channel type conversion", () => {
       body: JSON.stringify({ type: 2 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
 
@@ -971,7 +971,7 @@ describe("channel.mdx — Pins response shape", () => {
     const { general } = ids(store);
     const res = await app.request(api(`/channels/${general.snowflake}/messages/pins`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { items: unknown[]; has_more: boolean };
+    const body = await json<{ items: unknown[]; has_more: boolean }>(res);
     expect(Array.isArray(body.items)).toBe(true);
     expect(typeof body.has_more).toBe("boolean");
   });
@@ -1048,7 +1048,7 @@ describe("channel.mdx — Set Voice Channel Status", () => {
       body: JSON.stringify({ status: "x".repeat(501) }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("accepts status at exactly 500 characters", async () => {

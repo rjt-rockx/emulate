@@ -8,16 +8,15 @@
  * implementation is built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
-  const ds = getDiscordStore(store);
-  const app = ds.applications.all()[0]!;
+  const s = seededIds(store);
   return {
-    appId: app.snowflake,
-    bot: app.bot_user_snowflake,
-    channel: ds.channels.findOneBy("name", "general")!.snowflake,
+    appId: s.app,
+    bot: s.bot,
+    channel: s.general,
   };
 }
 
@@ -47,7 +46,7 @@ describe("components.mdx — IS_COMPONENTS_V2 flag (1<<15 = 32768)", () => {
       ],
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { flags: number };
+    const msg = await json<{ flags: number }>(res);
     // IS_COMPONENTS_V2 bit (1<<15) must be preserved.
     expect((msg.flags & 32768) !== 0).toBe(true);
   });
@@ -66,7 +65,7 @@ describe("components.mdx — IS_COMPONENTS_V2 flag (1<<15 = 32768)", () => {
     ];
     const res = await sendMessage(app, channel, { content: "Pick one", components });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { components: unknown[] };
+    const msg = await json<{ components: unknown[] }>(res);
     // Components round-trip when the flag is not set.
     expect(Array.isArray(msg.components)).toBe(true);
     expect(msg.components.length).toBeGreaterThan(0);
@@ -90,7 +89,7 @@ describe("components.mdx — Component types (v1)", () => {
       ],
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { components: Array<{ type: number; components: unknown[] }> };
+    const msg = await json<{ components: Array<{ type: number; components: unknown[] }> }>(res);
     expect(msg.components[0]!.type).toBe(1);
     expect(msg.components[0]!.components.length).toBe(2);
   });
@@ -117,7 +116,7 @@ describe("components.mdx — Component types (v1)", () => {
       ],
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { components: Array<{ type: number; components: Array<{ type: number; options: unknown[] }> }> };
+    const msg = await json<{ components: Array<{ type: number; components: Array<{ type: number; options: unknown[] }> }> }>(res);
     expect(msg.components[0]!.components[0]!.type).toBe(3);
     expect(msg.components[0]!.components[0]!.options.length).toBe(2);
   });
@@ -132,7 +131,7 @@ describe("components.mdx — Component types (v1)", () => {
       ],
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { components: Array<{ components: Array<{ url: string }> }> };
+    const msg = await json<{ components: Array<{ components: Array<{ url: string }> }> }>(res);
     expect(msg.components[0]!.components[0]!.url).toBe("https://discord.com");
   });
 });
@@ -148,7 +147,7 @@ describe("components.mdx — custom_id limits (1-100 characters)", () => {
       ],
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { components: Array<{ components: Array<{ custom_id: string }> }> };
+    const msg = await json<{ components: Array<{ components: Array<{ custom_id: string }> }> }>(res);
     expect(msg.components[0]!.components[0]!.custom_id.length).toBe(100);
   });
 
@@ -162,7 +161,7 @@ describe("components.mdx — custom_id limits (1-100 characters)", () => {
       ],
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
 
@@ -177,7 +176,7 @@ describe("components.mdx — Button validation", () => {
       ],
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects a link button url longer than 512 characters -> 50035", async () => {
@@ -190,7 +189,7 @@ describe("components.mdx — Button validation", () => {
       ],
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects a non-link button without custom_id -> 50035", async () => {
@@ -203,7 +202,7 @@ describe("components.mdx — Button validation", () => {
       ],
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects a link button without url -> 50035", async () => {
@@ -216,7 +215,7 @@ describe("components.mdx — Button validation", () => {
       ],
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
 
@@ -230,7 +229,7 @@ describe("components.mdx — Action Row constraints", () => {
     }));
     const res = await sendMessage(app, channel, { content: "five rows", components });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { components: unknown[] };
+    const msg = await json<{ components: unknown[] }>(res);
     expect(msg.components.length).toBe(5);
   });
 
@@ -252,7 +251,7 @@ describe("components.mdx — Action Row constraints", () => {
       ],
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { components: Array<{ components: unknown[] }> };
+    const msg = await json<{ components: Array<{ components: unknown[] }> }>(res);
     expect(msg.components[0]!.components.length).toBe(5);
   });
 });
@@ -267,7 +266,7 @@ describe("components.mdx — Select menu option count (<=25)", () => {
       components: [{ type: 1, components: [{ type: 3, custom_id: "sel", options }] }],
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { components: Array<{ components: Array<{ options: unknown[] }> }> };
+    const msg = await json<{ components: Array<{ components: Array<{ options: unknown[] }> }> }>(res);
     expect(msg.components[0]!.components[0]!.options.length).toBe(25);
   });
 });
@@ -348,7 +347,7 @@ describe("components.mdx — v2 component types stored and echoed", () => {
       ],
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { components: Array<{ type: number }> };
+    const msg = await json<{ components: Array<{ type: number }> }>(res);
     expect(msg.components[0]!.type).toBe(9);
   });
 
@@ -365,9 +364,9 @@ describe("components.mdx — v2 component types stored and echoed", () => {
       ],
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as {
+    const msg = await json<{
       components: Array<{ type: number; components: Array<{ type: number; content: string }> }>;
-    };
+    }>(res);
     expect(msg.components[0]!.type).toBe(17);
     expect(msg.components[0]!.components[0]!.type).toBe(10);
     expect(msg.components[0]!.components[0]!.content).toBe("Inside container");
@@ -381,7 +380,7 @@ describe("components.mdx — v2 component types stored and echoed", () => {
       components: [{ type: 14 }],
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { components: Array<{ type: number }> };
+    const msg = await json<{ components: Array<{ type: number }> }>(res);
     expect(msg.components[0]!.type).toBe(14);
   });
 });

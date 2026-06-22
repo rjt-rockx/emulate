@@ -11,8 +11,7 @@
  * applicationManagement.ts already uses for extras — so no entity or factory changes are needed.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
-import { getDiscordStore } from "../../store.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import {
   MembershipState,
   TeamMemberRole,
@@ -53,14 +52,13 @@ describe("teams.mdx — Team Member Role string values", () => {
 // ---------------------------------------------------------------------------
 
 function appSnowflake(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  const ds = getDiscordStore(store);
-  return ds.applications.all()[0]!.snowflake;
+  return seededIds(store).app;
 }
 
 async function getApplication(app: ReturnType<typeof createDiscordTestApp>["app"]): Promise<Record<string, unknown>> {
   const res = await app.request(api("/applications/@me"), { headers: botHeaders() });
   expect(res.status).toBe(200);
-  return (await res.json()) as Record<string, unknown>;
+  return await json(res);
 }
 
 /** Build a minimal but fully-documented TeamData fixture for a single ACCEPTED admin member. */
@@ -430,7 +428,7 @@ describe("teams.mdx — team field survives PATCH /applications/@me", () => {
       body: JSON.stringify({ description: "updated description" }),
     });
     expect(res.status).toBe(200);
-    const a = (await res.json()) as Record<string, unknown>;
+    const a = await json(res);
     const t = a.team as Record<string, unknown>;
     expect(t).not.toBeNull();
     expect(t.name).toBe("Persisted Team");

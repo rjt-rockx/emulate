@@ -8,18 +8,19 @@
  * until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders, TEST_BASE_URL } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, TEST_BASE_URL, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 
 type Json = Record<string, unknown>;
 
 function ctx(store: ReturnType<typeof createDiscordTestApp>["store"]) {
+  const s = seededIds(store);
   const ds = getDiscordStore(store);
   return {
     ds,
-    general: ds.channels.findOneBy("name", "general")!.snowflake,
-    developer: ds.users.findOneBy("username", "developer")!.snowflake,
-    bot: ds.users.findOneBy("username", "emulate-bot")!.snowflake,
+    general: s.general,
+    developer: s.developer,
+    bot: s.bot,
   };
 }
 
@@ -135,7 +136,7 @@ describe("poll.mdx — Poll Create Request", () => {
     const answers = Array.from({ length: 11 }, (_, i) => ({ answer_id: i + 1, poll_media: { text: `a${i}` } }));
     const res = await postPoll(app, general, { question: { text: "Q?" }, answers });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects a question text longer than 300 characters -> 50035", async () => {
@@ -143,7 +144,7 @@ describe("poll.mdx — Poll Create Request", () => {
     const { general } = ctx(store);
     const res = await postPoll(app, general, { question: { text: "x".repeat(301) }, answers: [{ answer_id: 1, poll_media: { text: "y" } }] });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects an answer text longer than 55 characters -> 50035", async () => {
@@ -151,7 +152,7 @@ describe("poll.mdx — Poll Create Request", () => {
     const { general } = ctx(store);
     const res = await postPoll(app, general, { question: { text: "Q?" }, answers: [{ answer_id: 1, poll_media: { text: "z".repeat(56) } }] });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("accepts a poll at the boundary (10 answers, 300-char question, 55-char answer)", async () => {
@@ -167,7 +168,7 @@ describe("poll.mdx — Poll Create Request", () => {
     const { general } = ctx(store);
     const res = await postPoll(app, general, { ...BASIC_POLL, duration: 769 });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("accepts a poll duration at the boundary (768 hours)", async () => {
@@ -225,7 +226,7 @@ describe("poll.mdx — Get Answer Voters", () => {
     await vote(app, msg.id, 1, developer);
     const res = await app.request(api(`/channels/${general}/polls/${msg.id}/answers/1`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { users: Array<Json> };
+    const body = await json<{ users: Array<Json> }>(res);
     expect(Array.isArray(body.users)).toBe(true);
     expect(body.users.some((u) => u.id === developer)).toBe(true);
   });
@@ -239,7 +240,7 @@ describe("poll.mdx — Get Answer Voters", () => {
     await vote(app, msg.id, 1, u1);
     await vote(app, msg.id, 1, u2);
     const res = await app.request(api(`/channels/${general}/polls/${msg.id}/answers/1?limit=1`), { headers: botHeaders() });
-    const body = (await res.json()) as { users: Array<Json> };
+    const body = await json<{ users: Array<Json> }>(res);
     expect(body.users).toHaveLength(1);
   });
 
@@ -254,7 +255,7 @@ describe("poll.mdx — Get Answer Voters", () => {
     await vote(app, msg.id, 1, low);
     await vote(app, msg.id, 1, high);
     const res = await app.request(api(`/channels/${general}/polls/${msg.id}/answers/1?after=${low}`), { headers: botHeaders() });
-    const body = (await res.json()) as { users: Array<Json> };
+    const body = await json<{ users: Array<Json> }>(res);
     expect(body.users.map((u) => u.id)).toEqual([high]);
   });
 
@@ -277,7 +278,7 @@ describe("poll.mdx — End Poll", () => {
     const msg = (await (await postPoll(app, general, BASIC_POLL)).json()) as { id: string };
     const res = await app.request(api(`/channels/${general}/polls/${msg.id}/expire`), { method: "POST", headers: botHeaders() });
     expect(res.status).toBe(200);
-    const finalized = (await res.json()) as { id: string; poll: { results: { is_finalized: boolean } } };
+    const finalized = await json<{ id: string; poll: { results: { is_finalized: boolean } } }>(res);
     expect(finalized.id).toBe(msg.id);
     expect(finalized.poll.results.is_finalized).toBe(true);
   });

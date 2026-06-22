@@ -9,14 +9,14 @@
  * implementation is built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
-  const ds = getDiscordStore(store);
+  const s = seededIds(store);
   return {
-    guild: ds.guilds.findOneBy("name", "Emulate Server")!.snowflake,
-    channel: ds.channels.findOneBy("name", "General")!.snowflake, // the seeded voice/stage-capable channel
+    guild: s.guild,
+    channel: s.voice, // the seeded voice/stage-capable channel
   };
 }
 
@@ -29,7 +29,7 @@ async function createStage(
     headers: botHeaders(),
     body: JSON.stringify(body),
   });
-  return { status: res.status, json: (await res.json()) as Record<string, unknown> };
+  return { status: res.status, json: await json(res)};
 }
 
 describe("stage-instance.mdx — Stage Instance object", () => {
@@ -161,7 +161,7 @@ describe("stage-instance.mdx — Get / Modify / Delete", () => {
     await createStage(app, { channel_id: channel, topic: "Live" });
     const res = await app.request(api(`/stage-instances/${channel}`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { topic: string }).topic).toBe("Live");
+    expect((await json<{ topic: string }>(res)).topic).toBe("Live");
   });
 
   it("Get a channel without a stage instance returns 10067 Unknown Stage Instance", async () => {
@@ -169,7 +169,7 @@ describe("stage-instance.mdx — Get / Modify / Delete", () => {
     const { channel } = ids(store);
     const res = await app.request(api(`/stage-instances/${channel}`), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10067);
+    expect((await json<{ code: number }>(res)).code).toBe(10067);
   });
 
   it("Modify updates privacy_level and returns the updated instance", async () => {
@@ -182,7 +182,7 @@ describe("stage-instance.mdx — Get / Modify / Delete", () => {
       body: JSON.stringify({ privacy_level: 1 }),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { privacy_level: number }).privacy_level).toBe(1);
+    expect((await json<{ privacy_level: number }>(res)).privacy_level).toBe(1);
   });
 
   it("Modify a non-existent stage instance returns 10067", async () => {
@@ -194,7 +194,7 @@ describe("stage-instance.mdx — Get / Modify / Delete", () => {
       body: JSON.stringify({ privacy_level: 1 }),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10067);
+    expect((await json<{ code: number }>(res)).code).toBe(10067);
   });
 
   it("Delete returns 204 No Content and removes the instance", async () => {
@@ -211,7 +211,7 @@ describe("stage-instance.mdx — Get / Modify / Delete", () => {
     const { channel } = ids(store);
     const res = await app.request(api(`/stage-instances/${channel}`), { method: "DELETE", headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10067);
+    expect((await json<{ code: number }>(res)).code).toBe(10067);
   });
 });
 

@@ -22,8 +22,7 @@
  * implemented in integrations.ts and is left for a follow-up.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders, bearerHeaders } from "../helpers.js";
-import { getDiscordStore } from "../../store.js";
+import { createDiscordTestApp, api, botHeaders, bearerHeaders, json, seededIds } from "../helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -64,11 +63,11 @@ const LENIENT_SEED = {
 };
 
 function guildId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).guilds.findOneBy("name", "Emulate Server")!.snowflake;
+  return seededIds(store).guild;
 }
 
 function appId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).applications.all()[0]!.snowflake;
+  return seededIds(store).app;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,21 +79,21 @@ describe("strict_scopes -- GET /users/@me (identify)", () => {
     const ctx = createDiscordTestApp(STRICT_SEED);
     const res = await ctx.app.request(api("/users/@me"), { headers: bearerHeaders("bt_guilds") });
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { code: number }).code).toBe(50026);
+    expect((await json<{ code: number }>(res)).code).toBe(50026);
   });
 
   it("returns 403/50026 for a bearer token with no scopes at all", async () => {
     const ctx = createDiscordTestApp(STRICT_SEED);
     const res = await ctx.app.request(api("/users/@me"), { headers: bearerHeaders("bt_empty") });
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { code: number }).code).toBe(50026);
+    expect((await json<{ code: number }>(res)).code).toBe(50026);
   });
 
   it("returns 200 when the bearer token holds `identify`", async () => {
     const ctx = createDiscordTestApp(STRICT_SEED);
     const res = await ctx.app.request(api("/users/@me"), { headers: bearerHeaders("bt_identify") });
     expect(res.status).toBe(200);
-    const u = (await res.json()) as { username: string };
+    const u = await json<{ username: string }>(res);
     expect(u.username).toBe("developer");
   });
 
@@ -114,7 +113,7 @@ describe("strict_scopes -- GET /users/@me/guilds (guilds)", () => {
     const ctx = createDiscordTestApp(STRICT_SEED);
     const res = await ctx.app.request(api("/users/@me/guilds"), { headers: bearerHeaders("bt_identify") });
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { code: number }).code).toBe(50026);
+    expect((await json<{ code: number }>(res)).code).toBe(50026);
   });
 
   it("returns 200 when the bearer token holds `guilds`", async () => {
@@ -141,7 +140,7 @@ describe("strict_scopes -- GET /users/@me/guilds/:id/member (guilds.members.read
     const gid = guildId(ctx.store);
     const res = await ctx.app.request(api(`/users/@me/guilds/${gid}/member`), { headers: bearerHeaders("bt_identify") });
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { code: number }).code).toBe(50026);
+    expect((await json<{ code: number }>(res)).code).toBe(50026);
   });
 
   it("returns 200 when the bearer token holds `guilds.members.read`", async () => {
@@ -149,7 +148,7 @@ describe("strict_scopes -- GET /users/@me/guilds/:id/member (guilds.members.read
     const gid = guildId(ctx.store);
     const res = await ctx.app.request(api(`/users/@me/guilds/${gid}/member`), { headers: bearerHeaders("bt_gmr") });
     expect(res.status).toBe(200);
-    const m = (await res.json()) as Record<string, unknown>;
+    const m = await json(res);
     expect(Array.isArray(m.roles)).toBe(true);
   });
 
@@ -173,7 +172,7 @@ describe("strict_scopes -- GET /users/@me/applications/:id/role-connection (role
       headers: bearerHeaders("bt_identify"),
     });
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { code: number }).code).toBe(50026);
+    expect((await json<{ code: number }>(res)).code).toBe(50026);
   });
 
   it("returns 200 when the bearer token holds `role_connections.write`", async () => {
@@ -205,7 +204,7 @@ describe("strict_scopes -- PUT /users/@me/applications/:id/role-connection (role
       body: JSON.stringify({ platform_name: "Test" }),
     });
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { code: number }).code).toBe(50026);
+    expect((await json<{ code: number }>(res)).code).toBe(50026);
   });
 
   it("returns 200 when the bearer token holds `role_connections.write`", async () => {
@@ -217,7 +216,7 @@ describe("strict_scopes -- PUT /users/@me/applications/:id/role-connection (role
       body: JSON.stringify({ platform_name: "TestPlatform" }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { platform_name: string | null };
+    const body = await json<{ platform_name: string | null }>(res);
     expect(body.platform_name).toBe("TestPlatform");
   });
 
@@ -242,7 +241,7 @@ describe("strict_scopes -- GET /oauth2/@me (user field requires identify)", () =
     const ctx = createDiscordTestApp(STRICT_SEED);
     const res = await ctx.app.request(api("/oauth2/@me"), { headers: bearerHeaders("bt_guilds") });
     expect(res.status).toBe(200);
-    const info = (await res.json()) as Record<string, unknown>;
+    const info = await json(res);
     // No 403 -- the endpoint is accessible; the user field is simply absent.
     expect("user" in info).toBe(false);
   });
@@ -251,7 +250,7 @@ describe("strict_scopes -- GET /oauth2/@me (user field requires identify)", () =
     const ctx = createDiscordTestApp(STRICT_SEED);
     const res = await ctx.app.request(api("/oauth2/@me"), { headers: bearerHeaders("bt_identify") });
     expect(res.status).toBe(200);
-    const info = (await res.json()) as { user?: { username: string } };
+    const info = await json<{ user?: { username: string } }>(res);
     expect(info.user).toBeDefined();
     expect(info.user!.username).toBe("developer");
   });
@@ -260,7 +259,7 @@ describe("strict_scopes -- GET /oauth2/@me (user field requires identify)", () =
     const ctx = createDiscordTestApp(STRICT_SEED);
     const res = await ctx.app.request(api("/oauth2/@me"), { headers: bearerHeaders("bt_empty") });
     expect(res.status).toBe(200);
-    const info = (await res.json()) as Record<string, unknown>;
+    const info = await json(res);
     expect("user" in info).toBe(false);
   });
 
@@ -272,7 +271,7 @@ describe("strict_scopes -- GET /oauth2/@me (user field requires identify)", () =
     // accidentally expose the user field for bot-token callers.
     const res = await ctx.app.request(api("/oauth2/@me"), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const info = (await res.json()) as Record<string, unknown>;
+    const info = await json(res);
     expect("user" in info).toBe(false);
   });
 
@@ -280,7 +279,7 @@ describe("strict_scopes -- GET /oauth2/@me (user field requires identify)", () =
     const ctx = createDiscordTestApp(STRICT_SEED);
     const res = await ctx.app.request(api("/oauth2/@me"), { headers: bearerHeaders("bt_guilds") });
     expect(res.status).toBe(200);
-    const info = (await res.json()) as Record<string, unknown>;
+    const info = await json(res);
     expect(typeof info.application).toBe("object");
     expect(Array.isArray(info.scopes)).toBe(true);
     expect(typeof info.expires).toBe("string");
@@ -337,7 +336,7 @@ describe("strict_scopes OFF -- all bearer endpoints are lenient", () => {
     const ctx = createDiscordTestApp(LENIENT_SEED);
     const res = await ctx.app.request(api("/oauth2/@me"), { headers: bearerHeaders("bt_no_scope") });
     expect(res.status).toBe(200);
-    const info = (await res.json()) as Record<string, unknown>;
+    const info = await json(res);
     expect("user" in info).toBe(false);
   });
 });

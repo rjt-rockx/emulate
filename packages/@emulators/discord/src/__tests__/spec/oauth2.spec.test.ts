@@ -8,7 +8,7 @@
  * endpoints. Written from the doc first; the implementation is built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, TEST_BASE_URL, bearerHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, TEST_BASE_URL, bearerHeaders, json } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 
 // The default seeded app + a known oauth client. Mirrors the existing oauth.test.ts setup so
@@ -138,7 +138,7 @@ describe("oauth2.mdx — Authorization Code Grant", () => {
     const { code } = await obtainCode(ctx, "identify");
     const res = await exchangeCode(ctx, code);
     expect(res.status).toBe(200);
-    const t = (await res.json()) as Record<string, unknown>;
+    const t = await json(res);
     expect(typeof t.access_token).toBe("string");
     expect(t.token_type).toBe("Bearer");
     expect(typeof t.expires_in).toBe("number");
@@ -180,7 +180,7 @@ describe("oauth2.mdx — Client Credentials Grant", () => {
       body: form({ grant_type: "client_credentials", client_id: "cid", client_secret: "secret", scope: "identify connections" }),
     });
     expect(res.status).toBe(200);
-    const t = (await res.json()) as Record<string, unknown>;
+    const t = await json(res);
     expect(typeof t.access_token).toBe("string");
     expect(t.token_type).toBe("Bearer");
     expect(typeof t.expires_in).toBe("number");
@@ -196,7 +196,7 @@ describe("oauth2.mdx — Client Credentials Grant", () => {
       body: form({ grant_type: "client_credentials", client_id: "cid", client_secret: "wrong" }),
     });
     expect(res.status).toBe(401);
-    expect(((await res.json()) as { error: string }).error).toBe("invalid_client");
+    expect((await json<{ error: string }>(res)).error).toBe("invalid_client");
   });
 });
 
@@ -212,7 +212,7 @@ describe("oauth2.mdx — Refresh Token Grant", () => {
       body: form({ grant_type: "refresh_token", client_id: "cid", client_secret: "secret", refresh_token: first.refresh_token }),
     });
     expect(res.status).toBe(200);
-    const next = (await res.json()) as Record<string, unknown>;
+    const next = await json(res);
     expect(next.token_type).toBe("Bearer");
     expect(typeof next.refresh_token).toBe("string");
     expect(next.access_token).not.toBe(first.access_token);
@@ -335,7 +335,7 @@ describe("oauth2.mdx — Webhooks (webhook.incoming)", () => {
     const { code } = await obtainCode(ctx, "webhook.incoming");
     const res = await exchangeCode(ctx, code);
     expect(res.status).toBe(200);
-    const t = (await res.json()) as Record<string, unknown>;
+    const t = await json(res);
     expect(t.token_type).toBe("Bearer");
     expect(typeof t.access_token).toBe("string");
     expect((t.scope as string)).toBe("webhook.incoming");
@@ -376,7 +376,7 @@ describe("oauth2.mdx — Token endpoint content-type enforcement (oauth2.mdx:23-
       body: JSON.stringify({ grant_type: "client_credentials", scope: "identify" }),
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await json<{ error: string }>(res);
     expect(body.error).toBe("invalid_request");
   });
 
@@ -388,7 +388,7 @@ describe("oauth2.mdx — Token endpoint content-type enforcement (oauth2.mdx:23-
       body: JSON.stringify({ token: "some_token" }),
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await json<{ error: string }>(res);
     expect(body.error).toBe("invalid_request");
   });
 
@@ -400,7 +400,7 @@ describe("oauth2.mdx — Token endpoint content-type enforcement (oauth2.mdx:23-
       body: form({ grant_type: "password", scope: "identify" }),
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
+    const body = await json<{ error: string }>(res);
     expect(body.error).toBe("unsupported_grant_type");
   });
 });
@@ -447,7 +447,7 @@ describe("oauth2.mdx — Get Current Authorization Information (GET /oauth2/@me)
     const t = (await (await exchangeCode(ctx, code)).json()) as { access_token: string };
     const res = await ctx.app.request(api("/oauth2/@me"), { headers: bearerHeaders(t.access_token) });
     expect(res.status).toBe(200);
-    const info = (await res.json()) as Record<string, unknown>;
+    const info = await json(res);
     expect(typeof info.application).toBe("object");
     expect(Array.isArray(info.scopes)).toBe(true);
     expect((info.scopes as string[]).sort()).toEqual(["guilds.join", "identify"]);
@@ -502,7 +502,7 @@ describe("oauth2.mdx — Get Current Bot Application Information (GET /oauth2/ap
       headers: { Authorization: "Bot test_bot_token" },
     });
     expect(res.status).toBe(200);
-    const a = (await res.json()) as Record<string, unknown>;
+    const a = await json(res);
     expect(typeof a.id).toBe("string");
     expect(typeof a.name).toBe("string");
     expect(typeof a.verify_key).toBe("string");
@@ -516,7 +516,7 @@ describe("oauth2.mdx — Get Current Bot Application Information (GET /oauth2/ap
       headers: { Authorization: "Bot test_bot_token" },
     });
     expect(res.status).toBe(200);
-    const a = (await res.json()) as Record<string, unknown>;
+    const a = await json(res);
     expect(typeof a.id).toBe("string");
   });
 });

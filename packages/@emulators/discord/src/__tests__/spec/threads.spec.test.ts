@@ -9,7 +9,7 @@
  * Written from the doc first; the implementation is built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 import { createChannel, createMessage } from "../../factories.js";
 
@@ -47,7 +47,7 @@ describe("threads.mdx — Start Thread from Message", () => {
       body: JSON.stringify({ name: "discuss" }),
     });
     expect(res.status).toBe(201);
-    const thread = (await res.json()) as { id: string; type: number; parent_id: string };
+    const thread = await json<{ id: string; type: number; parent_id: string }>(res);
     expect(thread.type).toBe(11);
     // The created thread shares the id of the source message.
     expect(thread.id).toBe(msg.snowflake);
@@ -70,7 +70,7 @@ describe("threads.mdx — Start Thread from Message", () => {
       body: JSON.stringify({ name: "discuss" }),
     });
     expect(res.status).toBe(201);
-    expect(((await res.json()) as { type: number }).type).toBe(10);
+    expect((await json<{ type: number }>(res)).type).toBe(10);
   });
 
   it("attaches the current user's thread member object and auto-joins the creator", async () => {
@@ -110,7 +110,7 @@ describe("threads.mdx — Start Thread from Message", () => {
       body: JSON.stringify({ name: "x" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("a second thread from the same message is rejected (a message can only have a single thread)", async () => {
@@ -144,7 +144,7 @@ describe("threads.mdx — Start Thread from Message", () => {
       body: JSON.stringify({ name: "x" }),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10008);
+    expect((await json<{ code: number }>(res)).code).toBe(10008);
   });
 });
 
@@ -162,7 +162,7 @@ describe("threads.mdx — Start Thread without Message", () => {
       body: JSON.stringify({ name: "private-thread" }),
     });
     expect(res.status).toBe(201);
-    expect(((await res.json()) as { type: number }).type).toBe(12);
+    expect((await json<{ type: number }>(res)).type).toBe(12);
   });
 
   it("creates a PUBLIC_THREAD (11) when type 11 is requested on a text channel", async () => {
@@ -173,7 +173,7 @@ describe("threads.mdx — Start Thread without Message", () => {
       headers: botHeaders(),
       body: JSON.stringify({ name: "public-thread", type: 11 }),
     });
-    expect(((await res.json()) as { type: number }).type).toBe(11);
+    expect((await json<{ type: number }>(res)).type).toBe(11);
   });
 
   it("reads invitable into private-thread metadata", async () => {
@@ -184,7 +184,7 @@ describe("threads.mdx — Start Thread without Message", () => {
       headers: botHeaders(),
       body: JSON.stringify({ name: "p", type: 12, invitable: false }),
     });
-    const thread = (await res.json()) as { thread_metadata: { invitable?: boolean } };
+    const thread = await json<{ thread_metadata: { invitable?: boolean } }>(res);
     expect(thread.thread_metadata.invitable).toBe(false);
   });
 
@@ -197,7 +197,7 @@ describe("threads.mdx — Start Thread without Message", () => {
       body: JSON.stringify({ name: "x" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects a GUILD_CATEGORY (4) parent with 400 Invalid Form Body (50035)", async () => {
@@ -209,7 +209,7 @@ describe("threads.mdx — Start Thread without Message", () => {
       body: JSON.stringify({ name: "x" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects a DM (1) parent with 400 Invalid Form Body (50035)", async () => {
@@ -222,7 +222,7 @@ describe("threads.mdx — Start Thread without Message", () => {
       body: JSON.stringify({ name: "x" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("an unknown parent channel returns 404 Unknown Channel (10003)", async () => {
@@ -233,7 +233,7 @@ describe("threads.mdx — Start Thread without Message", () => {
       body: JSON.stringify({ name: "x" }),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10003);
+    expect((await json<{ code: number }>(res)).code).toBe(10003);
   });
 });
 
@@ -252,7 +252,7 @@ describe("threads.mdx — Start Thread in Forum or Media Channel", () => {
       body: JSON.stringify({ name: "post", message: { content: "first post" } }),
     });
     expect(res.status).toBe(201);
-    const thread = (await res.json()) as { id: string; type: number; message: { content: string; channel_id: string } };
+    const thread = await json<{ id: string; type: number; message: { content: string; channel_id: string } }>(res);
     expect(thread.type).toBe(11);
     expect(thread.message).toBeDefined();
     expect(thread.message.content).toBe("first post");
@@ -270,7 +270,7 @@ describe("threads.mdx — Start Thread in Forum or Media Channel", () => {
       body: JSON.stringify({ name: "post", message: { content: "hi" } }),
     });
     expect(res.status).toBe(201);
-    const thread = (await res.json()) as { type: number; message: { content: string }; message_count: number };
+    const thread = await json<{ type: number; message: { content: string }; message_count: number }>(res);
     expect(thread.type).toBe(11);
     expect(thread.message.content).toBe("hi");
     expect(thread.message_count).toBe(1);
@@ -285,7 +285,7 @@ describe("threads.mdx — Start Thread in Forum or Media Channel", () => {
       headers: botHeaders(),
       body: JSON.stringify({ name: "post", message: { content: "x" }, applied_tags: ["123", "456"] }),
     });
-    const thread = (await res.json()) as { applied_tags: string[] };
+    const thread = await json<{ applied_tags: string[] }>(res);
     expect(thread.applied_tags).toEqual(["123", "456"]);
   });
 
@@ -299,7 +299,7 @@ describe("threads.mdx — Start Thread in Forum or Media Channel", () => {
       body: JSON.stringify({ name: "post" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
 
@@ -349,7 +349,7 @@ describe("threads.mdx — Thread Members", () => {
     await app.request(api(`/channels/${thread.id}/thread-members/${developer}`), { method: "PUT", headers: botHeaders() });
     const res = await app.request(api(`/channels/${thread.id}/thread-members/${developer}`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const member = (await res.json()) as { id: string; user_id: string; join_timestamp: string; flags: number };
+    const member = await json<{ id: string; user_id: string; join_timestamp: string; flags: number }>(res);
     expect(member.user_id).toBe(developer);
     expect(member.id).toBe(thread.id);
     expect(typeof member.join_timestamp).toBe("string");
@@ -362,7 +362,7 @@ describe("threads.mdx — Thread Members", () => {
     const thread = await newThread(app, general.snowflake);
     await app.request(api(`/channels/${thread.id}/thread-members/${developer}`), { method: "PUT", headers: botHeaders() });
     const res = await app.request(api(`/channels/${thread.id}/thread-members/${developer}?with_member=true`), { headers: botHeaders() });
-    const member = (await res.json()) as { member?: { roles: string[] } };
+    const member = await json<{ member?: { roles: string[] } }>(res);
     expect(member.member).toBeDefined();
     expect(Array.isArray(member.member!.roles)).toBe(true);
   });
@@ -374,7 +374,7 @@ describe("threads.mdx — Thread Members", () => {
     await app.request(api(`/channels/${thread.id}/thread-members/${developer}`), { method: "PUT", headers: botHeaders() });
     const res = await app.request(api(`/channels/${thread.id}/thread-members`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const members = (await res.json()) as Array<{ user_id: string }>;
+    const members = await json<Array<{ user_id: string }>>(res);
     expect(members.some((m) => m.user_id === developer)).toBe(true);
     expect(members.some((m) => m.user_id === botSnowflake)).toBe(true);
   });
@@ -384,7 +384,7 @@ describe("threads.mdx — Thread Members", () => {
     const { general } = ids(store);
     const thread = await newThread(app, general.snowflake);
     const res = await app.request(api(`/channels/${thread.id}/thread-members?with_member=true`), { headers: botHeaders() });
-    const members = (await res.json()) as Array<{ member?: unknown }>;
+    const members = await json<Array<{ member?: unknown }>>(res);
     expect(members.length).toBeGreaterThan(0);
     expect(members.every((m) => m.member !== undefined)).toBe(true);
   });
@@ -432,7 +432,7 @@ describe("threads.mdx — Archived thread enumeration", () => {
     await app.request(api(`/channels/${pub.id}`), { method: "PATCH", headers: botHeaders(), body: JSON.stringify({ archived: true }) });
     const res = await app.request(api(`/channels/${general.snowflake}/threads/archived/public`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { threads: Array<{ id: string; type: number }>; members: unknown[]; has_more: boolean };
+    const body = await json<{ threads: Array<{ id: string; type: number }>; members: unknown[]; has_more: boolean }>(res);
     expect(Array.isArray(body.threads)).toBe(true);
     expect(Array.isArray(body.members)).toBe(true);
     expect(typeof body.has_more).toBe("boolean");
@@ -444,7 +444,7 @@ describe("threads.mdx — Archived thread enumeration", () => {
     const { general } = ids(store);
     const active = await newThread(app, general.snowflake, 11);
     const res = await app.request(api(`/channels/${general.snowflake}/threads/archived/public`), { headers: botHeaders() });
-    const body = (await res.json()) as { threads: Array<{ id: string }> };
+    const body = await json<{ threads: Array<{ id: string }> }>(res);
     expect(body.threads.some((t) => t.id === active.id)).toBe(false);
   });
 
@@ -455,7 +455,7 @@ describe("threads.mdx — Archived thread enumeration", () => {
     await app.request(api(`/channels/${priv.id}`), { method: "PATCH", headers: botHeaders(), body: JSON.stringify({ archived: true }) });
     const res = await app.request(api(`/channels/${general.snowflake}/threads/archived/private`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { threads: Array<{ id: string; type: number }> };
+    const body = await json<{ threads: Array<{ id: string; type: number }> }>(res);
     expect(body.threads.some((t) => t.id === priv.id && t.type === 12)).toBe(true);
   });
 
@@ -466,7 +466,7 @@ describe("threads.mdx — Archived thread enumeration", () => {
     await app.request(api(`/channels/${joined.id}`), { method: "PATCH", headers: botHeaders(), body: JSON.stringify({ archived: true }) });
     const res = await app.request(api(`/channels/${general.snowflake}/users/@me/threads/archived/private`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { threads: Array<{ id: string }> };
+    const body = await json<{ threads: Array<{ id: string }> }>(res);
     expect(body.threads.some((t) => t.id === joined.id)).toBe(true);
   });
 });
@@ -497,7 +497,7 @@ describe("threads.mdx — List Active Guild Threads", () => {
 
     const res = await app.request(api(`/guilds/${guild}/threads/active`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { threads: Array<{ id: string }>; has_more: boolean };
+    const body = await json<{ threads: Array<{ id: string }>; has_more: boolean }>(res);
     expect(body.threads.some((t) => t.id === active.id)).toBe(true);
     expect(body.threads.some((t) => t.id === archived.id)).toBe(false);
   });
@@ -619,7 +619,7 @@ describe("threads.mdx — Thread modify applied_tags limit", () => {
       body: JSON.stringify({ applied_tags: ["1", "2", "3", "4", "5", "6"] }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("accepts applied_tags with exactly 5 entries", async () => {

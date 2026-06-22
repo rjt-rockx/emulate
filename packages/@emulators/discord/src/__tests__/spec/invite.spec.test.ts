@@ -11,7 +11,7 @@
  * from the doc first; the implementation is built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 import { createMessage } from "../../factories.js";
 
@@ -41,7 +41,7 @@ async function createInvite(
     body: JSON.stringify(body),
   });
   expect(res.status).toBe(200);
-  return (await res.json()) as Record<string, unknown>;
+  return await json(res);
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +144,7 @@ describe("invite.mdx — Invite Types & Target Types", () => {
       body: JSON.stringify({ target_type: 5 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
 
@@ -189,7 +189,7 @@ describe("channel.mdx — Create Channel Invite params", () => {
       body: JSON.stringify({ max_age: 604801 }),
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { code: number; errors?: Record<string, unknown> };
+    const body = await json<{ code: number; errors?: Record<string, unknown> }>(res);
     expect(body.code).toBe(50035);
     expect(body.errors).toBeDefined();
   });
@@ -203,7 +203,7 @@ describe("channel.mdx — Create Channel Invite params", () => {
       body: JSON.stringify({ max_age: -1 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("accepts max_uses boundary values 0 and 100", async () => {
@@ -224,7 +224,7 @@ describe("channel.mdx — Create Channel Invite params", () => {
       body: JSON.stringify({ max_uses: 101 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("without unique, reuses an equivalent invite; with unique, creates a fresh code", async () => {
@@ -245,7 +245,7 @@ describe("channel.mdx — Create Channel Invite params", () => {
       body: JSON.stringify({}),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10003);
+    expect((await json<{ code: number }>(res)).code).toBe(10003);
   });
 
   it("requires authorization (401 without a token)", async () => {
@@ -271,7 +271,7 @@ describe("invite.mdx — Get Invite", () => {
     const created = await createInvite(app, textChannel);
     const res = await app.request(api(`/invites/${created.code}`));
     expect(res.status).toBe(200);
-    const inv = (await res.json()) as Record<string, unknown>;
+    const inv = await json(res);
     expect(inv.code).toBe(created.code);
     expect(inv.type).toBe(0);
   });
@@ -343,7 +343,7 @@ describe("invite.mdx — Get Invite", () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/invites/does-not-exist"));
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10006);
+    expect((await json<{ code: number }>(res)).code).toBe(10006);
   });
 });
 
@@ -358,7 +358,7 @@ describe("invite.mdx — Delete Invite", () => {
     const created = await createInvite(app, textChannel);
     const res = await app.request(api(`/invites/${created.code}`), { method: "DELETE", headers: botHeaders() });
     expect(res.status).toBe(200);
-    const deleted = (await res.json()) as Record<string, unknown>;
+    const deleted = await json(res);
     expect(deleted.code).toBe(created.code);
     // The invite is gone afterwards.
     const after = await app.request(api(`/invites/${created.code}`));
@@ -369,7 +369,7 @@ describe("invite.mdx — Delete Invite", () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/invites/nope"), { method: "DELETE", headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10006);
+    expect((await json<{ code: number }>(res)).code).toBe(10006);
   });
 
   it("Delete Invite requires authorization (401)", async () => {
@@ -392,7 +392,7 @@ describe("channel/guild — list invites", () => {
     const created = await createInvite(app, textChannel);
     const res = await app.request(api(`/channels/${textChannel}/invites`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const list = (await res.json()) as Array<Record<string, unknown>>;
+    const list = await json<Array<Record<string, unknown>>>(res);
     expect(Array.isArray(list)).toBe(true);
     expect(list.some((i) => i.code === created.code)).toBe(true);
   });
@@ -404,7 +404,7 @@ describe("channel/guild — list invites", () => {
     const b = await createInvite(app, voiceChannel, { unique: true });
     const res = await app.request(api(`/guilds/${guild}/invites`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const list = (await res.json()) as Array<Record<string, unknown>>;
+    const list = await json<Array<Record<string, unknown>>>(res);
     const codes = list.map((i) => i.code);
     expect(codes).toContain(a.code);
     expect(codes).toContain(b.code);
@@ -439,7 +439,7 @@ describe("invite.mdx — target-users endpoints", () => {
       body: JSON.stringify({ target_user_ids: ["1", "2"] }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { target_users: string[] };
+    const body = await json<{ target_users: string[] }>(res);
     expect(body.target_users).toEqual(["1", "2"]);
   });
 
@@ -447,7 +447,7 @@ describe("invite.mdx — target-users endpoints", () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/invites/abc/target-users/job-status"), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    expect("status" in ((await res.json()) as Record<string, unknown>)).toBe(true);
+    expect("status" in (await json(res))).toBe(true);
   });
 
   it("GET /invites/{code}/target-users/job-status: status is an integer enum 0-3 with all documented fields", async () => {
@@ -456,7 +456,7 @@ describe("invite.mdx — target-users endpoints", () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/invites/abc/target-users/job-status"), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = await json(res);
     expect(typeof body.status).toBe("number");
     expect(body.status).toBeGreaterThanOrEqual(0);
     expect(body.status).toBeLessThanOrEqual(3);

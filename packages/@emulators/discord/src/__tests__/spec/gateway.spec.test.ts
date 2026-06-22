@@ -14,7 +14,7 @@
  */
 import { describe, it, expect, afterEach } from "vitest";
 import WebSocket from "ws";
-import { startDiscordTestEmulator, createDiscordTestApp, api, botHeaders, type RunningDiscordEmulator } from "../helpers.js";
+import { startDiscordTestEmulator, createDiscordTestApp, api, botHeaders, type RunningDiscordEmulator, json } from "../helpers.js";
 import { GatewayOpcodes, GatewayCloseCodes } from "../../gateway/opcodes.js";
 import { Intents, PRIVILEGED_INTENTS, hasIntent, intentsAllow } from "../../gateway/intents.js";
 import { getDiscordStore } from "../../store.js";
@@ -920,7 +920,7 @@ describe("gateway spec: GET /gateway and GET /gateway/bot REST shapes (gateway.m
     // No Authorization header — must succeed.
     const res = await app.request(api("/gateway"));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = await json(res);
     expect(typeof body.url).toBe("string");
     expect((body.url as string).length).toBeGreaterThan(0);
   });
@@ -928,7 +928,7 @@ describe("gateway spec: GET /gateway and GET /gateway/bot REST shapes (gateway.m
   it("GET /gateway does not include session_start_limit (that is a /gateway/bot field)", async () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/gateway"));
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = await json(res);
     // GET /gateway returns only {url}; no shards or session_start_limit.
     expect("session_start_limit" in body).toBe(false);
     expect("shards" in body).toBe(false);
@@ -939,7 +939,7 @@ describe("gateway spec: GET /gateway and GET /gateway/bot REST shapes (gateway.m
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/gateway/bot"), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { session_start_limit: Record<string, unknown>; shards: unknown };
+    const body = await json<{ session_start_limit: Record<string, unknown>; shards: unknown }>(res);
     const ssl = body.session_start_limit;
     expect(typeof ssl).toBe("object");
     expect(ssl).not.toBeNull();

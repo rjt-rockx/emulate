@@ -8,11 +8,10 @@
  * built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
-import { getDiscordStore } from "../../store.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 
 function appId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).applications.all()[0]!.snowflake;
+  return seededIds(store).app;
 }
 
 const record = (over: Record<string, unknown> = {}) => ({
@@ -64,7 +63,7 @@ describe("application-role-connection-metadata.mdx — Metadata Type enum", () =
       const ctx = createDiscordTestApp();
       const res = await put(ctx, [record({ type: value, key: `k${value}` })]);
       expect(res.status).toBe(200);
-      const got = (await res.json()) as Array<{ type: number }>;
+      const got = await json<Array<{ type: number }>>(res);
       expect(got[0].type).toBe(value);
     }
   });
@@ -73,14 +72,14 @@ describe("application-role-connection-metadata.mdx — Metadata Type enum", () =
     const ctx = createDiscordTestApp();
     const res = await put(ctx, [record({ type: 0 })]);
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects a type above 8 with 50035", async () => {
     const ctx = createDiscordTestApp();
     const res = await put(ctx, [record({ type: 9 })]);
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
 
@@ -90,7 +89,7 @@ describe("application-role-connection-metadata.mdx — Get records", () => {
     expect((await put(ctx, [record()])).status).toBe(200);
     const res = await get(ctx);
     expect(res.status).toBe(200);
-    const list = (await res.json()) as Array<Record<string, unknown>>;
+    const list = await json<Array<Record<string, unknown>>>(res);
     expect(Array.isArray(list)).toBe(true);
     expect(list[0].key).toBe("level");
     // Documented object fields.
@@ -112,7 +111,7 @@ describe("application-role-connection-metadata.mdx — Update records", () => {
     const ctx = createDiscordTestApp();
     const res = await put(ctx, [record({ key: "wins", name: "Wins", description: "Total wins" })]);
     expect(res.status).toBe(200);
-    const list = (await res.json()) as Array<{ key: string }>;
+    const list = await json<Array<{ key: string }>>(res);
     expect(list.map((m) => m.key)).toContain("wins");
     // The update is persisted and visible on a subsequent GET.
     const after = (await (await get(ctx)).json()) as Array<{ key: string }>;
@@ -124,7 +123,7 @@ describe("application-role-connection-metadata.mdx — Update records", () => {
     const five = [1, 2, 3, 4, 5].map((n) => record({ key: `k${n}`, type: n }));
     const res = await put(ctx, five);
     expect(res.status).toBe(200);
-    expect(((await res.json()) as unknown[]).length).toBe(5);
+    expect((await json<unknown[]>(res)).length).toBe(5);
   });
 
   it("rejects more than 5 records with 50035", async () => {
@@ -132,7 +131,7 @@ describe("application-role-connection-metadata.mdx — Update records", () => {
     const six = [1, 2, 3, 4, 5, 6].map((n) => record({ key: `k${n}`, type: ((n - 1) % 8) + 1 }));
     const res = await put(ctx, six);
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
 
@@ -147,21 +146,21 @@ describe("application-role-connection-metadata.mdx — key validation", () => {
     const ctx = createDiscordTestApp();
     const res = await put(ctx, [record({ key: "Level!" })]);
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects an empty key with 50035", async () => {
     const ctx = createDiscordTestApp();
     const res = await put(ctx, [record({ key: "" })]);
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects a key longer than 50 characters with 50035", async () => {
     const ctx = createDiscordTestApp();
     const res = await put(ctx, [record({ key: "a".repeat(51) })]);
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("accepts a 50-character key", async () => {
@@ -176,14 +175,14 @@ describe("application-role-connection-metadata.mdx — name validation", () => {
     const ctx = createDiscordTestApp();
     const res = await put(ctx, [record({ name: "" })]);
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects a name longer than 100 characters with 50035", async () => {
     const ctx = createDiscordTestApp();
     const res = await put(ctx, [record({ name: "n".repeat(101) })]);
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("accepts a 100-character name", async () => {
@@ -198,14 +197,14 @@ describe("application-role-connection-metadata.mdx — description validation", 
     const ctx = createDiscordTestApp();
     const res = await put(ctx, [record({ description: "" })]);
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects a description longer than 200 characters with 50035", async () => {
     const ctx = createDiscordTestApp();
     const res = await put(ctx, [record({ description: "d".repeat(201) })]);
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("accepts a 200-character description", async () => {
@@ -222,7 +221,7 @@ describe("application-role-connection-metadata.mdx — optional localizations", 
       record({ name_localizations: { "en-US": "Level" }, description_localizations: { "en-US": "Account level" } }),
     ]);
     expect(res.status).toBe(200);
-    const got = (await res.json()) as Array<Record<string, unknown>>;
+    const got = await json<Array<Record<string, unknown>>>(res);
     expect((got[0].name_localizations as Record<string, string>)["en-US"]).toBe("Level");
     expect((got[0].description_localizations as Record<string, string>)["en-US"]).toBe("Account level");
   });

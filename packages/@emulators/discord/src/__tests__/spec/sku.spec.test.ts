@@ -11,11 +11,11 @@
  * the endpoint.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 
 function appId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).applications.all()[0]!.snowflake;
+  return seededIds(store).app;
 }
 
 describe("sku.mdx — SKU Types", () => {
@@ -38,7 +38,7 @@ describe("sku.mdx — SKU Types", () => {
     }
     const res = await app.request(api(`/applications/${aid}/skus`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Array<Record<string, unknown>>;
+    const body = await json<Array<Record<string, unknown>>>(res);
     const byType = new Map(body.map((s) => [s.type, s]));
     expect(byType.has(2)).toBe(true);
     expect(byType.has(3)).toBe(true);
@@ -68,7 +68,7 @@ describe("sku.mdx — SKU Flags", () => {
       flags,
     });
     const res = await app.request(api(`/applications/${aid}/skus`), { headers: botHeaders() });
-    const body = (await res.json()) as Array<Record<string, unknown>>;
+    const body = await json<Array<Record<string, unknown>>>(res);
     const sku = body[0]!;
     expect(sku.flags).toBe(260);
     // Bitwise differentiation per the doc must work against the serialized field.
@@ -92,7 +92,7 @@ describe("sku.mdx — List SKUs", () => {
     });
     const res = await app.request(api(`/applications/${aid}/skus`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Array<Record<string, unknown>>;
+    const body = await json<Array<Record<string, unknown>>>(res);
     expect(Array.isArray(body)).toBe(true);
     expect(body.length).toBe(1);
     const sku = body[0]!;
@@ -139,7 +139,7 @@ describe("sku.mdx — List SKUs", () => {
       flags: 0,
     });
     const res = await app.request(api(`/applications/${aid}/skus`), { headers: botHeaders() });
-    const body = (await res.json()) as Array<Record<string, unknown>>;
+    const body = await json<Array<Record<string, unknown>>>(res);
     expect(body.length).toBe(2);
     const ids = body.map((s) => s.id);
     expect(ids).toContain("1088510053843210999");

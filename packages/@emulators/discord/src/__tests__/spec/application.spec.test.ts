@@ -8,15 +8,13 @@
  * Written from the doc first; the implementation is built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
-import { getDiscordStore } from "../../store.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
-  const ds = getDiscordStore(store);
-  const app = ds.applications.all()[0]!;
+  const s = seededIds(store);
   return {
-    appId: app.snowflake,
-    botSnowflake: app.bot_user_snowflake,
+    appId: s.app,
+    botSnowflake: s.bot,
   };
 }
 
@@ -35,7 +33,7 @@ const APPLICATION_COMMAND_BADGE = 1 << 23;
 async function getApp(app: ReturnType<typeof createDiscordTestApp>["app"]): Promise<Record<string, unknown>> {
   const res = await app.request(api("/applications/@me"), { headers: botHeaders() });
   expect(res.status).toBe(200);
-  return (await res.json()) as Record<string, unknown>;
+  return await json(res);
 }
 
 describe("application.mdx — Application Flags enum values", () => {
@@ -205,7 +203,7 @@ describe("application.mdx — Edit Current Application (PATCH /applications/@me)
       body: JSON.stringify({ description: "A brand new description" }),
     });
     expect(res.status).toBe(200);
-    const a = (await res.json()) as Record<string, unknown>;
+    const a = await json(res);
     expect(a.description).toBe("A brand new description");
   });
 
@@ -217,7 +215,7 @@ describe("application.mdx — Edit Current Application (PATCH /applications/@me)
       body: JSON.stringify({ interactions_endpoint_url: "https://example.com/interactions" }),
     });
     expect(res.status).toBe(200);
-    const a = (await res.json()) as Record<string, unknown>;
+    const a = await json(res);
     expect(a.interactions_endpoint_url).toBe("https://example.com/interactions");
     // Persisted: subsequent GET reflects the change.
     const a2 = await getApp(app);
@@ -231,7 +229,7 @@ describe("application.mdx — Edit Current Application (PATCH /applications/@me)
       headers: botHeaders(),
       body: JSON.stringify({ role_connections_verification_url: "https://example.com/verify" }),
     });
-    const a = (await res.json()) as Record<string, unknown>;
+    const a = await json(res);
     expect(a.role_connections_verification_url).toBe("https://example.com/verify");
   });
 
@@ -242,7 +240,7 @@ describe("application.mdx — Edit Current Application (PATCH /applications/@me)
       headers: botHeaders(),
       body: JSON.stringify({ custom_install_url: "https://example.com/install" }),
     });
-    const a = (await res.json()) as Record<string, unknown>;
+    const a = await json(res);
     expect(a.custom_install_url).toBe("https://example.com/install");
   });
 
@@ -254,7 +252,7 @@ describe("application.mdx — Edit Current Application (PATCH /applications/@me)
       headers: botHeaders(),
       body: JSON.stringify({ install_params: installParams }),
     });
-    const a = (await res.json()) as Record<string, unknown>;
+    const a = await json(res);
     expect(a.install_params).toEqual(installParams);
   });
 
@@ -269,7 +267,7 @@ describe("application.mdx — Edit Current Application (PATCH /applications/@me)
       headers: botHeaders(),
       body: JSON.stringify({ integration_types_config: cfg }),
     });
-    const a = (await res.json()) as Record<string, unknown>;
+    const a = await json(res);
     expect(a.integration_types_config).toEqual(cfg);
   });
 
@@ -280,7 +278,7 @@ describe("application.mdx — Edit Current Application (PATCH /applications/@me)
       headers: botHeaders(),
       body: JSON.stringify({ tags: ["game", "music", "utility"] }),
     });
-    const a = (await res.json()) as Record<string, unknown>;
+    const a = await json(res);
     expect(a.tags).toEqual(["game", "music", "utility"]);
   });
 
@@ -295,7 +293,7 @@ describe("application.mdx — Edit Current Application (PATCH /applications/@me)
         event_webhooks_types: ["APPLICATION_AUTHORIZED"],
       }),
     });
-    const a = (await res.json()) as Record<string, unknown>;
+    const a = await json(res);
     expect(a.event_webhooks_url).toBe("https://example.com/webhooks");
     expect(a.event_webhooks_status).toBe(2);
     expect(a.event_webhooks_types).toEqual(["APPLICATION_AUTHORIZED"]);
@@ -313,7 +311,7 @@ describe("application.mdx — Edit Current Application (PATCH /applications/@me)
       body: JSON.stringify({ flags: requested }),
     });
     expect(res.status).toBe(200);
-    const a = (await res.json()) as Record<string, unknown>;
+    const a = await json(res);
     expect(a.flags).toBe(limited);
   });
 
@@ -330,7 +328,7 @@ describe("application.mdx — Edit Current Application (PATCH /applications/@me)
       headers: botHeaders(),
       body: JSON.stringify({ tags: ["x"] }),
     });
-    const a = (await res.json()) as Record<string, unknown>;
+    const a = await json(res);
     expect(a.description).toBe("first");
     expect(a.tags).toEqual(["x"]);
   });
@@ -344,7 +342,7 @@ describe("application.mdx — Edit Current Application (PATCH /applications/@me)
       body: JSON.stringify({}),
     });
     expect(res.status).toBe(200);
-    const a = (await res.json()) as Record<string, unknown>;
+    const a = await json(res);
     expect(a.id).toBe(appId);
   });
 
@@ -360,7 +358,7 @@ describe("application.mdx — Edit Current Application (PATCH /applications/@me)
       headers: botHeaders(),
       body: JSON.stringify({ interactions_endpoint_url: null }),
     });
-    const a = (await res.json()) as Record<string, unknown>;
+    const a = await json(res);
     expect(a.interactions_endpoint_url).toBeNull();
   });
 });

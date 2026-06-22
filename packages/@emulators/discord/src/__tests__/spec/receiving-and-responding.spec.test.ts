@@ -10,16 +10,17 @@
  * the implementation is built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders, TEST_BASE_URL } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, TEST_BASE_URL, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 
 function ctx(store: ReturnType<typeof createDiscordTestApp>["store"]) {
+  const s = seededIds(store);
   const ds = getDiscordStore(store);
   return {
     ds,
-    appId: ds.applications.all()[0]!.snowflake,
-    channel: ds.channels.findOneBy("name", "general")!.snowflake,
-    bot: ds.applications.all()[0]!.bot_user_snowflake,
+    appId: s.app,
+    channel: s.general,
+    bot: s.bot,
   };
 }
 
@@ -29,7 +30,7 @@ async function trigger(app: ReturnType<typeof createDiscordTestApp>["app"], inpu
     headers: botHeaders(),
     body: JSON.stringify(input),
   });
-  return (await res.json()) as { id: string; token: string; interaction: Record<string, unknown> };
+  return await json<{ id: string; token: string; interaction: Record<string, unknown> }>(res);
 }
 
 function callback(
@@ -166,10 +167,10 @@ describe("receiving-and-responding.mdx — Create Interaction Response (callback
     const t = await trigger(app, { type: 2, commandName: "ping", channelSnowflake: channel });
     const res = await callback(app, t.id, t.token, { type: 4, data: { content: "hello" } }, "?with_response=true");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await json<{
       interaction: { id: string; type: number; response_message_id?: string; response_message_ephemeral?: boolean };
       resource: { type: number; message: { id: string; content: string } };
-    };
+    }>(res);
     expect(body.interaction.id).toBe(t.id);
     expect(body.interaction.type).toBe(2);
     expect(body.interaction.response_message_id).toBeTruthy();
@@ -185,7 +186,7 @@ describe("receiving-and-responding.mdx — Create Interaction Response (callback
     const { channel } = ctx(store);
     const t = await trigger(app, { type: 2, commandName: "ping", channelSnowflake: channel });
     const res = await callback(app, t.id, t.token, { type: 4, data: { content: "secret", flags: 64 } }, "?with_response=true");
-    const body = (await res.json()) as { interaction: { response_message_ephemeral: boolean } };
+    const body = await json<{ interaction: { response_message_ephemeral: boolean } }>(res);
     expect(body.interaction.response_message_ephemeral).toBe(true);
   });
 
@@ -315,7 +316,7 @@ describe("receiving-and-responding.mdx — autocomplete and modal validation", (
     const tooManyChoices = Array.from({ length: 26 }, (_, i) => ({ name: `opt${i}`, value: `v${i}` }));
     const res = await callback(app, t.id, t.token, { type: 8, data: { choices: tooManyChoices } });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("AUTOCOMPLETE_RESULT (8) with exactly 25 choices is accepted", async () => {
@@ -350,7 +351,7 @@ describe("receiving-and-responding.mdx — autocomplete and modal validation", (
       },
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("MODAL (9) with empty custom_id is rejected with 50035", async () => {
@@ -366,7 +367,7 @@ describe("receiving-and-responding.mdx — autocomplete and modal validation", (
       },
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("MODAL (9) with title over 45 chars is rejected with 50035", async () => {
@@ -382,7 +383,7 @@ describe("receiving-and-responding.mdx — autocomplete and modal validation", (
       },
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("MODAL (9) with 0 components is rejected with 50035", async () => {
@@ -394,7 +395,7 @@ describe("receiving-and-responding.mdx — autocomplete and modal validation", (
       data: { custom_id: "modal_id", title: "Hi", components: [] },
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("MODAL (9) with 6 components is rejected with 50035", async () => {
@@ -411,7 +412,7 @@ describe("receiving-and-responding.mdx — autocomplete and modal validation", (
       data: { custom_id: "modal_id", title: "Hi", components: sixComponents },
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("MODAL (9) with valid custom_id/title/components (1-5) is accepted", async () => {
@@ -446,7 +447,7 @@ describe("receiving-and-responding.mdx — callback data passthrough & validatio
       { type: 4, data: { content: "x", attachments: [{ id: "0", filename: "a.txt", description: "d" }] } },
       "?with_response=true",
     );
-    const body = (await res.json()) as { resource: { message: { attachments: Array<{ filename: string }> } } };
+    const body = await json<{ resource: { message: { attachments: Array<{ filename: string }> } } }>(res);
     expect(body.resource.message.attachments[0].filename).toBe("a.txt");
   });
 
@@ -461,7 +462,7 @@ describe("receiving-and-responding.mdx — callback data passthrough & validatio
       { type: 4, data: { poll: { question: { text: "Pick" }, answers: [{ poll_media: { text: "A" } }, { poll_media: { text: "B" } }] } } },
       "?with_response=true",
     );
-    const body = (await res.json()) as { resource: { message: { poll?: { question: { text: string } } } } };
+    const body = await json<{ resource: { message: { poll?: { question: { text: string } } } } }>(res);
     expect(body.resource.message.poll?.question.text).toBe("Pick");
   });
 
@@ -472,7 +473,7 @@ describe("receiving-and-responding.mdx — callback data passthrough & validatio
     // CROSSPOSTED (1<<0) is not a settable interaction-response flag.
     const res = await callback(app, t.id, t.token, { type: 4, data: { content: "x", flags: 1 } });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
 
@@ -481,7 +482,7 @@ describe("receiving-and-responding.mdx — Interaction Callback errors", () => {
     const { app } = createDiscordTestApp();
     const res = await callback(app, "999999999999999999", "bogus", { type: 4, data: { content: "x" } });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10062);
+    expect((await json<{ code: number }>(res)).code).toBe(10062);
   });
 
   it("an expired interaction token (past 15-minute window) returns 10062", async () => {
@@ -494,7 +495,7 @@ describe("receiving-and-responding.mdx — Interaction Callback errors", () => {
     ds.interactions.update(interaction.id, { expires_at: new Date(Date.now() - 1000).toISOString() });
     const res = await callback(app, t.id, t.token, { type: 4, data: { content: "too late" } });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10062);
+    expect((await json<{ code: number }>(res)).code).toBe(10062);
   });
 
   it("a second callback is rejected as already acknowledged (40060)", async () => {
@@ -515,7 +516,7 @@ describe("receiving-and-responding.mdx — Interaction Callback Resource shape",
     const t = await trigger(app, { type: 2, commandName: "ping", channelSnowflake: channel });
     const res = await callback(app, t.id, t.token, { type: 5 }, "?with_response=true");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { resource: { type: number; response_message_loading?: boolean } };
+    const body = await json<{ resource: { type: number; response_message_loading?: boolean } }>(res);
     expect(body.resource.type).toBe(5);
     expect(body.resource.response_message_loading).toBe(true);
   });
@@ -526,7 +527,7 @@ describe("receiving-and-responding.mdx — Interaction Callback Resource shape",
     const t = await trigger(app, { type: 2, commandName: "ping", channelSnowflake: channel });
     const res = await callback(app, t.id, t.token, { type: 4, data: { content: "hi" } }, "?with_response=true");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { resource: { type: number; message?: { content: string }; activity_instance?: unknown } };
+    const body = await json<{ resource: { type: number; message?: { content: string }; activity_instance?: unknown } }>(res);
     expect(body.resource.type).toBe(4);
     expect(body.resource.message?.content).toBe("hi");
     expect(body.resource.activity_instance).toBeUndefined();
@@ -538,7 +539,7 @@ describe("receiving-and-responding.mdx — Interaction Callback Resource shape",
     const t = await trigger(app, { type: 2, commandName: "ping", channelSnowflake: channel });
     const res = await callback(app, t.id, t.token, { type: 12 }, "?with_response=true");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { resource: { type: number; message?: unknown; activity_instance?: unknown } };
+    const body = await json<{ resource: { type: number; message?: unknown; activity_instance?: unknown } }>(res);
     expect(body.resource.type).toBe(12);
     expect(body.resource.activity_instance).toBeDefined();
     expect(body.resource.message).toBeUndefined();
@@ -553,7 +554,7 @@ describe("receiving-and-responding.mdx — @original and followup messages", () 
     await callback(app, t.id, t.token, { type: 4, data: { content: "the original" } });
     const res = await app.request(api(`/webhooks/${appId}/${t.token}/messages/@original`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { content: string }).content).toBe("the original");
+    expect((await json<{ content: string }>(res)).content).toBe("the original");
   });
 
   it("Edit Original Interaction Response updates the initial response", async () => {
@@ -567,7 +568,7 @@ describe("receiving-and-responding.mdx — @original and followup messages", () 
       body: JSON.stringify({ content: "v2" }),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { content: string }).content).toBe("v2");
+    expect((await json<{ content: string }>(res)).content).toBe("v2");
   });
 
   it("Delete Original Interaction Response returns 204", async () => {
@@ -594,7 +595,7 @@ describe("receiving-and-responding.mdx — @original and followup messages", () 
       body: JSON.stringify({ content: "a followup" }),
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { content: string };
+    const msg = await json<{ content: string }>(res);
     expect(msg.content).toBe("a followup");
     expect(ds.messages.findBy("channel_snowflake", channel).length).toBe(before + 1);
   });
@@ -612,7 +613,7 @@ describe("receiving-and-responding.mdx — @original and followup messages", () 
       body: JSON.stringify({ content: "resolved content" }),
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { content: string; flags: number };
+    const msg = await json<{ content: string; flags: number }>(res);
     expect(msg.content).toBe("resolved content");
     // No additional message was created.
     expect(ds.messages.findBy("channel_snowflake", channel).length).toBe(countAfterDefer);

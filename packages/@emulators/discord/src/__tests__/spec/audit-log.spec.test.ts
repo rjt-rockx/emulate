@@ -8,15 +8,13 @@
  * (action_type/user_id/before/after/limit).
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 import type { DiscordGuildMember } from "../../entities.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
-  const ds = getDiscordStore(store);
-  const guild = ds.guilds.findOneBy("name", "Emulate Server")!;
-  const developer = ds.users.findOneBy("username", "developer")!;
-  return { guildId: guild.snowflake, developerSnowflake: developer.snowflake };
+  const s = seededIds(store);
+  return { guildId: s.guild, developerSnowflake: s.developer };
 }
 
 // ---------------------------------------------------------------------------
@@ -29,7 +27,7 @@ describe("audit-log.mdx — Audit Log object shape", () => {
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/audit-logs`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = await json(res);
     expect(Array.isArray(body.audit_log_entries)).toBe(true);
     expect(Array.isArray(body.application_commands)).toBe(true);
     expect(Array.isArray(body.auto_moderation_rules)).toBe(true);
@@ -50,7 +48,7 @@ describe("audit-log.mdx — Audit Log object shape", () => {
       body: JSON.stringify({ name: "Audit Test Server" }),
     });
     const res = await app.request(api(`/guilds/${guildId}/audit-logs`), { headers: botHeaders() });
-    const body = (await res.json()) as { audit_log_entries: Array<Record<string, unknown>> };
+    const body = await json<{ audit_log_entries: Array<Record<string, unknown>> }>(res);
     expect(body.audit_log_entries.length).toBeGreaterThan(0);
   });
 
@@ -64,7 +62,7 @@ describe("audit-log.mdx — Audit Log object shape", () => {
       body: JSON.stringify({ name: "Entry Shape Check" }),
     });
     const res = await app.request(api(`/guilds/${guildId}/audit-logs`), { headers: botHeaders() });
-    const body = (await res.json()) as { audit_log_entries: Array<Record<string, unknown>> };
+    const body = await json<{ audit_log_entries: Array<Record<string, unknown>> }>(res);
     const entry = body.audit_log_entries[0];
     expect(typeof entry.id).toBe("string");
     expect("target_id" in entry).toBe(true);
@@ -93,7 +91,7 @@ describe("audit-log.mdx — Audit Log Events emitted by endpoints", () => {
       body: JSON.stringify({ name: "AuditEnumTest" }),
     });
     const res = await app.request(api(`/guilds/${guildId}/audit-logs?action_type=1`), { headers: botHeaders() });
-    const body = (await res.json()) as { audit_log_entries: Array<Record<string, unknown>> };
+    const body = await json<{ audit_log_entries: Array<Record<string, unknown>> }>(res);
     expect(body.audit_log_entries.length).toBeGreaterThan(0);
     const entry = body.audit_log_entries[0];
     expect(entry.action_type).toBe(1);
@@ -125,7 +123,7 @@ describe("audit-log.mdx — Audit Log Events emitted by endpoints", () => {
       headers: botHeaders(),
     });
     const res = await app.request(api(`/guilds/${guildId}/audit-logs?action_type=20`), { headers: botHeaders() });
-    const body = (await res.json()) as { audit_log_entries: Array<Record<string, unknown>> };
+    const body = await json<{ audit_log_entries: Array<Record<string, unknown>> }>(res);
     expect(body.audit_log_entries.length).toBeGreaterThan(0);
     const entry = body.audit_log_entries[0];
     expect(entry.action_type).toBe(20);
@@ -141,7 +139,7 @@ describe("audit-log.mdx — Audit Log Events emitted by endpoints", () => {
       body: JSON.stringify({}),
     });
     const res = await app.request(api(`/guilds/${guildId}/audit-logs?action_type=22`), { headers: botHeaders() });
-    const body = (await res.json()) as { audit_log_entries: Array<Record<string, unknown>> };
+    const body = await json<{ audit_log_entries: Array<Record<string, unknown>> }>(res);
     expect(body.audit_log_entries.length).toBeGreaterThan(0);
     const entry = body.audit_log_entries[0];
     expect(entry.action_type).toBe(22);
@@ -162,7 +160,7 @@ describe("audit-log.mdx — Audit Log Events emitted by endpoints", () => {
       headers: botHeaders(),
     });
     const res = await app.request(api(`/guilds/${guildId}/audit-logs?action_type=23`), { headers: botHeaders() });
-    const body = (await res.json()) as { audit_log_entries: Array<Record<string, unknown>> };
+    const body = await json<{ audit_log_entries: Array<Record<string, unknown>> }>(res);
     expect(body.audit_log_entries.length).toBeGreaterThan(0);
     expect(body.audit_log_entries[0].action_type).toBe(23);
   });
@@ -176,7 +174,7 @@ describe("audit-log.mdx — Audit Log Events emitted by endpoints", () => {
       body: JSON.stringify({ name: "AuditRole" }),
     });
     const res = await app.request(api(`/guilds/${guildId}/audit-logs?action_type=30`), { headers: botHeaders() });
-    const body = (await res.json()) as { audit_log_entries: Array<Record<string, unknown>> };
+    const body = await json<{ audit_log_entries: Array<Record<string, unknown>> }>(res);
     expect(body.audit_log_entries.length).toBeGreaterThan(0);
     const entry = body.audit_log_entries[0];
     expect(entry.action_type).toBe(30);
@@ -196,7 +194,7 @@ describe("audit-log.mdx — Audit Log Events emitted by endpoints", () => {
       body: JSON.stringify({ name: "auditemoji", image: "data:image/png;base64,AAAA" }),
     });
     const res = await app.request(api(`/guilds/${guildId}/audit-logs?action_type=60`), { headers: botHeaders() });
-    const body = (await res.json()) as { audit_log_entries: Array<Record<string, unknown>> };
+    const body = await json<{ audit_log_entries: Array<Record<string, unknown>> }>(res);
     expect(body.audit_log_entries.length).toBeGreaterThan(0);
     const entry = body.audit_log_entries[0];
     expect(entry.action_type).toBe(60);
@@ -236,7 +234,7 @@ describe("audit-log.mdx — Audit Log Events emitted by endpoints", () => {
       body: JSON.stringify({ roles: [role.id] }),
     });
     const res = await app.request(api(`/guilds/${guildId}/audit-logs?action_type=25`), { headers: botHeaders() });
-    const body = (await res.json()) as { audit_log_entries: Array<Record<string, unknown>> };
+    const body = await json<{ audit_log_entries: Array<Record<string, unknown>> }>(res);
     expect(body.audit_log_entries.length).toBeGreaterThan(0);
     const entry = body.audit_log_entries[0];
     expect(entry.action_type).toBe(25);
@@ -334,7 +332,7 @@ describe("audit-log.mdx — Get Guild Audit Log query filters", () => {
       body: JSON.stringify({ name: "Filter Test" }),
     });
     const res = await app.request(api(`/guilds/${guildId}/audit-logs?action_type=1`), { headers: botHeaders() });
-    const body = (await res.json()) as { audit_log_entries: Array<{ action_type: number }> };
+    const body = await json<{ audit_log_entries: Array<{ action_type: number }> }>(res);
     for (const entry of body.audit_log_entries) {
       expect(entry.action_type).toBe(1);
     }
@@ -354,7 +352,7 @@ describe("audit-log.mdx — Get Guild Audit Log query filters", () => {
       body: JSON.stringify({ name: "User Filter Test" }),
     });
     const res = await app.request(api(`/guilds/${guildId}/audit-logs?user_id=${botSnowflake}`), { headers: botHeaders() });
-    const body = (await res.json()) as { audit_log_entries: Array<{ user_id: string }> };
+    const body = await json<{ audit_log_entries: Array<{ user_id: string }> }>(res);
     for (const entry of body.audit_log_entries) {
       expect(entry.user_id).toBe(botSnowflake);
     }
@@ -372,7 +370,7 @@ describe("audit-log.mdx — Get Guild Audit Log query filters", () => {
       });
     }
     const res = await app.request(api(`/guilds/${guildId}/audit-logs?limit=2`), { headers: botHeaders() });
-    const body = (await res.json()) as { audit_log_entries: unknown[] };
+    const body = await json<{ audit_log_entries: unknown[] }>(res);
     expect(body.audit_log_entries.length).toBeLessThanOrEqual(2);
   });
 
@@ -396,7 +394,7 @@ describe("audit-log.mdx — Get Guild Audit Log query filters", () => {
     if (allBody.audit_log_entries.length < 2) return; // not enough entries to paginate
     const latestId = allBody.audit_log_entries[0].id;
     const res = await app.request(api(`/guilds/${guildId}/audit-logs?before=${latestId}`), { headers: botHeaders() });
-    const body = (await res.json()) as { audit_log_entries: Array<{ id: string }> };
+    const body = await json<{ audit_log_entries: Array<{ id: string }> }>(res);
     for (const entry of body.audit_log_entries) {
       expect(BigInt(entry.id)).toBeLessThan(BigInt(latestId));
     }
@@ -423,7 +421,7 @@ describe("audit-log.mdx — Get Guild Audit Log query filters", () => {
     // Oldest entry is last in descending order.
     const oldestId = allBody.audit_log_entries[allBody.audit_log_entries.length - 1].id;
     const res = await app.request(api(`/guilds/${guildId}/audit-logs?after=${oldestId}`), { headers: botHeaders() });
-    const body = (await res.json()) as { audit_log_entries: Array<{ id: string }> };
+    const body = await json<{ audit_log_entries: Array<{ id: string }> }>(res);
     for (const entry of body.audit_log_entries) {
       expect(BigInt(entry.id)).toBeGreaterThan(BigInt(oldestId));
     }
@@ -439,7 +437,7 @@ describe("audit-log.mdx — Get Guild Audit Log query filters", () => {
     const { app, store } = createDiscordTestApp();
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/audit-logs`), { headers: botHeaders() });
-    const body = (await res.json()) as { audit_log_entries: unknown[] };
+    const body = await json<{ audit_log_entries: unknown[] }>(res);
     expect(body.audit_log_entries.length).toBeLessThanOrEqual(50);
   });
 
@@ -447,7 +445,7 @@ describe("audit-log.mdx — Get Guild Audit Log query filters", () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/guilds/999999999999999999/audit-logs"), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10004);
+    expect((await json<{ code: number }>(res)).code).toBe(10004);
   });
 });
 
@@ -485,7 +483,7 @@ describe("audit-log.mdx — Hydrated entity arrays", () => {
       headers: botHeaders(),
     });
     const res = await app.request(api(`/guilds/${guildId}/audit-logs?action_type=20`), { headers: botHeaders() });
-    const body = (await res.json()) as { audit_log_entries: unknown[]; users: Array<{ id: string }> };
+    const body = await json<{ audit_log_entries: unknown[]; users: Array<{ id: string }> }>(res);
     if (body.audit_log_entries.length > 0) {
       expect(Array.isArray(body.users)).toBe(true);
       expect(body.users.length).toBeGreaterThan(0);
@@ -503,7 +501,7 @@ describe("audit-log.mdx — Hydrated entity arrays", () => {
       body: JSON.stringify({ name: "Audit Integ", type: "discord", enabled: true }),
     });
     const res = await app.request(api(`/guilds/${guildId}/audit-logs`), { headers: botHeaders() });
-    const body = (await res.json()) as { integrations: Array<Record<string, unknown>> };
+    const body = await json<{ integrations: Array<Record<string, unknown>> }>(res);
     // integrations array should be present (even if empty it's still an array).
     expect(Array.isArray(body.integrations)).toBe(true);
     // If integration entries exist, they have at least id/name/type.
@@ -518,7 +516,7 @@ describe("audit-log.mdx — Hydrated entity arrays", () => {
     const { app, store } = createDiscordTestApp();
     const { guildId } = ids(store);
     const res = await app.request(api(`/guilds/${guildId}/audit-logs`), { headers: botHeaders() });
-    const body = (await res.json()) as { threads: unknown[] };
+    const body = await json<{ threads: unknown[] }>(res);
     expect(Array.isArray(body.threads)).toBe(true);
   });
 
@@ -531,7 +529,7 @@ describe("audit-log.mdx — Hydrated entity arrays", () => {
       body: JSON.stringify({ name: "PartialCheck", type: "twitch", enabled: true }),
     });
     const res = await app.request(api(`/guilds/${guildId}/audit-logs`), { headers: botHeaders() });
-    const body = (await res.json()) as { integrations: Array<Record<string, unknown>> };
+    const body = await json<{ integrations: Array<Record<string, unknown>> }>(res);
     if (body.integrations.length > 0) {
       const integ = body.integrations[0];
       expect(typeof integ.id).toBe("string");

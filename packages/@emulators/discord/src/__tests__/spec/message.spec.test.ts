@@ -9,21 +9,22 @@
  * built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 import { createMessage, createEmoji } from "../../factories.js";
 
 type Json = Record<string, unknown>;
 
 function ctx(store: ReturnType<typeof createDiscordTestApp>["store"]) {
+  const s = seededIds(store);
   const ds = getDiscordStore(store);
   return {
     ds,
-    general: ds.channels.findOneBy("name", "general")!.snowflake,
-    random: ds.channels.findOneBy("name", "random")!.snowflake,
-    guild: ds.guilds.findOneBy("name", "Emulate Server")!.snowflake,
-    developer: ds.users.findOneBy("username", "developer")!.snowflake,
-    bot: ds.users.findOneBy("username", "emulate-bot")!.snowflake,
+    general: s.general,
+    random: s.random,
+    guild: s.guild,
+    developer: s.developer,
+    bot: s.bot,
   };
 }
 
@@ -33,7 +34,7 @@ async function post(app: ReturnType<typeof createDiscordTestApp>["app"], channel
     headers: botHeaders(),
     body: JSON.stringify(body),
   });
-  return (await res.json()) as Json;
+  return await json<Json>(res);
 }
 
 // ---------------------------------------------------------------------------
@@ -139,7 +140,7 @@ describe("message.mdx — Message Types & Flags values", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(200);
-    const crossposted = (await res.json()) as Json;
+    const crossposted = await json<Json>(res);
     expect(((crossposted.flags as number) & (1 << 0)) !== 0).toBe(true);
   });
 });
@@ -277,7 +278,7 @@ describe("message.mdx — Allowed Mentions", () => {
       }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("an empty/falsy explicit field alongside parse does NOT trigger a validation error", async () => {
@@ -303,7 +304,7 @@ describe("message.mdx — Allowed Mentions", () => {
       body: JSON.stringify({ content: "x", allowed_mentions: { users: tooMany } }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects a roles array larger than 100 ids -> 50035", async () => {
@@ -316,7 +317,7 @@ describe("message.mdx — Allowed Mentions", () => {
       body: JSON.stringify({ content: "x", allowed_mentions: { roles: tooMany } }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("replied_user controls whether the replied-to author is mentioned", async () => {
@@ -354,7 +355,7 @@ describe("message.mdx — IS_COMPONENTS_V2 (1<<15)", () => {
       body: JSON.stringify({ content: "nope", components: [{ type: 10 }], flags: 1 << 15 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects embeds alongside the IS_COMPONENTS_V2 flag with 50035", async () => {
@@ -366,7 +367,7 @@ describe("message.mdx — IS_COMPONENTS_V2 (1<<15)", () => {
       body: JSON.stringify({ embeds: [{ title: "x" }], components: [{ type: 10 }], flags: 1 << 15 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("accepts a components-only message with the IS_COMPONENTS_V2 flag set", async () => {
@@ -378,7 +379,7 @@ describe("message.mdx — IS_COMPONENTS_V2 (1<<15)", () => {
       body: JSON.stringify({ components: [{ type: 10 }], flags: 1 << 15 }),
     });
     expect(res.status).toBe(200);
-    const m = (await res.json()) as Json;
+    const m = await json<Json>(res);
     expect(((m.flags as number) & (1 << 15)) !== 0).toBe(true);
   });
 });
@@ -444,7 +445,7 @@ describe("message.mdx — Get Channel Message(s)", () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api(`/channels/999999999999999999/messages`), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10003);
+    expect((await json<{ code: number }>(res)).code).toBe(10003);
   });
 
   it("Get Channel Message returns the message", async () => {
@@ -453,7 +454,7 @@ describe("message.mdx — Get Channel Message(s)", () => {
     const m = await post(app, general, { content: "x" });
     const res = await app.request(api(`/channels/${general}/messages/${m.id}`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as Json).id).toBe(m.id);
+    expect((await json<Json>(res)).id).toBe(m.id);
   });
 
   it("Get Channel Message for an unknown id returns 10008 Unknown Message", async () => {
@@ -461,7 +462,7 @@ describe("message.mdx — Get Channel Message(s)", () => {
     const { general } = ctx(store);
     const res = await app.request(api(`/channels/${general}/messages/999999999999999999`), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10008);
+    expect((await json<{ code: number }>(res)).code).toBe(10008);
   });
 
   it("Get Channel Messages with around returns messages centered on the snowflake", async () => {
@@ -492,7 +493,7 @@ describe("message.mdx — Get Channel Message(s)", () => {
       { headers: botHeaders() },
     );
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
 
@@ -510,7 +511,7 @@ describe("message.mdx — Create Message validation", () => {
       body: JSON.stringify({}),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50006);
+    expect((await json<{ code: number }>(res)).code).toBe(50006);
   });
 
   it("Create Message on an unknown channel returns 10003 Unknown Channel", async () => {
@@ -521,7 +522,7 @@ describe("message.mdx — Create Message validation", () => {
       body: JSON.stringify({ content: "x" }),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10003);
+    expect((await json<{ code: number }>(res)).code).toBe(10003);
   });
 
   it("returns 200 with a message object on success", async () => {
@@ -533,7 +534,7 @@ describe("message.mdx — Create Message validation", () => {
       body: JSON.stringify({ content: "Hello, World!", tts: false, embeds: [{ title: "Hello, Embed!", description: "..." }] }),
     });
     expect(res.status).toBe(200);
-    const m = (await res.json()) as Json;
+    const m = await json<Json>(res);
     expect(m.content).toBe("Hello, World!");
     expect((m.embeds as Array<Json>)[0].title).toBe("Hello, Embed!");
   });
@@ -547,7 +548,7 @@ describe("message.mdx — Create Message validation", () => {
       body: JSON.stringify({ content: "x".repeat(2001) }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects more than 3 sticker_ids -> 50035", async () => {
@@ -559,7 +560,7 @@ describe("message.mdx — Create Message validation", () => {
       body: JSON.stringify({ sticker_ids: ["1", "2", "3", "4"] }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects a string nonce longer than 25 characters -> 50035", async () => {
@@ -571,7 +572,7 @@ describe("message.mdx — Create Message validation", () => {
       body: JSON.stringify({ content: "x", nonce: "n".repeat(26) }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects more than 10 embeds -> 50035", async () => {
@@ -584,7 +585,7 @@ describe("message.mdx — Create Message validation", () => {
       body: JSON.stringify({ content: "x", embeds }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects an embed title longer than 256 characters -> 50035", async () => {
@@ -596,7 +597,7 @@ describe("message.mdx — Create Message validation", () => {
       body: JSON.stringify({ content: "x", embeds: [{ title: "t".repeat(257) }] }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
 
@@ -614,7 +615,7 @@ describe("message.mdx — Edit Message", () => {
       headers: botHeaders(),
       body: JSON.stringify({ content: `after @everyone <@${developer}>` }),
     });
-    const edited = (await res.json()) as Json;
+    const edited = await json<Json>(res);
     expect(edited.content).toBe(`after @everyone <@${developer}>`);
     expect(edited.edited_timestamp).toBeTruthy();
     expect(edited.mention_everyone).toBe(true);
@@ -644,7 +645,7 @@ describe("message.mdx — Edit Message", () => {
       headers: botHeaders(),
       body: JSON.stringify({ content: `ping <@&${role.snowflake}>` }),
     });
-    const edited = (await res.json()) as Json;
+    const edited = await json<Json>(res);
     expect((edited.mention_roles as string[]).includes(role.snowflake)).toBe(true);
   });
 
@@ -657,7 +658,7 @@ describe("message.mdx — Edit Message", () => {
       headers: botHeaders(),
       body: JSON.stringify({ content: `@everyone <@${developer}>`, allowed_mentions: { parse: [] } }),
     });
-    const edited = (await res.json()) as Json;
+    const edited = await json<Json>(res);
     expect(edited.mention_everyone).toBe(false);
     expect(edited.mentions).toEqual([]);
   });
@@ -671,7 +672,7 @@ describe("message.mdx — Edit Message", () => {
       headers: botHeaders(),
       body: JSON.stringify({ flags: (1 << 2) | (1 << 6) }), // SUPPRESS_EMBEDS + EPHEMERAL
     });
-    const edited = (await res.json()) as Json;
+    const edited = await json<Json>(res);
     expect(((edited.flags as number) & (1 << 2)) !== 0).toBe(true); // SUPPRESS_EMBEDS applied
     expect(((edited.flags as number) & (1 << 6)) === 0).toBe(true); // EPHEMERAL ignored
   });
@@ -685,7 +686,7 @@ describe("message.mdx — Edit Message", () => {
       body: JSON.stringify({ content: "x" }),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10008);
+    expect((await json<{ code: number }>(res)).code).toBe(10008);
   });
 });
 
@@ -709,7 +710,7 @@ describe("message.mdx — Delete & Bulk Delete", () => {
     const { general } = ctx(store);
     const res = await app.request(api(`/channels/${general}/messages/999999999999999999`), { method: "DELETE", headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10008);
+    expect((await json<{ code: number }>(res)).code).toBe(10008);
   });
 
   it("Bulk Delete returns 204 and deletes the provided ids", async () => {
@@ -737,7 +738,7 @@ describe("message.mdx — Delete & Bulk Delete", () => {
       body: JSON.stringify({ messages: [a.id] }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50034);
+    expect((await json<{ code: number }>(res)).code).toBe(50034);
   });
 
   it("Bulk Delete rejects more than 100 messages -> 50034", async () => {
@@ -750,7 +751,7 @@ describe("message.mdx — Delete & Bulk Delete", () => {
       body: JSON.stringify({ messages: ids }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50034);
+    expect((await json<{ code: number }>(res)).code).toBe(50034);
   });
 
   it("Bulk Delete rejects duplicate message ids -> 50034", async () => {
@@ -764,7 +765,7 @@ describe("message.mdx — Delete & Bulk Delete", () => {
       body: JSON.stringify({ messages: [a.id, a.id, b.id] }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50034);
+    expect((await json<{ code: number }>(res)).code).toBe(50034);
   });
 
   it("Bulk Delete rejects messages older than 2 weeks -> 50034", async () => {
@@ -781,7 +782,7 @@ describe("message.mdx — Delete & Bulk Delete", () => {
       body: JSON.stringify({ messages: [oldSnowflake, oldSnowflake2] }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50034);
+    expect((await json<{ code: number }>(res)).code).toBe(50034);
   });
 });
 
@@ -920,7 +921,7 @@ describe("message.mdx — Reaction endpoints", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10014);
+    expect((await json<{ code: number }>(res)).code).toBe(10014);
   });
 
   it("the 20-distinct-emoji cap is enforced -> 30010", async () => {
@@ -934,7 +935,7 @@ describe("message.mdx — Reaction endpoints", () => {
     }
     const res = await app.request(api(`/channels/${general}/messages/${m.id}/reactions/${THUMBS}/@me`), { method: "PUT", headers: botHeaders() });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(30010);
+    expect((await json<{ code: number }>(res)).code).toBe(30010);
   });
 
   it("reacting with a 21st emoji that already exists on the message is allowed", async () => {

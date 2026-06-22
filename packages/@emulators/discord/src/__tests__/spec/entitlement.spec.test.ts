@@ -12,11 +12,11 @@
  * Nothing is seeded by default, so each test inserts SKUs/entitlements via the store.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 
 function appId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).applications.all()[0]!.snowflake;
+  return seededIds(store).app;
 }
 
 /** Insert a CONSUMABLE (type 3) SKU and return its snowflake. */
@@ -69,7 +69,7 @@ describe("entitlement.mdx — Entitlement object & types", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(200);
-    const e = (await res.json()) as Record<string, unknown>;
+    const e = await json(res);
     expect(e.id).toBe("1019653849998299136");
     expect(e.sku_id).toBe("1019475255913222144");
     expect(e.application_id).toBe(aid);
@@ -116,7 +116,7 @@ describe("entitlement.mdx — Entitlement object & types", () => {
     const res = await app.request(api(`/applications/${aid}/entitlements?exclude_ended=false`), {
       headers: botHeaders(),
     });
-    const body = (await res.json()) as Array<Record<string, unknown>>;
+    const body = await json<Array<Record<string, unknown>>>(res);
     const seen = new Set(body.map((e) => e.type));
     for (const v of Object.values(types)) expect(seen.has(v)).toBe(true);
   });
@@ -139,7 +139,7 @@ describe("entitlement.mdx — Entitlement object & types", () => {
     const res = await app.request(api(`/applications/${aid}/entitlements/7100000000000000001`), {
       headers: botHeaders(),
     });
-    const e = (await res.json()) as Record<string, unknown>;
+    const e = await json(res);
     // These fields are documented optional (`?`) and absent when unset.
     expect("subscription_id" in e).toBe(false);
     expect("user_id" in e).toBe(false);
@@ -207,7 +207,7 @@ describe("entitlement.mdx — List Entitlements", () => {
     seedMany(store, aid);
     const res = await app.request(api(`/applications/${aid}/entitlements`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Array<Record<string, unknown>>;
+    const body = await json<Array<Record<string, unknown>>>(res);
     const ids = body.map((e) => e.id);
     // Deleted (…003) excluded by default; ended (…004) included by default.
     expect(ids).toContain("800000000000000001");
@@ -223,7 +223,7 @@ describe("entitlement.mdx — List Entitlements", () => {
     const res = await app.request(api(`/applications/${aid}/entitlements?exclude_deleted=false`), {
       headers: botHeaders(),
     });
-    const ids = ((await res.json()) as Array<Record<string, unknown>>).map((e) => e.id);
+    const ids = (await json<Array<Record<string, unknown>>>(res)).map((e) => e.id);
     expect(ids).toContain("800000000000000003");
   });
 
@@ -234,7 +234,7 @@ describe("entitlement.mdx — List Entitlements", () => {
     const res = await app.request(api(`/applications/${aid}/entitlements?exclude_ended=true`), {
       headers: botHeaders(),
     });
-    const ids = ((await res.json()) as Array<Record<string, unknown>>).map((e) => e.id);
+    const ids = (await json<Array<Record<string, unknown>>>(res)).map((e) => e.id);
     expect(ids).not.toContain("800000000000000004");
     expect(ids).toContain("800000000000000001");
   });
@@ -246,7 +246,7 @@ describe("entitlement.mdx — List Entitlements", () => {
     const res = await app.request(api(`/applications/${aid}/entitlements?user_id=user_b`), {
       headers: botHeaders(),
     });
-    const body = (await res.json()) as Array<Record<string, unknown>>;
+    const body = await json<Array<Record<string, unknown>>>(res);
     expect(body.length).toBe(1);
     expect(body[0]!.user_id).toBe("user_b");
   });
@@ -258,7 +258,7 @@ describe("entitlement.mdx — List Entitlements", () => {
     const res = await app.request(api(`/applications/${aid}/entitlements?guild_id=guild_x`), {
       headers: botHeaders(),
     });
-    const body = (await res.json()) as Array<Record<string, unknown>>;
+    const body = await json<Array<Record<string, unknown>>>(res);
     expect(body.length).toBe(1);
     expect(body[0]!.guild_id).toBe("guild_x");
   });
@@ -270,7 +270,7 @@ describe("entitlement.mdx — List Entitlements", () => {
     const res = await app.request(api(`/applications/${aid}/entitlements?sku_ids=sku_b,sku_missing`), {
       headers: botHeaders(),
     });
-    const body = (await res.json()) as Array<Record<string, unknown>>;
+    const body = await json<Array<Record<string, unknown>>>(res);
     expect(body.length).toBe(1);
     expect(body[0]!.sku_id).toBe("sku_b");
   });
@@ -299,7 +299,7 @@ describe("entitlement.mdx — List Entitlements", () => {
     const aid = appId(store);
     seedMany(store, aid);
     const res = await app.request(api(`/applications/${aid}/entitlements?limit=1`), { headers: botHeaders() });
-    const body = (await res.json()) as unknown[];
+    const body = await json<unknown[]>(res);
     expect(body.length).toBe(1);
   });
 });
@@ -324,7 +324,7 @@ describe("entitlement.mdx — Get Entitlement", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as Record<string, unknown>).id).toBe("810000000000000001");
+    expect((await json(res)).id).toBe("810000000000000001");
   });
 
   it("returns 404 Unknown Entitlement (10029) for an unknown id", async () => {
@@ -334,7 +334,7 @@ describe("entitlement.mdx — Get Entitlement", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10029);
+    expect((await json<{ code: number }>(res)).code).toBe(10029);
   });
 });
 
@@ -388,7 +388,7 @@ describe("entitlement.mdx — Consume an Entitlement", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(40018);
+    expect((await json<{ code: number }>(res)).code).toBe(40018);
   });
 
   it("returns 404 Unknown Entitlement (10029) when consuming an unknown entitlement", async () => {
@@ -399,7 +399,7 @@ describe("entitlement.mdx — Consume an Entitlement", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10029);
+    expect((await json<{ code: number }>(res)).code).toBe(10029);
   });
 });
 
@@ -414,7 +414,7 @@ describe("entitlement.mdx — Create Test Entitlement", () => {
       body: JSON.stringify({ sku_id: skuId, owner_id: "300000000000000001", owner_type: 1 }),
     });
     expect(res.status).toBe(200);
-    const e = (await res.json()) as Record<string, unknown>;
+    const e = await json(res);
     expect(e.sku_id).toBe(skuId);
     expect(e.application_id).toBe(aid);
     expect(e.guild_id).toBe("300000000000000001");
@@ -435,7 +435,7 @@ describe("entitlement.mdx — Create Test Entitlement", () => {
       body: JSON.stringify({ sku_id: skuId, owner_id: "200000000000000001", owner_type: 2 }),
     });
     expect(res.status).toBe(200);
-    const e = (await res.json()) as Record<string, unknown>;
+    const e = await json(res);
     expect(e.user_id).toBe("200000000000000001");
     expect("guild_id" in e).toBe(false);
   });
@@ -449,7 +449,7 @@ describe("entitlement.mdx — Create Test Entitlement", () => {
       body: JSON.stringify({ sku_id: "999999999999999999", owner_id: "200000000000000001", owner_type: 2 }),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10027);
+    expect((await json<{ code: number }>(res)).code).toBe(10027);
   });
 
   it("returns 400 Invalid Form Body (50035) when owner_id is missing", async () => {
@@ -462,7 +462,7 @@ describe("entitlement.mdx — Create Test Entitlement", () => {
       body: JSON.stringify({ sku_id: skuId, owner_type: 2 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("returns 400 Invalid Form Body (50035) when owner_type is not 1 or 2", async () => {
@@ -475,7 +475,7 @@ describe("entitlement.mdx — Create Test Entitlement", () => {
       body: JSON.stringify({ sku_id: skuId, owner_id: "200000000000000001", owner_type: 3 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("persists the created test entitlement so it appears in List Entitlements", async () => {
@@ -531,7 +531,7 @@ describe("entitlement.mdx — Delete Test Entitlement", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10029);
+    expect((await json<{ code: number }>(res)).code).toBe(10029);
   });
 });
 

@@ -11,7 +11,7 @@
  * something to act on.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 import type { Store } from "@emulators/core";
 
@@ -56,7 +56,7 @@ describe("voice.mdx — Voice State Object", () => {
 
     const res = await app.request(api(`/guilds/${guild}/voice-states/${bot}`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const v = (await res.json()) as Record<string, unknown>;
+    const v = await json(res);
 
     // guild_id? — present here because this is a guild voice state.
     expect(v.guild_id).toBe(guild);
@@ -121,7 +121,7 @@ describe("voice.mdx — Voice Region Object / List Voice Regions", () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/voice/regions"), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const regions = (await res.json()) as Array<Record<string, unknown>>;
+    const regions = await json<Array<Record<string, unknown>>>(res);
     expect(Array.isArray(regions)).toBe(true);
     expect(regions.length).toBeGreaterThan(0);
     for (const r of regions) {
@@ -146,7 +146,7 @@ describe("voice.mdx — Get Current User Voice State", () => {
     seedVoiceState(store, { guild, user: bot, channel: voiceChannel });
     const res = await app.request(api(`/guilds/${guild}/voice-states/@me`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const v = (await res.json()) as Record<string, unknown>;
+    const v = await json(res);
     expect(v.user_id).toBe(bot);
     expect(v.channel_id).toBe(voiceChannel);
   });
@@ -166,7 +166,7 @@ describe("voice.mdx — Get User Voice State", () => {
     seedVoiceState(store, { guild, user: developer, channel: voiceChannel });
     const res = await app.request(api(`/guilds/${guild}/voice-states/${developer}`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const v = (await res.json()) as Record<string, unknown>;
+    const v = await json(res);
     expect(v.user_id).toBe(developer);
   });
 });

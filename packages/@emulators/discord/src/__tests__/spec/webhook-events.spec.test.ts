@@ -17,7 +17,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { createDiscordTestApp, api, botHeaders, startDiscordTestEmulator } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, startDiscordTestEmulator, json } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 import { verifyInteraction } from "../../interactions/ed25519.js";
 import {
@@ -386,7 +386,7 @@ describe("webhook-events.mdx — Delivery gating (status + subscribed types)", (
       body: JSON.stringify({ type: WebhookEventType.APPLICATION_AUTHORIZED, data: {} }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { delivered: boolean };
+    const body = await json<{ delivered: boolean }>(res);
     expect(body.delivered).toBe(false);
   });
 
@@ -408,7 +408,7 @@ describe("webhook-events.mdx — Delivery gating (status + subscribed types)", (
       headers: botHeaders(),
       body: JSON.stringify({ type: WebhookEventType.APPLICATION_AUTHORIZED, data: {} }),
     });
-    const body = (await res.json()) as { delivered: boolean };
+    const body = await json<{ delivered: boolean }>(res);
     expect(body.delivered).toBe(false);
   });
 
@@ -431,7 +431,7 @@ describe("webhook-events.mdx — Delivery gating (status + subscribed types)", (
       headers: botHeaders(),
       body: JSON.stringify({ type: WebhookEventType.APPLICATION_AUTHORIZED, data: {} }),
     });
-    const body = (await res.json()) as { delivered: boolean };
+    const body = await json<{ delivered: boolean }>(res);
     expect(body.delivered).toBe(false);
   });
 
@@ -444,7 +444,7 @@ describe("webhook-events.mdx — Delivery gating (status + subscribed types)", (
       headers: botHeaders(),
       body: JSON.stringify({ type: WebhookEventType.APPLICATION_AUTHORIZED, data: {} }),
     });
-    const body = (await res.json()) as { delivered: boolean };
+    const body = await json<{ delivered: boolean }>(res);
     expect(body.delivered).toBe(false);
   });
 
@@ -469,7 +469,7 @@ describe("webhook-events.mdx — Delivery gating (status + subscribed types)", (
         headers: botHeaders(),
         body: JSON.stringify({ type: WebhookEventType.APPLICATION_AUTHORIZED, data: { scopes: ["bot"] } }),
       });
-      const body = (await res.json()) as { delivered: boolean };
+      const body = await json<{ delivered: boolean }>(res);
       expect(body.delivered).toBe(true);
       // Confirm the capturing server received something.
       const captured = await capture.next();
@@ -526,7 +526,7 @@ describe("webhook-events.mdx — Control endpoint /__emulate/event-webhook", () 
         body: JSON.stringify({ type: WebhookEventType.APPLICATION_DEAUTHORIZED, data: { user: { id: "999" } } }),
       });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { delivered: boolean };
+      const body = await json<{ delivered: boolean }>(res);
       expect(body.delivered).toBe(true);
       await capture.next(); // drain
     } finally {

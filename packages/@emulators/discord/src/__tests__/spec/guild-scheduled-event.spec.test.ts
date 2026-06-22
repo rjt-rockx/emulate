@@ -9,20 +9,21 @@
  * Written from the doc first; the implementation is built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 import { getDiscordRuntime } from "../../runtime.js";
 import { createUser, addGuildMember } from "../../factories.js";
 import type { GatewayEvent } from "../../gateway/dispatcher.js";
 
 function ctx(store: ReturnType<typeof createDiscordTestApp>["store"]) {
+  const s = seededIds(store);
   const ds = getDiscordStore(store);
   return {
     ds,
-    developer: ds.users.findOneBy("username", "developer")!.snowflake,
-    guild: ds.guilds.findOneBy("name", "Emulate Server")!.snowflake,
-    voiceChannel: ds.channels.findOneBy("name", "General")!.snowflake, // type 2 (voice)
-    textChannel: ds.channels.findOneBy("name", "general")!.snowflake, // type 0
+    developer: s.developer,
+    guild: s.guild,
+    voiceChannel: s.voice, // type 2 (voice)
+    textChannel: s.general, // type 0
   };
 }
 
@@ -67,7 +68,7 @@ async function createEvent(app: ReturnType<typeof createDiscordTestApp>["app"], 
     headers: botHeaders(),
     body: JSON.stringify(body),
   });
-  return { res, json: (await res.json()) as Record<string, unknown> };
+  return { res, json: await json(res)};
 }
 
 describe("guild-scheduled-event.mdx — Guild Scheduled Event Object", () => {
@@ -194,7 +195,7 @@ describe("guild-scheduled-event.mdx — Valid Status Transitions", () => {
       body: JSON.stringify({ status: 2 }),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { status: number }).status).toBe(2);
+    expect((await json<{ status: number }>(res)).status).toBe(2);
   });
 
   it("allows ACTIVE -> COMPLETED", async () => {
@@ -212,7 +213,7 @@ describe("guild-scheduled-event.mdx — Valid Status Transitions", () => {
       body: JSON.stringify({ status: 3 }),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { status: number }).status).toBe(3);
+    expect((await json<{ status: number }>(res)).status).toBe(3);
   });
 
   it("allows SCHEDULED -> CANCELED", async () => {
@@ -225,7 +226,7 @@ describe("guild-scheduled-event.mdx — Valid Status Transitions", () => {
       body: JSON.stringify({ status: 4 }),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { status: number }).status).toBe(4);
+    expect((await json<{ status: number }>(res)).status).toBe(4);
   });
 
   it("rejects an illegal transition (SCHEDULED -> COMPLETED) with 400", async () => {
@@ -267,7 +268,7 @@ describe("guild-scheduled-event.mdx — List / Get with_user_count", () => {
     const { json: e } = await createEvent(app, guild, externalBody());
     const res = await app.request(api(`/guilds/${guild}/scheduled-events`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const list = (await res.json()) as Array<{ id: string; user_count?: number }>;
+    const list = await json<Array<{ id: string; user_count?: number }>>(res);
     expect(list.some((x) => x.id === e.id)).toBe(true);
   });
 
@@ -276,7 +277,7 @@ describe("guild-scheduled-event.mdx — List / Get with_user_count", () => {
     const { guild } = ctx(store);
     await createEvent(app, guild, externalBody());
     const res = await app.request(api(`/guilds/${guild}/scheduled-events?with_user_count=true`), { headers: botHeaders() });
-    const list = (await res.json()) as Array<{ user_count?: number }>;
+    const list = await json<Array<{ user_count?: number }>>(res);
     expect(typeof list[0].user_count).toBe("number");
   });
 
@@ -286,7 +287,7 @@ describe("guild-scheduled-event.mdx — List / Get with_user_count", () => {
     const { json: e } = await createEvent(app, guild, externalBody());
     const res = await app.request(api(`/guilds/${guild}/scheduled-events/${e.id}?with_user_count=true`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const got = (await res.json()) as { id: string; user_count?: number };
+    const got = await json<{ id: string; user_count?: number }>(res);
     expect(got.id).toBe(e.id);
     expect(typeof got.user_count).toBe("number");
   });
@@ -296,7 +297,7 @@ describe("guild-scheduled-event.mdx — List / Get with_user_count", () => {
     const { guild } = ctx(store);
     const res = await app.request(api(`/guilds/${guild}/scheduled-events/999999999999999999`), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10070);
+    expect((await json<{ code: number }>(res)).code).toBe(10070);
   });
 });
 
@@ -330,7 +331,7 @@ describe("guild-scheduled-event.mdx — Modify", () => {
       body: JSON.stringify({ name: "x" }),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10070);
+    expect((await json<{ code: number }>(res)).code).toBe(10070);
   });
 
   it("Modify entity_type to EXTERNAL requires entity_metadata.location (50035 when absent)", async () => {
@@ -345,7 +346,7 @@ describe("guild-scheduled-event.mdx — Modify", () => {
       body: JSON.stringify({ entity_type: 3 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("Modify entity_type to EXTERNAL requires scheduled_end_time (50035 when absent)", async () => {
@@ -359,7 +360,7 @@ describe("guild-scheduled-event.mdx — Modify", () => {
       body: JSON.stringify({ entity_type: 3, entity_metadata: { location: "Somewhere" } }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("Modify entity_type to EXTERNAL succeeds with location + scheduled_end_time", async () => {
@@ -372,7 +373,7 @@ describe("guild-scheduled-event.mdx — Modify", () => {
       body: JSON.stringify({ entity_type: 3, entity_metadata: { location: "Arena" }, scheduled_end_time: END }),
     });
     expect(res.status).toBe(200);
-    const patched = (await res.json()) as Record<string, unknown>;
+    const patched = await json(res);
     expect(patched.entity_type).toBe(3);
     expect(patched.channel_id).toBeNull();
     expect((patched.entity_metadata as Record<string, unknown>).location).toBe("Arena");
@@ -389,7 +390,7 @@ describe("guild-scheduled-event.mdx — Modify", () => {
       body: JSON.stringify({ entity_type: 1 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("Modify entity_type to VOICE requires channel_id (50035 when absent)", async () => {
@@ -402,7 +403,7 @@ describe("guild-scheduled-event.mdx — Modify", () => {
       body: JSON.stringify({ entity_type: 2 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("Modify entity_type to VOICE with channel_id forces entity_metadata to null", async () => {
@@ -416,7 +417,7 @@ describe("guild-scheduled-event.mdx — Modify", () => {
       body: JSON.stringify({ entity_type: 2, channel_id: voiceChannel }),
     });
     expect(res.status).toBe(200);
-    const patched = (await res.json()) as Record<string, unknown>;
+    const patched = await json(res);
     expect(patched.entity_type).toBe(2);
     expect(patched.entity_metadata).toBeNull();
     expect(patched.channel_id).toBe(voiceChannel);
@@ -441,7 +442,7 @@ describe("guild-scheduled-event.mdx — Delete", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10070);
+    expect((await json<{ code: number }>(res)).code).toBe(10070);
   });
 });
 
@@ -454,7 +455,7 @@ describe("guild-scheduled-event.mdx — Subscribers & Get Event Users", () => {
     ds.scheduledEventUsers.insert({ event_snowflake: e.id as string, guild_snowflake: guild, user_snowflake: developer });
     const res = await app.request(api(`/guilds/${guild}/scheduled-events/${e.id}/users`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const users = (await res.json()) as Array<Record<string, unknown>>;
+    const users = await json<Array<Record<string, unknown>>>(res);
     expect(users.length).toBe(1);
     expect(users[0].guild_scheduled_event_id).toBe(e.id);
     expect((users[0].user as Record<string, unknown>).id).toBe(developer);
@@ -468,7 +469,7 @@ describe("guild-scheduled-event.mdx — Subscribers & Get Event Users", () => {
     const { json: e } = await createEvent(app, guild, externalBody());
     ds.scheduledEventUsers.insert({ event_snowflake: e.id as string, guild_snowflake: guild, user_snowflake: developer });
     const res = await app.request(api(`/guilds/${guild}/scheduled-events/${e.id}/users?with_member=true`), { headers: botHeaders() });
-    const users = (await res.json()) as Array<Record<string, unknown>>;
+    const users = await json<Array<Record<string, unknown>>>(res);
     expect(users[0].member).toBeDefined();
     expect(Array.isArray((users[0].member as Record<string, unknown>).roles)).toBe(true);
   });

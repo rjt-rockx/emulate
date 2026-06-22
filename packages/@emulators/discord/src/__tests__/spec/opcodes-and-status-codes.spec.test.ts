@@ -21,7 +21,7 @@
  */
 import { describe, it, expect, afterEach } from "vitest";
 import WebSocket from "ws";
-import { createDiscordTestApp, startDiscordTestEmulator, api, botHeaders, bearerHeaders, type RunningDiscordEmulator } from "../helpers.js";
+import { createDiscordTestApp, startDiscordTestEmulator, api, botHeaders, bearerHeaders, type RunningDiscordEmulator, json } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 import { GatewayOpcodes, GatewayCloseCodes } from "../../gateway/opcodes.js";
 import { Intents } from "../../gateway/intents.js";
@@ -202,7 +202,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Unknown-resource cod
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/channels/999999999999999999"), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10003);
+    expect((await json<{ code: number }>(res)).code).toBe(10003);
   });
 
   // 10004 Unknown Guild
@@ -210,7 +210,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Unknown-resource cod
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/guilds/999999999999999999/channels"), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10004);
+    expect((await json<{ code: number }>(res)).code).toBe(10004);
   });
 
   // 10006 Unknown Invite
@@ -218,7 +218,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Unknown-resource cod
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/invites/zzzzzzzz"), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10006);
+    expect((await json<{ code: number }>(res)).code).toBe(10006);
   });
 
   // 10008 Unknown Message
@@ -230,7 +230,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Unknown-resource cod
       headers: botHeaders(),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10008);
+    expect((await json<{ code: number }>(res)).code).toBe(10008);
   });
 
   // 10011 Unknown Role
@@ -243,7 +243,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Unknown-resource cod
       body: JSON.stringify({ name: "nope" }),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10011);
+    expect((await json<{ code: number }>(res)).code).toBe(10011);
   });
 
   // 10013 Unknown User
@@ -251,7 +251,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Unknown-resource cod
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/users/999999999999999999"), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10013);
+    expect((await json<{ code: number }>(res)).code).toBe(10013);
   });
 
   // 10014 Unknown Emoji
@@ -260,7 +260,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Unknown-resource cod
     const { guild } = ids(store);
     const res = await app.request(api(`/guilds/${guild}/emojis/999999999999999999`), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10014);
+    expect((await json<{ code: number }>(res)).code).toBe(10014);
   });
 
   // 10015 Unknown Webhook
@@ -268,7 +268,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Unknown-resource cod
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/webhooks/999999999999999999"), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10015);
+    expect((await json<{ code: number }>(res)).code).toBe(10015);
   });
 
   // 10026 Unknown Ban
@@ -277,7 +277,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Unknown-resource cod
     const { guild } = ids(store);
     const res = await app.request(api(`/guilds/${guild}/bans/999999999999999999`), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10026);
+    expect((await json<{ code: number }>(res)).code).toBe(10026);
   });
 
   // 10027 Unknown SKU
@@ -290,7 +290,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Unknown-resource cod
       body: JSON.stringify({ sku_id: "999999999999999999", owner_id: "200000000000000001", owner_type: 2 }),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10027);
+    expect((await json<{ code: number }>(res)).code).toBe(10027);
   });
 
   // 10029 Unknown Entitlement
@@ -301,7 +301,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Unknown-resource cod
       headers: botHeaders(),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10029);
+    expect((await json<{ code: number }>(res)).code).toBe(10029);
   });
 
   // 10062 Unknown Interaction
@@ -313,7 +313,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Unknown-resource cod
       body: JSON.stringify({ type: 4, data: { content: "hi" } }),
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10062);
+    expect((await json<{ code: number }>(res)).code).toBe(10062);
   });
 
   // 10067 Unknown Stage Instance
@@ -323,7 +323,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Unknown-resource cod
     // No stage instance exists on this voice channel yet.
     const res = await app.request(api(`/stage-instances/${voice}`), { headers: botHeaders() });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10067);
+    expect((await json<{ code: number }>(res)).code).toBe(10067);
   });
 });
 
@@ -354,7 +354,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Maximum-limit codes"
       body: JSON.stringify({ name: "over-the-cap" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(30005);
+    expect((await json<{ code: number }>(res)).code).toBe(30005);
   });
 
   // 30010 Maximum number of reactions reached (20)
@@ -389,7 +389,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Maximum-limit codes"
       { method: "PUT", headers: botHeaders() },
     );
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(30010);
+    expect((await json<{ code: number }>(res)).code).toBe(30010);
   });
 });
 
@@ -450,7 +450,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Permission / validat
       headers: bearerHeaders("stranger_bearer"),
     });
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { code: number }).code).toBe(50001);
+    expect((await json<{ code: number }>(res)).code).toBe(50001);
   });
 
   // 50006 Cannot send an empty message
@@ -463,7 +463,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Permission / validat
       body: JSON.stringify({ content: "" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50006);
+    expect((await json<{ code: number }>(res)).code).toBe(50006);
   });
 
   // 50013 Missing Permissions
@@ -476,7 +476,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Permission / validat
       body: JSON.stringify({ name: "UnauthorizedRole" }),
     });
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { code: number }).code).toBe(50013);
+    expect((await json<{ code: number }>(res)).code).toBe(50013);
   });
 
   // 50026 Missing required OAuth2 scope
@@ -500,7 +500,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Permission / validat
     store.setData("discord.strict_scopes", true);
     const res = await app.request(api("/users/@me"), { headers: bearerHeaders("no_identify_bearer") });
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { code: number }).code).toBe(50026);
+    expect((await json<{ code: number }>(res)).code).toBe(50026);
   });
 
   // 50028 Invalid Role
@@ -515,7 +515,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Permission / validat
       headers: botHeaders(),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50028);
+    expect((await json<{ code: number }>(res)).code).toBe(50028);
   });
 
   // 50035 Invalid Form Body
@@ -528,7 +528,7 @@ describe("opcodes-and-status-codes.mdx -- JSON Error Codes: Permission / validat
       body: JSON.stringify({ channel_id: voice, topic: "" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
 

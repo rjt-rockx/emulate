@@ -10,17 +10,16 @@
  * doc first; the implementation is built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
-  const ds = getDiscordStore(store);
-  const app = ds.applications.all()[0]!;
+  const s = seededIds(store);
   return {
-    appId: app.snowflake,
-    bot: app.bot_user_snowflake,
-    channel: ds.channels.findOneBy("name", "general")!.snowflake,
-    guild: ds.guilds.findOneBy("name", "Emulate Server")!.snowflake,
+    appId: s.app,
+    bot: s.bot,
+    channel: s.general,
+    guild: s.guild,
   };
 }
 
@@ -34,7 +33,7 @@ async function createWebhook(
     headers: botHeaders(),
     body: JSON.stringify({ name }),
   });
-  return (await res.json()) as { id: string; token: string; name: string | null };
+  return await json<{ id: string; token: string; name: string | null }>(res);
 }
 
 describe("webhook.mdx — Webhook object structure", () => {
@@ -47,7 +46,7 @@ describe("webhook.mdx — Webhook object structure", () => {
       body: JSON.stringify({ name: "my-hook" }),
     });
     expect(res.status).toBe(200);
-    const w = (await res.json()) as Record<string, unknown>;
+    const w = await json(res);
     // Documented fields.
     expect(typeof w.id).toBe("string");
     expect(w.type).toBe(1); // Incoming
@@ -81,7 +80,7 @@ describe("webhook.mdx — Webhook endpoints", () => {
     await createWebhook(app, channel, "hookB");
     const res = await app.request(api(`/channels/${channel}/webhooks`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const list = (await res.json()) as Array<{ name: string }>;
+    const list = await json<Array<{ name: string }>>(res);
     expect(list.some((w) => w.name === "hookA")).toBe(true);
     expect(list.some((w) => w.name === "hookB")).toBe(true);
   });
@@ -92,7 +91,7 @@ describe("webhook.mdx — Webhook endpoints", () => {
     await createWebhook(app, channel, "guildHook");
     const res = await app.request(api(`/guilds/${guild}/webhooks`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const list = (await res.json()) as Array<{ name: string }>;
+    const list = await json<Array<{ name: string }>>(res);
     expect(list.some((w) => w.name === "guildHook")).toBe(true);
   });
 
@@ -102,7 +101,7 @@ describe("webhook.mdx — Webhook endpoints", () => {
     const wh = await createWebhook(app, channel, "fetchable");
     const res = await app.request(api(`/webhooks/${wh.id}`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { name: string }).name).toBe("fetchable");
+    expect((await json<{ name: string }>(res)).name).toBe("fetchable");
   });
 
   it("Get Webhook with Token returns webhook WITHOUT user field", async () => {
@@ -111,7 +110,7 @@ describe("webhook.mdx — Webhook endpoints", () => {
     const wh = await createWebhook(app, channel, "tokenFetch");
     const res = await app.request(api(`/webhooks/${wh.id}/${wh.token}`));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = await json(res);
     // user must be absent when fetched via token.
     expect("user" in body).toBe(false);
     expect(body.name).toBe("tokenFetch");
@@ -123,7 +122,7 @@ describe("webhook.mdx — Webhook endpoints", () => {
     const wh = await createWebhook(app, channel, "wrongToken");
     const res = await app.request(api(`/webhooks/${wh.id}/bad_token`));
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10015);
+    expect((await json<{ code: number }>(res)).code).toBe(10015);
   });
 
   it("Modify Webhook updates name and returns the updated object", async () => {
@@ -136,7 +135,7 @@ describe("webhook.mdx — Webhook endpoints", () => {
       body: JSON.stringify({ name: "after" }),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { name: string }).name).toBe("after");
+    expect((await json<{ name: string }>(res)).name).toBe("after");
   });
 
   it("Modify Webhook with Token updates name (no auth needed)", async () => {
@@ -149,7 +148,7 @@ describe("webhook.mdx — Webhook endpoints", () => {
       body: JSON.stringify({ name: "new" }),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { name: string }).name).toBe("new");
+    expect((await json<{ name: string }>(res)).name).toBe("new");
   });
 
   it("Delete Webhook returns 204 and removes it from the store", async () => {
@@ -183,7 +182,7 @@ describe("webhook.mdx — Create Webhook name validation", () => {
       body: JSON.stringify({ name: "ClydeBot" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("webhook name containing 'discord' (case-insensitive) is rejected with 400 / 50035", async () => {
@@ -195,7 +194,7 @@ describe("webhook.mdx — Create Webhook name validation", () => {
       body: JSON.stringify({ name: "MyDiscordBot" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("webhook name over 80 chars is rejected with 400 / 50035", async () => {
@@ -207,7 +206,7 @@ describe("webhook.mdx — Create Webhook name validation", () => {
       body: JSON.stringify({ name: "a".repeat(81) }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("webhook name of exactly 80 chars is accepted", async () => {
@@ -245,7 +244,7 @@ describe("webhook.mdx — Execute Webhook IS_COMPONENTS_V2 and with_components",
       body: JSON.stringify({ content: "hello", flags: IS_COMPONENTS_V2 }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("Execute with IS_COMPONENTS_V2 flag and only components succeeds", async () => {
@@ -262,7 +261,7 @@ describe("webhook.mdx — Execute Webhook IS_COMPONENTS_V2 and with_components",
       }),
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { flags: number };
+    const msg = await json<{ flags: number }>(res);
     expect((msg.flags & IS_COMPONENTS_V2) !== 0).toBe(true);
   });
 
@@ -292,7 +291,7 @@ describe("webhook.mdx — Execute Webhook IS_COMPONENTS_V2 and with_components",
       body: JSON.stringify({ components: [{ type: 10, content: "Hello" }] }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50006);
+    expect((await json<{ code: number }>(res)).code).toBe(50006);
   });
 
   it("Execute with with_components=true allows components for non-app-owned webhooks", async () => {
@@ -317,7 +316,7 @@ describe("webhook.mdx — Execute Webhook IS_COMPONENTS_V2 and with_components",
       body: JSON.stringify({ components: [{ type: 10, content: "Hello" }] }),
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { components: unknown[] };
+    const msg = await json<{ components: unknown[] }>(res);
     expect(msg.components.length).toBeGreaterThan(0);
   });
 });
@@ -345,7 +344,7 @@ describe("webhook.mdx — Execute Webhook", () => {
       body: JSON.stringify({ content: "wait for me" }),
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { content: string; webhook_id: string };
+    const msg = await json<{ content: string; webhook_id: string }>(res);
     expect(msg.content).toBe("wait for me");
     expect(msg.webhook_id).toBe(wh.id);
   });
@@ -360,7 +359,7 @@ describe("webhook.mdx — Execute Webhook", () => {
       body: JSON.stringify({ content: "from bot", username: "CustomBot", avatar_url: "https://example.com/a.png" }),
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { author: { username: string } };
+    const msg = await json<{ author: { username: string } }>(res);
     expect(msg.author.username).toBe("CustomBot");
   });
 
@@ -390,7 +389,7 @@ describe("webhook.mdx — Execute Webhook", () => {
     });
     // Discord returns 400 Cannot send an empty message (50006).
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50006);
+    expect((await json<{ code: number }>(res)).code).toBe(50006);
   });
 
   it("Execute with an invalid (non-existent) webhook id+token returns 404", async () => {
@@ -421,7 +420,7 @@ describe("webhook.mdx — Get / Edit / Delete Webhook Message", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { content: string }).content).toBe("get me");
+    expect((await json<{ content: string }>(res)).content).toBe("get me");
   });
 
   it("Edit Webhook Message updates content and returns 200", async () => {
@@ -442,7 +441,7 @@ describe("webhook.mdx — Get / Edit / Delete Webhook Message", () => {
       body: JSON.stringify({ content: "after" }),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { content: string }).content).toBe("after");
+    expect((await json<{ content: string }>(res)).content).toBe("after");
   });
 
   it("Delete Webhook Message returns 204", async () => {
@@ -495,7 +494,7 @@ describe("webhook.mdx — Interaction followup via /webhooks/:appId/:token", () 
       body: JSON.stringify({ content: "followup msg" }),
     });
     expect(res.status).toBe(200);
-    const msg = (await res.json()) as { content: string };
+    const msg = await json<{ content: string }>(res);
     expect(msg.content).toBe("followup msg");
     expect(ds.messages.findBy("channel_snowflake", channel).length).toBe(before + 1);
   });

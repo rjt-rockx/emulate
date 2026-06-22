@@ -8,17 +8,16 @@
  * doc first; the implementation is built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
-  const ds = getDiscordStore(store);
-  const application = ds.applications.all()[0]!;
+  const s = seededIds(store);
   return {
-    guild: ds.guilds.findOneBy("name", "Emulate Server")!.snowflake,
-    developer: ds.users.findOneBy("username", "developer")!.snowflake,
+    guild: s.guild,
+    developer: s.developer,
     // Bot tokens resolve to the application's bot user, which is the template creator.
-    bot: application.bot_user_snowflake,
+    bot: s.bot,
   };
 }
 
@@ -32,7 +31,7 @@ async function createTemplate(
     headers: botHeaders(),
     body: JSON.stringify(body),
   });
-  return { res, template: (await res.json()) as Record<string, unknown> };
+  return { res, template: await json(res)};
 }
 
 describe("guild-template.mdx — Guild Template object", () => {
@@ -145,7 +144,7 @@ describe("guild-template.mdx — Get / Get-list endpoints", () => {
     const { template: created } = await createTemplate(app, guild);
     const res = await app.request(api(`/guilds/templates/${created.code}`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const t = (await res.json()) as Record<string, unknown>;
+    const t = await json(res);
     expect(t.code).toBe(created.code);
     expect(t.source_guild_id).toBe(guild);
   });
@@ -162,7 +161,7 @@ describe("guild-template.mdx — Get / Get-list endpoints", () => {
     const { template: created } = await createTemplate(app, guild);
     const res = await app.request(api(`/guilds/${guild}/templates`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const list = (await res.json()) as Array<Record<string, unknown>>;
+    const list = await json<Array<Record<string, unknown>>>(res);
     expect(Array.isArray(list)).toBe(true);
     expect(list.some((t) => t.code === created.code)).toBe(true);
   });
@@ -178,7 +177,7 @@ describe("guild-template.mdx — Create Guild Template validation", () => {
       body: JSON.stringify({ name: "x".repeat(101) }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects an empty name (name must be 1-100 chars) (50035)", async () => {
@@ -190,7 +189,7 @@ describe("guild-template.mdx — Create Guild Template validation", () => {
       body: JSON.stringify({ name: "" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects a description longer than 120 characters (50035)", async () => {
@@ -202,7 +201,7 @@ describe("guild-template.mdx — Create Guild Template validation", () => {
       body: JSON.stringify({ name: "ok", description: "d".repeat(121) }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("accepts a 100-char name and 120-char description (boundary)", async () => {
@@ -259,7 +258,7 @@ describe("guild-template.mdx — Sync Guild Template", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(200);
-    const synced = (await res.json()) as Record<string, unknown>;
+    const synced = await json(res);
     const s = synced.serialized_source_guild as Record<string, unknown>;
     const roles = s.roles as Array<Record<string, unknown>>;
     // The new role must now appear in the re-snapshotted source guild.
@@ -291,7 +290,7 @@ describe("guild-template.mdx — Modify Guild Template", () => {
       body: JSON.stringify({ name: "Renamed", description: "new desc" }),
     });
     expect(res.status).toBe(200);
-    const t = (await res.json()) as Record<string, unknown>;
+    const t = await json(res);
     expect(t.name).toBe("Renamed");
     expect(t.description).toBe("new desc");
     expect(t.code).toBe(created.code);
@@ -306,7 +305,7 @@ describe("guild-template.mdx — Modify Guild Template", () => {
       headers: botHeaders(),
       body: JSON.stringify({ description: null }),
     });
-    const t = (await res.json()) as Record<string, unknown>;
+    const t = await json(res);
     expect(t.description).toBeNull();
   });
 
@@ -320,7 +319,7 @@ describe("guild-template.mdx — Modify Guild Template", () => {
       body: JSON.stringify({ name: "y".repeat(101) }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("rejects a description longer than 120 characters (50035)", async () => {
@@ -333,7 +332,7 @@ describe("guild-template.mdx — Modify Guild Template", () => {
       body: JSON.stringify({ description: "d".repeat(121) }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
 
@@ -347,7 +346,7 @@ describe("guild-template.mdx — Delete Guild Template", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(200);
-    const t = (await res.json()) as Record<string, unknown>;
+    const t = await json(res);
     expect(t.code).toBe(created.code);
     expect(getDiscordStore(store).guildTemplates.findOneBy("code", created.code as string)).toBeUndefined();
   });
@@ -377,7 +376,7 @@ describe("guild-template.mdx — Create Guild from Template", () => {
       body: JSON.stringify({ name: "Fresh Guild" }),
     });
     expect(res.status).toBe(201);
-    const g = (await res.json()) as { id: string; name: string; channels: unknown[] };
+    const g = await json<{ id: string; name: string; channels: unknown[] }>(res);
     expect(g.name).toBe("Fresh Guild");
     expect((g.channels as unknown[]).length).toBeGreaterThan(0);
     expect(getDiscordStore(store).guilds.all().length).toBe(before + 1);

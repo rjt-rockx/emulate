@@ -9,15 +9,15 @@
  * is built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
-  const ds = getDiscordStore(store);
+  const s = seededIds(store);
   return {
-    developer: ds.users.findOneBy("username", "developer")!.snowflake,
-    guild: ds.guilds.findOneBy("name", "Emulate Server")!.snowflake,
-    general: ds.channels.findOneBy("name", "general")!.snowflake,
+    developer: s.developer,
+    guild: s.guild,
+    general: s.general,
   };
 }
 
@@ -32,7 +32,7 @@ async function createRule(
     headers: botHeaders(),
     body: JSON.stringify(body),
   });
-  return { status: res.status, json: (await res.json()) as Record<string, unknown> };
+  return { status: res.status, json: await json(res)};
 }
 
 const KEYWORD = { name: "kw", event_type: 1, trigger_type: 1, trigger_metadata: { keyword_filter: ["bad"] }, actions: [{ type: 1 }] };
@@ -359,7 +359,7 @@ describe("auto-moderation.mdx — endpoints", () => {
     await createRule(app, guild, KEYWORD);
     const res = await app.request(api(`/guilds/${guild}/auto-moderation/rules`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const list = (await res.json()) as unknown[];
+    const list = await json<unknown[]>(res);
     expect(Array.isArray(list)).toBe(true);
     expect(list.length).toBeGreaterThan(0);
   });

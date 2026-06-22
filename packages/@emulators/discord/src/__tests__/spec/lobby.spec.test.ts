@@ -9,7 +9,7 @@
  * doc first; the implementation is built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders, bearerHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, bearerHeaders, json } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 import { createUser, createToken } from "../../factories.js";
 
@@ -49,7 +49,7 @@ async function createLobby(
     headers: botHeaders(),
     body: JSON.stringify(body),
   });
-  return { res, lobby: (await res.json()) as Record<string, unknown> };
+  return { res, lobby: await json(res)};
 }
 
 describe("lobby.mdx — Lobby & Lobby Member object", () => {
@@ -139,7 +139,7 @@ describe("lobby.mdx — Modify Lobby", () => {
       body: JSON.stringify({ metadata: { status: "active" }, members: [{ id: b.snowflake }] }),
     });
     expect(res.status).toBe(200);
-    const updated = (await res.json()) as { metadata: Record<string, string>; members: Array<{ id: string }> };
+    const updated = await json<{ metadata: Record<string, string>; members: Array<{ id: string }> }>(res);
     expect(updated.metadata.status).toBe("active");
     // a was replaced out, b is present.
     expect(updated.members.some((m) => m.id === b.snowflake)).toBe(true);
@@ -213,7 +213,7 @@ describe("lobby.mdx — Members (add / bulk / remove / leave)", () => {
       }),
     });
     expect(res.status).toBe(200);
-    const upserted = (await res.json()) as Array<{ id: string }>;
+    const upserted = await json<Array<{ id: string }>>(res);
     // Only the upserted member is returned; the removed one is excluded.
     expect(upserted.some((m) => m.id === b.snowflake)).toBe(true);
     expect(upserted.some((m) => m.id === a.snowflake)).toBe(false);
@@ -288,7 +288,7 @@ describe("lobby.mdx — Channel linking (membership + CanLinkLobby + linked chan
       body: JSON.stringify({ channel_id: textChannel }),
     });
     expect(res.status).toBe(200);
-    const linked = (await res.json()) as { linked_channel?: { id: string } };
+    const linked = await json<{ linked_channel?: { id: string } }>(res);
     expect(linked.linked_channel?.id).toBe(textChannel);
   });
 
@@ -347,7 +347,7 @@ describe("lobby.mdx — Lobby messages (membership-gated)", () => {
       body: JSON.stringify({ content: "Hello lobby!", metadata: { priority: "high" } }),
     });
     expect(res.status).toBe(200);
-    const m = (await res.json()) as Record<string, unknown>;
+    const m = await json(res);
     expect(typeof m.id).toBe("string");
     expect(typeof m.type).toBe("number");
     expect(m.content).toBe("Hello lobby!");
@@ -394,7 +394,7 @@ describe("lobby.mdx — Lobby messages (membership-gated)", () => {
     }
     const res = await app.request(api(`/lobbies/${lobby.id}/messages?limit=2`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const messages = (await res.json()) as Array<{ content: string }>;
+    const messages = await json<Array<{ content: string }>>(res);
     expect(messages.length).toBe(2);
     expect(messages[0].content).toBe("third");
   });
@@ -453,7 +453,7 @@ describe("lobby.mdx — Update Lobby Message Moderation Metadata", () => {
       body: JSON.stringify({ a: "1", b: "2", c: "3", d: "4", e: "5", f: "6" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
 
@@ -479,7 +479,7 @@ describe("lobby.mdx — Channel invites (membership + linked channel)", () => {
       headers: bearerHeaders("outsider_bearer"),
     });
     expect(res.status).toBe(200);
-    const invite = (await res.json()) as { code: string };
+    const invite = await json<{ code: string }>(res);
     expect(typeof invite.code).toBe("string");
   });
 
@@ -518,7 +518,7 @@ describe("lobby.mdx — Channel invites (membership + linked channel)", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(200);
-    expect(typeof ((await res.json()) as { code: string }).code).toBe("string");
+    expect(typeof (await json<{ code: string }>(res)).code).toBe("string");
   });
 
   it("@me/invites fails (403) when the lobby has no linked channel", async () => {

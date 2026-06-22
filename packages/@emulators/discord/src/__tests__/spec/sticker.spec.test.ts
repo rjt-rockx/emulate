@@ -9,11 +9,11 @@
  * doc first; the implementation is built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 
 function guildId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).guilds.findOneBy("name", "Emulate Server")!.snowflake;
+  return seededIds(store).guild;
 }
 
 /** POST a guild sticker as multipart/form-data with a synthesized file part. */
@@ -164,7 +164,7 @@ describe("sticker.mdx — List/Get/Modify/Delete Guild Sticker", () => {
     const { json: created } = await createSticker(app, guild, { name: "listed" });
     const res = await app.request(api(`/guilds/${guild}/stickers`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const list = (await res.json()) as Array<{ id: string }>;
+    const list = await json<Array<{ id: string }>>(res);
     expect(list.some((x) => x.id === created.id)).toBe(true);
   });
 
@@ -189,7 +189,7 @@ describe("sticker.mdx — List/Get/Modify/Delete Guild Sticker", () => {
       body: JSON.stringify({ name: "after", description: "now described", tags: "newtags" }),
     });
     expect(res.status).toBe(200);
-    const s = (await res.json()) as Record<string, unknown>;
+    const s = await json(res);
     expect(s.name).toBe("after");
     expect(s.description).toBe("now described");
     expect(s.tags).toBe("newtags");
@@ -205,7 +205,7 @@ describe("sticker.mdx — List/Get/Modify/Delete Guild Sticker", () => {
       body: JSON.stringify({ name: "a" }),
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { code: number }).code).toBe(50035);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
   it("Delete Guild Sticker returns 204 No Content and removes the sticker", async () => {
@@ -223,7 +223,7 @@ describe("sticker.mdx — Sticker Packs", () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/sticker-packs"));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { sticker_packs: Array<Record<string, unknown>> };
+    const body = await json<{ sticker_packs: Array<Record<string, unknown>> }>(res);
     expect(Array.isArray(body.sticker_packs)).toBe(true);
     expect(body.sticker_packs.length).toBeGreaterThan(0);
     const pack = body.sticker_packs[0];
@@ -256,7 +256,7 @@ describe("sticker.mdx — Sticker Packs", () => {
     const id = list.sticker_packs[0].id;
     const res = await app.request(api(`/sticker-packs/${id}`));
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { id: string }).id).toBe(id);
+    expect((await json<{ id: string }>(res)).id).toBe(id);
     const missing = await app.request(api("/sticker-packs/999999999999999999"));
     expect(missing.status).toBe(404);
   });
@@ -280,7 +280,7 @@ describe("sticker.mdx — Get Sticker", () => {
     const { json: created } = await createSticker(app, guild, { name: "globalget" });
     const res = await app.request(api(`/stickers/${created.id}`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { id: string }).id).toBe(created.id);
+    expect((await json<{ id: string }>(res)).id).toBe(created.id);
   });
 
   it("resolves a standard pack sticker by id (packs include their cover stickers)", async () => {
@@ -291,7 +291,7 @@ describe("sticker.mdx — Get Sticker", () => {
     const standard = list.sticker_packs[0].stickers[0];
     const res = await app.request(api(`/stickers/${standard.id}`));
     expect(res.status).toBe(200);
-    const s = (await res.json()) as { id: string; type: number };
+    const s = await json<{ id: string; type: number }>(res);
     expect(s.id).toBe(standard.id);
     expect(s.type).toBe(1);
   });

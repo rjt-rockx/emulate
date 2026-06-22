@@ -10,7 +10,7 @@
  * The `setRateLimitConfig` helper tightens limits so 429s are deterministic.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, json } from "../helpers.js";
 import { setRateLimitConfig, bucketFor } from "../../rateLimiter.js";
 
 // ---------------------------------------------------------------------------
@@ -168,7 +168,7 @@ describe("rate-limits.mdx — Exceeding A Rate Limit (per-route / user scope)", 
     await app.request(api("/users/@me"), { headers: botHeaders() });
     const res = await app.request(api("/users/@me"), { headers: botHeaders() });
     expect(res.status).toBe(429);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = await json(res);
     // message: string — a human-readable rate-limit message.
     expect(typeof body.message).toBe("string");
     expect((body.message as string).length).toBeGreaterThan(0);
@@ -186,7 +186,7 @@ describe("rate-limits.mdx — Exceeding A Rate Limit (per-route / user scope)", 
     await app.request(api("/users/@me"), { headers: botHeaders() });
     const res = await app.request(api("/users/@me"), { headers: botHeaders() });
     expect(res.status).toBe(429);
-    const body = (await res.json()) as { retry_after: number };
+    const body = await json<{ retry_after: number }>(res);
     const headerVal = Number(res.headers.get("retry-after"));
     // Both represent seconds; they should be equal (or very close).
     expect(Math.abs(body.retry_after - headerVal)).toBeLessThan(0.01);
@@ -268,7 +268,7 @@ describe("rate-limits.mdx — Global Rate Limit", () => {
     await app.request(api("/users/@me"), { headers: botHeaders() });
     const res = await app.request(api("/gateway/bot"), { headers: botHeaders() });
     expect(res.status).toBe(429);
-    const body = (await res.json()) as { global: boolean; retry_after: number; message: string };
+    const body = await json<{ global: boolean; retry_after: number; message: string }>(res);
     expect(body.global).toBe(true);
     expect(typeof body.retry_after).toBe("number");
     expect(body.retry_after).toBeGreaterThan(0);
