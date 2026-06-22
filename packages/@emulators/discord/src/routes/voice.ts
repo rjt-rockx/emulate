@@ -1,6 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, toAPIVoiceState } from "../helpers.js";
+import { requireBot, requireUser, notFound, toAPIVoiceState } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 
 /**
@@ -18,18 +18,14 @@ export function voiceRoutes(ctx: DiscordRouteContext): void {
   };
 
   app.get("/api/v:version/guilds/:guildId/voice-states/@me", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
-    const ds = getDiscordStore(store);
-    const state = findState(c.req.param("guildId"), auth.user.snowflake);
+    const g = requireUser(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const state = findState(c.req.param("guildId"), auth.user!.snowflake);
     if (!state) return notFound(c);
     return c.json(toAPIVoiceState(state, ds));
   });
 
   app.get("/api/v:version/guilds/:guildId/voice-states/:userId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const state = findState(c.req.param("guildId"), c.req.param("userId"));
     if (!state) return notFound(c);
     return c.json(toAPIVoiceState(state, ds));
@@ -37,11 +33,9 @@ export function voiceRoutes(ctx: DiscordRouteContext): void {
 
   // Modify own voice state (suppress / request-to-speak / move within a stage channel).
   app.patch("/api/v:version/guilds/:guildId/voice-states/@me", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireUser(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
-    const state = findState(guildId, auth.user.snowflake);
+    const state = findState(guildId, auth.user!.snowflake);
     if (!state) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as {
       channel_id?: string;
@@ -62,9 +56,7 @@ export function voiceRoutes(ctx: DiscordRouteContext): void {
   // only JSON params are `channel_id` and `suppress`; `request_to_speak_timestamp` is NOT accepted
   // here and is instead governed by the suppress caveats below.
   app.patch("/api/v:version/guilds/:guildId/voice-states/:userId", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
     const userId = c.req.param("userId");
     const state = findState(guildId, userId);

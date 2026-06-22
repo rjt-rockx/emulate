@@ -1,11 +1,11 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore, type DiscordStore } from "../store.js";
 import {
-  getAuth,
-  unauthorized,
+  requireBot,
+  requireUser,
+  requireChannel,
+  requireMessage,
   notFound,
-  unknownChannel,
-  unknownMessage,
   invalidFormBody,
   snowflake,
   toAPIChannel,
@@ -171,13 +171,9 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
     parentChannelId: string,
     messageId: string,
   ) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
-    const ds = getDiscordStore(store);
-    const parent = ds.channels.findOneBy("snowflake", parentChannelId);
-    if (!parent) return unknownChannel(c);
-    const message = ds.messages.findOneBy("snowflake", messageId);
-    if (!message || message.channel_snowflake !== parentChannelId) return unknownMessage(c);
+    const g = requireUser(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const parent = requireChannel(c, ds, parentChannelId); if (parent instanceof Response) return parent;
+    const message = requireMessage(c, ds, parentChannelId, messageId); if (message instanceof Response) return message;
     // Only text and announcement parents may spawn a thread from a message.
     if (parent.type !== 0 && parent.type !== 5) {
       return invalidFormBody(c, { channel_id: "Cannot execute action on this channel type" });
@@ -188,8 +184,8 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
     }
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const threadType = parent.type === 5 ? 10 : 11;
-    const thread = createThread(ds, parent, auth.user.snowflake, body, { type: threadType, snowflake: messageId });
-    return finishThread(c, ds, thread, auth.user.snowflake);
+    const thread = createThread(ds, parent, auth.user!.snowflake, body, { type: threadType, snowflake: messageId });
+    return finishThread(c, ds, thread, auth.user!.snowflake);
   };
 
   // Start Thread without Message (text 0 / announcement 5) and Start Thread in Forum/Media (15/16).
@@ -197,11 +193,8 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
     c: Parameters<Parameters<typeof app.post>[1]>[0],
     parentChannelId: string,
   ) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
-    const ds = getDiscordStore(store);
-    const parent = ds.channels.findOneBy("snowflake", parentChannelId);
-    if (!parent) return unknownChannel(c);
+    const g = requireUser(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const parent = requireChannel(c, ds, parentChannelId); if (parent instanceof Response) return parent;
     // Voice (2), category (4), DM (1/3), and other non-threadable parents are rejected.
     if (!THREADABLE_PARENT_TYPES.has(parent.type)) {
       return invalidFormBody(c, { channel_id: "Cannot execute action on this channel type" });
@@ -221,11 +214,11 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
           message: "You must provide at least one of content, embeds, sticker_ids, components, or files[n]",
         });
       }
-      const thread = createThread(ds, parent, auth.user.snowflake, body, { type: 11, messageCount: 1 });
+      const thread = createThread(ds, parent, auth.user!.snowflake, body, { type: 11, messageCount: 1 });
       const message = createMessage(ds, {
         channelSnowflake: thread.snowflake,
         guildSnowflake: thread.guild_snowflake,
-        authorSnowflake: auth.user.snowflake,
+        authorSnowflake: auth.user!.snowflake,
         content: typeof msgParams.content === "string" ? msgParams.content : "",
         embeds: Array.isArray(msgParams.embeds) ? (msgParams.embeds as unknown[]) : [],
         components: Array.isArray(msgParams.components) ? (msgParams.components as unknown[]) : [],
@@ -238,13 +231,13 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
         d: toAPIMessage(message, ds),
         messageAuthorId: message.author_snowflake,
       });
-      return finishThread(c, ds, thread, auth.user.snowflake, { message: toAPIMessage(message, ds) });
+      return finishThread(c, ds, thread, auth.user!.snowflake, { message: toAPIMessage(message, ds) });
     }
 
     // Text/announcement: type defaults to PRIVATE_THREAD (12) to match legacy behavior.
     const threadType = typeof body.type === "number" ? body.type : 12;
-    const thread = createThread(ds, parent, auth.user.snowflake, body, { type: threadType });
-    return finishThread(c, ds, thread, auth.user.snowflake);
+    const thread = createThread(ds, parent, auth.user!.snowflake, body, { type: threadType });
+    return finishThread(c, ds, thread, auth.user!.snowflake);
   };
 
   app.post("/api/v:version/channels/:channelId/messages/:messageId/threads", (c) =>
@@ -254,9 +247,7 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
 
   // Active threads in a guild.
   app.get("/api/v:version/guilds/:guildId/threads/active", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
     const threads = ds.channels
       .findBy("guild_snowflake", guildId)
@@ -274,19 +265,15 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
 
   // Thread members.
   app.put("/api/v:version/channels/:threadId/thread-members/@me", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireUser(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     if (!ds.channels.findOneBy("snowflake", c.req.param("threadId"))) return notFound(c);
-    addThreadMember(ds, c.req.param("threadId"), auth.user.snowflake);
-    emitThreadMembers(c.req.param("threadId"), { added: [auth.user.snowflake] });
+    addThreadMember(ds, c.req.param("threadId"), auth.user!.snowflake);
+    emitThreadMembers(c.req.param("threadId"), { added: [auth.user!.snowflake] });
     return new Response(null, { status: 204 });
   });
 
   app.put("/api/v:version/channels/:threadId/thread-members/:userId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     if (!ds.channels.findOneBy("snowflake", c.req.param("threadId"))) return notFound(c);
     addThreadMember(ds, c.req.param("threadId"), c.req.param("userId"));
     emitThreadMembers(c.req.param("threadId"), { added: [c.req.param("userId")] });
@@ -307,23 +294,18 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
   };
 
   app.delete("/api/v:version/channels/:threadId/thread-members/@me", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
-    return removeMember(c, auth.user.snowflake);
+    const g = requireUser(c, store); if (g instanceof Response) return g; const { auth } = g;
+    return removeMember(c, auth.user!.snowflake);
   });
   app.delete("/api/v:version/channels/:threadId/thread-members/:userId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
+    const g = requireBot(c, store); if (g instanceof Response) return g;
     return removeMember(c, c.req.param("userId"));
   });
 
   app.get("/api/v:version/channels/:threadId/thread-members", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const threadId = c.req.param("threadId");
-    const thread = ds.channels.findOneBy("snowflake", threadId);
-    if (!thread) return unknownChannel(c);
+    const thread = requireChannel(c, ds, threadId); if (thread instanceof Response) return thread;
     const withMember = c.req.query("with_member") === "true";
     const after = c.req.query("after");
     const limitRaw = Number(c.req.query("limit"));
@@ -341,13 +323,10 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
 
   // Single thread member.
   app.get("/api/v:version/channels/:threadId/thread-members/:userId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const threadId = c.req.param("threadId");
     const userId = c.req.param("userId");
-    const thread = ds.channels.findOneBy("snowflake", threadId);
-    if (!thread) return unknownChannel(c);
+    const thread = requireChannel(c, ds, threadId); if (thread instanceof Response) return thread;
     const member = ds.threadMembers.findBy("thread_snowflake", threadId).find((m) => m.user_snowflake === userId);
     if (!member) return notFound(c);
     const withMember = c.req.query("with_member") === "true";
@@ -371,23 +350,20 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
   };
 
   app.get("/api/v:version/channels/:channelId/threads/archived/public", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    if (!getDiscordStore(store).channels.findOneBy("snowflake", c.req.param("channelId"))) return notFound(c);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    if (!ds.channels.findOneBy("snowflake", c.req.param("channelId"))) return notFound(c);
     return c.json(archivedList(c.req.param("channelId"), 11));
   });
 
   app.get("/api/v:version/channels/:channelId/threads/archived/private", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    if (!getDiscordStore(store).channels.findOneBy("snowflake", c.req.param("channelId"))) return notFound(c);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    if (!ds.channels.findOneBy("snowflake", c.req.param("channelId"))) return notFound(c);
     return c.json(archivedList(c.req.param("channelId"), 12));
   });
 
   app.get("/api/v:version/channels/:channelId/users/@me/threads/archived/private", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
-    if (!getDiscordStore(store).channels.findOneBy("snowflake", c.req.param("channelId"))) return notFound(c);
-    return c.json(archivedList(c.req.param("channelId"), 12, auth.user.snowflake));
+    const g = requireUser(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    if (!ds.channels.findOneBy("snowflake", c.req.param("channelId"))) return notFound(c);
+    return c.json(archivedList(c.req.param("channelId"), 12, auth.user!.snowflake));
   });
 }

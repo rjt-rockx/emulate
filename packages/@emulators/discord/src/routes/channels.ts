@@ -3,12 +3,16 @@ import type { DiscordRouteContext } from "../context.js";
 import type { DiscordChannel } from "../entities.js";
 import { getDiscordStore } from "../store.js";
 import {
+  requireBot,
+  requireUser,
+  requireGuild,
+  requireChannel,
+  requireMessage,
+  readBody,
   getAuth,
   unauthorized,
   notFound,
-  unknownGuild,
   unknownChannel,
-  unknownMessage,
   invalidFormBody,
   toAPIChannel,
   toAPIMember,
@@ -31,11 +35,9 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
   const { app, store, bus } = ctx;
 
   app.get("/api/v:version/guilds/:guildId/channels", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
-    if (!ds.guilds.findOneBy("snowflake", guildId)) return unknownGuild(c);
+    const _guild = requireGuild(c, ds, guildId); if (_guild instanceof Response) return _guild;
     const channels = ds.channels
       .findBy("guild_snowflake", guildId)
       .sort((a, b) => a.position - b.position)
@@ -44,19 +46,12 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.post("/api/v:version/guilds/:guildId/channels", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
-    if (!ds.guilds.findOneBy("snowflake", guildId)) return unknownGuild(c);
+    const _guild = requireGuild(c, ds, guildId); if (_guild instanceof Response) return _guild;
     const denied = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageChannels, { guildId });
     if (denied) return denied;
-    let body: Record<string, unknown> = {};
-    try {
-      body = await c.req.json();
-    } catch {
-      // no-op
-    }
+    const body = await readBody<Record<string, unknown>>(c);
     // Validate Create Channel params
     if (typeof body.name === "string" && (body.name.length < 1 || body.name.length > 100)) {
       return invalidFormBody(c, { name: "Must be between 1 and 100 in length." });
@@ -120,15 +115,8 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.patch("/api/v:version/guilds/:guildId/channels", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
-    let body: Array<{ id: string; position?: number; parent_id?: string | null }> = [];
-    try {
-      body = await c.req.json();
-    } catch {
-      // no-op
-    }
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    const body = (await c.req.json().catch(() => [])) as Array<{ id: string; position?: number; parent_id?: string | null }>;
     for (const entry of Array.isArray(body) ? body : []) {
       const channel = ds.channels.findOneBy("snowflake", entry.id);
       if (!channel) continue;
@@ -141,11 +129,8 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.get("/api/v:version/channels/:channelId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
-    const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
-    if (!channel) return unknownChannel(c);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const channel = requireChannel(c, ds, c.req.param("channelId")); if (channel instanceof Response) return channel;
     const payload = toAPIChannel(channel);
     // For a thread, include the current user's thread-member object if they have joined.
     const isThread = channel.type === 10 || channel.type === 11 || channel.type === 12;
@@ -165,17 +150,9 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.patch("/api/v:version/channels/:channelId", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
-    const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
-    if (!channel) return unknownChannel(c);
-    let body: Record<string, unknown> = {};
-    try {
-      body = await c.req.json();
-    } catch {
-      // no-op
-    }
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const channel = requireChannel(c, ds, c.req.param("channelId")); if (channel instanceof Response) return channel;
+    const body = await readBody<Record<string, unknown>>(c);
     // --- Validation: field ranges per the Discord docs ---
 
     if (typeof body.name === "string" && (body.name.length < 1 || body.name.length > 100)) {
@@ -307,11 +284,8 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/channels/:channelId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
-    const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
-    if (!channel) return unknownChannel(c);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const channel = requireChannel(c, ds, c.req.param("channelId")); if (channel instanceof Response) return channel;
     const payload = toAPIChannel(channel);
     const isThread = channel.type === 10 || channel.type === 11 || channel.type === 12;
     for (const m of ds.messages.findBy("channel_snowflake", channel.snowflake)) ds.messages.delete(m.id);
@@ -335,11 +309,8 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.post("/api/v:version/channels/:channelId/typing", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
-    const ds = getDiscordStore(store);
-    const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
-    if (!channel) return unknownChannel(c);
+    const g = requireUser(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const channel = requireChannel(c, ds, c.req.param("channelId")); if (channel instanceof Response) return channel;
     // In a guild channel, TYPING_START carries the typing user's guild member object.
     const member = channel.guild_snowflake
       ? ds.members.findBy("guild_snowflake", channel.guild_snowflake).find((m) => m.user_snowflake === auth.user!.snowflake)
@@ -351,7 +322,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
       d: {
         channel_id: channel.snowflake,
         guild_id: channel.guild_snowflake ?? undefined,
-        user_id: auth.user.snowflake,
+        user_id: auth.user!.snowflake,
         timestamp: Math.floor(Date.now() / 1000),
         ...(member ? { member: toAPIMember(member, ds) } : {}),
       },
@@ -364,11 +335,8 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
   // ---------------------------------------------------------------------------
 
   app.put("/api/v:version/channels/:channelId/permissions/:overwriteId", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
-    const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
-    if (!channel) return unknownChannel(c);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const channel = requireChannel(c, ds, c.req.param("channelId")); if (channel instanceof Response) return channel;
     const overwriteId = c.req.param("overwriteId");
     const body = (await c.req.json().catch(() => ({}))) as { type?: number; allow?: string; deny?: string };
     const overwrite = {
@@ -403,11 +371,8 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/channels/:channelId/permissions/:overwriteId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
-    const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
-    if (!channel) return unknownChannel(c);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const channel = requireChannel(c, ds, c.req.param("channelId")); if (channel instanceof Response) return channel;
     const overwriteId = c.req.param("overwriteId");
     const removed = channel.permission_overwrites.find((o) => o.id === overwriteId);
     ds.channels.update(channel.id, {
@@ -439,12 +404,9 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
   // ---------------------------------------------------------------------------
 
   app.post("/api/v:version/channels/:channelId/messages/:messageId/crosspost", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const channelId = c.req.param("channelId");
-    const message = ds.messages.findOneBy("snowflake", c.req.param("messageId"));
-    if (!message || message.channel_snowflake !== channelId) return unknownMessage(c);
+    const message = requireMessage(c, ds, channelId, c.req.param("messageId")); if (message instanceof Response) return message;
     ds.messages.update(message.id, { flags: message.flags | MESSAGE_FLAG_CROSSPOSTED });
     const updated = ds.messages.findOneBy("snowflake", message.snowflake)!;
     const payload = toAPIMessage(updated, ds);
@@ -461,11 +423,8 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
 
   // Follow an announcement channel: creates a channel-follower webhook in the target channel.
   app.post("/api/v:version/channels/:channelId/followers", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
-    const source = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
-    if (!source) return unknownChannel(c);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const source = requireChannel(c, ds, c.req.param("channelId")); if (source instanceof Response) return source;
     const body = (await c.req.json().catch(() => ({}))) as { webhook_channel_id?: string };
     const targetId = body.webhook_channel_id ?? "";
     const target = ds.channels.findOneBy("snowflake", targetId);
@@ -500,11 +459,9 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
   // ---------------------------------------------------------------------------
 
   app.get("/api/v:version/channels/:channelId/messages/pins", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const channelId = c.req.param("channelId");
-    if (!ds.channels.findOneBy("snowflake", channelId)) return unknownChannel(c);
+    const _ch = requireChannel(c, ds, channelId); if (_ch instanceof Response) return _ch;
     const items = ds.messages
       .findBy("channel_snowflake", channelId)
       .filter((m) => m.pinned)
@@ -514,11 +471,8 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
   });
 
   const setPinnedNew = (channelIdParam: string, messageIdParam: string, pinned: boolean, c: Context<AppEnv>) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
-    const message = ds.messages.findOneBy("snowflake", messageIdParam);
-    if (!message || message.channel_snowflake !== channelIdParam) return unknownMessage(c);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    const message = requireMessage(c, ds, channelIdParam, messageIdParam); if (message instanceof Response) return message;
     ds.messages.update(message.id, { pinned });
     bus.publish({
       t: "CHANNEL_PINS_UPDATE",
@@ -566,11 +520,8 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
 
   // Set a voice channel's status string.
   app.put("/api/v:version/channels/:channelId/voice-status", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
-    const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
-    if (!channel) return unknownChannel(c);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    const channel = requireChannel(c, ds, c.req.param("channelId")); if (channel instanceof Response) return channel;
     const body = (await c.req.json().catch(() => ({}))) as { status?: string | null };
     if (typeof body.status === "string" && body.status.length > 500) {
       return invalidFormBody(c, { status: "Must be 500 or fewer in length." });

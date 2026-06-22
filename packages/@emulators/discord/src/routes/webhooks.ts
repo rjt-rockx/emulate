@@ -1,7 +1,7 @@
 import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore, type DiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, discordError, invalidFormBody, unknownChannel, unknownWebhook, snowflake, toAPIUser, toAPIMessage, redactMessageContent, recordAudit, AuditLogEvent, isEphemeral, parseMessageBody, MessageFlags } from "../helpers.js";
+import { requireBot, notFound, discordError, invalidFormBody, unknownChannel, unknownWebhook, snowflake, toAPIUser, toAPIMessage, redactMessageContent, recordAudit, AuditLogEvent, isEphemeral, parseMessageBody, MessageFlags } from "../helpers.js";
 import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import { getOriginalResponse, setOriginalResponse } from "../interactions/dispatch.js";
@@ -42,9 +42,7 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
 
   // ----- Channel / guild webhook management -----
   app.post("/api/v:version/channels/:channelId/webhooks", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
     if (!channel) return unknownChannel(c);
     const body = (await c.req.json().catch(() => ({}))) as { name?: string; avatar?: string | null };
@@ -79,17 +77,13 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.get("/api/v:version/channels/:channelId/webhooks", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const hooks = ds.webhooks.findBy("channel_snowflake", c.req.param("channelId")).map((w) => toAPIWebhook(w, ds, baseUrl));
     return c.json(hooks);
   });
 
   app.get("/api/v:version/guilds/:guildId/webhooks", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const hooks = ds.webhooks
       .all()
       .filter((w) => w.guild_snowflake === c.req.param("guildId"))
@@ -98,9 +92,7 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.get("/api/v:version/webhooks/:webhookId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const webhook = ds.webhooks.findOneBy("snowflake", c.req.param("webhookId"));
     if (!webhook) return unknownWebhook(c);
     return c.json(toAPIWebhook(webhook, ds, baseUrl));
@@ -132,8 +124,7 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
   };
 
   app.patch("/api/v:version/webhooks/:webhookId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
+    const g = requireBot(c, store); if (g instanceof Response) return g;
     return modify(c, false);
   });
   app.patch("/api/v:version/webhooks/:webhookId/:token", (c) => modify(c, true));
@@ -156,8 +147,7 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
   };
 
   app.delete("/api/v:version/webhooks/:webhookId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth } = g;
     return remove(c, false, auth.user?.snowflake ?? null);
   });
   app.delete("/api/v:version/webhooks/:webhookId/:token", (c) => remove(c, true));

@@ -2,7 +2,7 @@ import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
 import type { DiscordStore } from "../store.js";
-import { getAuth, unauthorized, unknownMessage, unknownEmoji, discordError, toAPIUser, toAPIMember } from "../helpers.js";
+import { requireBot, requireUser, unknownMessage, unknownEmoji, discordError, toAPIUser, toAPIMember } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 
 interface ParsedEmoji {
@@ -46,9 +46,7 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
 
   // Add the authed user's reaction.
   app.put("/api/v:version/channels/:channelId/messages/:messageId/reactions/:emoji/@me", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireUser(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const channelId = c.req.param("channelId");
     const messageId = c.req.param("messageId");
     const message = resolveMessage(channelId, messageId);
@@ -73,7 +71,7 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
         message_snowflake: messageId,
         channel_snowflake: channelId,
         guild_snowflake: message.guild_snowflake,
-        user_snowflake: auth.user.snowflake,
+        user_snowflake: auth.user!.snowflake,
         emoji_name: emoji.name,
         emoji_snowflake: emoji.id,
         emoji_animated: emoji.animated,
@@ -88,11 +86,11 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
       guildId: message.guild_snowflake,
       requiredIntents: Intents.GuildMessageReactions,
       d: {
-        user_id: auth.user.snowflake,
+        user_id: auth.user!.snowflake,
         channel_id: channelId,
         message_id: messageId,
         guild_id: message.guild_snowflake ?? undefined,
-        member: reactingMember ? { ...toAPIMember(reactingMember, ds), user: toAPIUser(auth.user) } : undefined,
+        member: reactingMember ? { ...toAPIMember(reactingMember, ds), user: toAPIUser(auth.user!) } : undefined,
         emoji: emojiPayload(emoji),
         message_author_id: message.author_snowflake,
         burst: false,
@@ -132,22 +130,18 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
   };
 
   app.delete("/api/v:version/channels/:channelId/messages/:messageId/reactions/:emoji/@me", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
-    return removeUserReaction(c, auth.user.snowflake);
+    const g = requireUser(c, store); if (g instanceof Response) return g; const { auth } = g;
+    return removeUserReaction(c, auth.user!.snowflake);
   });
 
   app.delete("/api/v:version/channels/:channelId/messages/:messageId/reactions/:emoji/:userId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
+    const g = requireBot(c, store); if (g instanceof Response) return g;
     return removeUserReaction(c, c.req.param("userId"));
   });
 
   // List users who reacted with a given emoji. Honors `type` (0 NORMAL / 1 BURST), `after`, `limit`.
   app.get("/api/v:version/channels/:channelId/messages/:messageId/reactions/:emoji", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const messageId = c.req.param("messageId");
     if (!resolveMessage(c.req.param("channelId"), messageId)) return unknownMessage(c);
     const emoji = parseEmoji(c.req.param("emoji"), ds);
@@ -170,9 +164,7 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
 
   // Remove all reactions for a specific emoji.
   app.delete("/api/v:version/channels/:channelId/messages/:messageId/reactions/:emoji", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const channelId = c.req.param("channelId");
     const messageId = c.req.param("messageId");
     const message = resolveMessage(channelId, messageId);
@@ -200,9 +192,7 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
 
   // Remove all reactions on the message.
   app.delete("/api/v:version/channels/:channelId/messages/:messageId/reactions", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const channelId = c.req.param("channelId");
     const messageId = c.req.param("messageId");
     const message = resolveMessage(channelId, messageId);

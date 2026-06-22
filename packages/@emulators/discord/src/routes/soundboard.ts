@@ -1,6 +1,7 @@
 import type { DiscordRouteContext } from "../context.js";
-import { getDiscordStore, type DiscordStore } from "../store.js";
+import type { DiscordStore } from "../store.js";
 import {
+  requireBot,
   getAuth,
   unauthorized,
   notFound,
@@ -74,27 +75,21 @@ export function soundboardRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.get("/api/v:version/guilds/:guildId/soundboard-sounds", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     return c.json({
       items: ds.soundboardSounds.findBy("guild_snowflake", c.req.param("guildId")).map((s) => toAPISound(s, ds)),
     });
   });
 
   app.get("/api/v:version/guilds/:guildId/soundboard-sounds/:soundId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const sound = ds.soundboardSounds.findOneBy("snowflake", c.req.param("soundId"));
     if (!sound || sound.guild_snowflake !== c.req.param("guildId")) return notFound(c);
     return c.json(toAPISound(sound, ds));
   });
 
   app.post("/api/v:version/guilds/:guildId/soundboard-sounds", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     if (!ds.guilds.findOneBy("snowflake", guildId)) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -134,9 +129,7 @@ export function soundboardRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.patch("/api/v:version/guilds/:guildId/soundboard-sounds/:soundId", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const sound = ds.soundboardSounds.findOneBy("snowflake", c.req.param("soundId"));
     if (!sound || sound.guild_snowflake !== c.req.param("guildId")) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -184,9 +177,7 @@ export function soundboardRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/guilds/:guildId/soundboard-sounds/:soundId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const sound = ds.soundboardSounds.findOneBy("snowflake", c.req.param("soundId"));
     if (!sound || sound.guild_snowflake !== c.req.param("guildId")) return notFound(c);
     const guildId = sound.guild_snowflake;
@@ -211,9 +202,7 @@ export function soundboardRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.post("/api/v:version/channels/:channelId/send-soundboard-sound", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const channelId = c.req.param("channelId");
     const channel = ds.channels.findOneBy("snowflake", channelId);
     if (!channel) return notFound(c);

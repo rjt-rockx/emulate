@@ -1,6 +1,5 @@
 import type { DiscordRouteContext } from "../context.js";
-import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, toAPIUser, toAPIMessage, redactMessageContent } from "../helpers.js";
+import { requireBot, notFound, toAPIUser, toAPIMessage, redactMessageContent } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 
 export function pollsRoutes(ctx: DiscordRouteContext): void {
@@ -8,9 +7,7 @@ export function pollsRoutes(ctx: DiscordRouteContext): void {
 
   // List the users who voted for a given poll answer. Honors `after` and `limit` (1-100, default 25).
   app.get("/api/v:version/channels/:channelId/polls/:messageId/answers/:answerId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const messageId = c.req.param("messageId");
     if (!ds.messages.findOneBy("snowflake", messageId)) return notFound(c);
     const answerId = Number(c.req.param("answerId"));
@@ -30,9 +27,7 @@ export function pollsRoutes(ctx: DiscordRouteContext): void {
 
   // Expire (finalize) a poll.
   app.post("/api/v:version/channels/:channelId/polls/:messageId/expire", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const message = ds.messages.findOneBy("snowflake", c.req.param("messageId"));
     if (!message || !message.poll) return notFound(c);
     ds.messages.update(message.id, { poll_finalized: true });
@@ -52,9 +47,7 @@ export function pollsRoutes(ctx: DiscordRouteContext): void {
   // Emulator control plane: cast or remove a poll vote (no real client to click), dispatching
   // MESSAGE_POLL_VOTE_ADD / MESSAGE_POLL_VOTE_REMOVE.
   app.post("/__emulate/poll-vote", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const body = (await c.req.json().catch(() => ({}))) as {
       message_id?: string;
       answer_id?: number;
