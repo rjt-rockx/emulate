@@ -158,7 +158,11 @@ function toAPIApplication(
     owner: owner ? toAPIUser(owner) : null,
     verify_key: application.verify_key,
     team,
+    type: null,
     flags: application.flags,
+    // flags_new carries flag bits beyond 30 as a string; explicit_content_filter is required by spec.
+    flags_new: String(application.flags ?? 0),
+    explicit_content_filter: 0,
     approximate_guild_count: approximateGuildCount,
     approximate_user_install_count: approximateUserInstallCount,
     approximate_user_authorization_count: approximateUserAuthorizationCount,

@@ -552,6 +552,8 @@ export function toAPIUser(u: DiscordUser, self = false): APIUser {
     accent_color: u.accent_color,
     // Stored as plain numbers; discord-api-types brands the flag/premium fields as enums.
     public_flags: u.public_flags as UserFlags,
+    // The official OpenAPI UserResponse requires `flags` on every user object, not just self.
+    flags: (u.flags ?? 0) as UserFlags,
     avatar_decoration_data: null,
     collectibles: null,
     primary_guild: null,
@@ -561,7 +563,6 @@ export function toAPIUser(u: DiscordUser, self = false): APIUser {
     base.locale = u.locale as APIUser["locale"];
     base.verified = u.verified;
     base.email = u.email;
-    base.flags = u.flags as UserFlags;
     base.premium_type = u.premium_type as UserPremiumType;
   }
   return base;
@@ -597,6 +598,8 @@ export function toAPIMember(
   const member: Omit<APIGuildMember, "user"> & { user?: APIUser } = {
     nick: m.nick,
     avatar: m.avatar,
+    // Required by the official OpenAPI GuildMemberResponse.
+    banner: m.banner ?? null,
     roles: m.role_snowflakes,
     joined_at: m.joined_at,
     premium_since: m.premium_since,
@@ -889,6 +892,9 @@ export function toAPIGuild(g: DiscordGuild, ds: DiscordStore, opts: GuildSeriali
     mfa_level: g.mfa_level,
     system_channel_id: g.system_channel_snowflake,
     nsfw_level: g.nsfw_level,
+    // Required by the official OpenAPI GuildResponse.
+    nsfw: g.nsfw ?? false,
+    home_header: g.home_header ?? null,
     premium_tier: g.premium_tier,
     premium_subscription_count: g.premium_subscription_count,
     preferred_locale: g.preferred_locale,

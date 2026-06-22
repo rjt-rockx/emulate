@@ -198,6 +198,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       icon: guild.icon,
       splash: guild.splash,
       discovery_splash: null,
+      home_header: null, // required by the official OpenAPI GuildPreviewResponse
       emojis: ds.emojis.findBy("guild_snowflake", guildId).map((e) => toAPIEmoji(e, ds)),
       features: guild.features,
       approximate_member_count: memberCount,

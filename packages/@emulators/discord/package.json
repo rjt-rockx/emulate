@@ -40,10 +40,12 @@
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "discord-api-types": "^0.38.49",
     "discord.js": "^14.26.4",
-    "tweetnacl": "^1.0.3",
     "tsup": "^8",
+    "tweetnacl": "^1.0.3",
     "typescript": "^5.7",
     "vitest": "^4.1.0"
   }

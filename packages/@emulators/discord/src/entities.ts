@@ -72,6 +72,10 @@ export interface DiscordGuild extends Entity {
   explicit_content_filter: number;
   mfa_level: number;
   nsfw_level: number;
+  /** Deprecated NSFW boolean (distinct from nsfw_level); required on the wire object. */
+  nsfw?: boolean;
+  /** Guild home header asset hash (null when unset). */
+  home_header?: string | null;
   premium_tier: number;
   premium_subscription_count: number;
   preferred_locale: string;
@@ -122,6 +126,7 @@ export interface DiscordGuildMember extends Entity {
   user_snowflake: string;
   nick: string | null;
   avatar: string | null;
+  banner?: string | null;
   role_snowflakes: string[];
   joined_at: string;
   premium_since: string | null;
