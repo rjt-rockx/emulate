@@ -37,10 +37,9 @@ Coverage:
 Voice is emulated end to end: the gateway Voice State Update (op 4) produces `VOICE_STATE_UPDATE`
 + `VOICE_SERVER_UPDATE`, the REST voice-state endpoints work, the voice gateway WebSocket
 (advertised at `/voice`) completes the Identify → Ready → Select Protocol → Session Description
-→ Heartbeat handshake, and the UDP media socket answers IP discovery and receives the RTP/Opus
-audio packets a bot streams. A bot can establish a full voice connection and send audio that the
-server receives. The only thing that does not happen is **relaying** that audio to other
-participants — in the emulator there are none, so there is nothing to forward it to.
+→ Heartbeat handshake, and the UDP media socket answers IP discovery, receives the RTP/Opus
+audio a bot streams, and **relays it to the other participants in the same guild's voice** (by
+SSRC). Two bots joined to the same voice channel can exchange audio end to end.
 
 ## Start
 
