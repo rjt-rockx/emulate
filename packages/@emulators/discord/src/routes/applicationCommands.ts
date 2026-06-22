@@ -1,9 +1,42 @@
 import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, snowflake, toAPIApplicationCommand } from "../helpers.js";
+import { getAuth, unauthorized, notFound, discordError, snowflake, toAPIApplicationCommand } from "../helpers.js";
 import type { DiscordApplicationCommand } from "../entities.js";
 import type { DiscordStore } from "../store.js";
+
+const NAME_RE = /^[-_\p{L}\p{N}]{1,32}$/u;
+
+/**
+ * Validate a command create body, returning a Discord `errors` tree (50035) or null. CHAT_INPUT
+ * (type 1) names must be 1-32 chars, match the name regex, and be lowercase; their description
+ * must be 1-100 chars. USER/MESSAGE (2/3) commands must have an empty description.
+ */
+function validateCommand(body: CommandInput): Record<string, unknown> | null {
+  const errors: Record<string, { _errors: Array<{ code: string; message: string }> }> = {};
+  const type = body.type ?? 1;
+  const name = body.name ?? "";
+  if (type === 1) {
+    // CHAT_INPUT: strict — regex (no spaces) and lowercase.
+    if (!NAME_RE.test(name)) {
+      errors.name = { _errors: [{ code: "STRING_TYPE_REGEX", message: "Must match ^[-_\\p{L}\\p{N}]{1,32}$" }] };
+    } else if (name !== name.toLowerCase()) {
+      errors.name = { _errors: [{ code: "APPLICATION_COMMAND_INVALID_NAME", message: "Command name must be lowercase" }] };
+    }
+  } else if (name.length < 1 || name.length > 32) {
+    // USER/MESSAGE context menu: 1-32 chars, spaces and mixed case allowed.
+    errors.name = { _errors: [{ code: "BASE_TYPE_BAD_LENGTH", message: "Must be between 1 and 32 in length." }] };
+  }
+  const description = body.description ?? "";
+  if (type === 1) {
+    if (description.length < 1 || description.length > 100) {
+      errors.description = { _errors: [{ code: "BASE_TYPE_BAD_LENGTH", message: "Must be between 1 and 100 in length." }] };
+    }
+  } else if (description.length > 0) {
+    errors.description = { _errors: [{ code: "BASE_TYPE_BAD_LENGTH", message: "Must be empty for this command type." }] };
+  }
+  return Object.keys(errors).length > 0 ? errors : null;
+}
 
 interface CommandInput {
   name?: string;
@@ -81,6 +114,8 @@ export function applicationCommandsRoutes(ctx: DiscordRouteContext): void {
     if (!requireBot(c)) return unauthorized(c);
     const ds = getDiscordStore(store);
     const body = (await c.req.json().catch(() => ({}))) as CommandInput;
+    const errors = validateCommand(body);
+    if (errors) return discordError(c, 400, "Invalid Form Body", 50035, { errors });
     const cmd = upsertCommand(ds, c.req.param("appId"), c.req.param("guildId"), body);
     return c.json(toAPIApplicationCommand(cmd), 201);
   });
@@ -146,6 +181,8 @@ export function applicationCommandsRoutes(ctx: DiscordRouteContext): void {
     if (!requireBot(c)) return unauthorized(c);
     const ds = getDiscordStore(store);
     const body = (await c.req.json().catch(() => ({}))) as CommandInput;
+    const errors = validateCommand(body);
+    if (errors) return discordError(c, 400, "Invalid Form Body", 50035, { errors });
     const cmd = upsertCommand(ds, c.req.param("appId"), null, body);
     return c.json(toAPIApplicationCommand(cmd), 201);
   });

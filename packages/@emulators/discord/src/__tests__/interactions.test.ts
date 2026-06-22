@@ -53,6 +53,43 @@ describe("discord application commands", () => {
   });
 });
 
+describe("application command validation", () => {
+  it("rejects an uppercase CHAT_INPUT name with 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const aid = appId(store);
+    const res = await app.request(api(`/applications/${aid}/commands`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "Ping", description: "x" }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { code: number; errors: { name?: unknown } };
+    expect(body.code).toBe(50035);
+    expect(body.errors.name).toBeTruthy();
+  });
+
+  it("rejects a CHAT_INPUT command with no description", async () => {
+    const { app, store } = createDiscordTestApp();
+    const res = await app.request(api(`/applications/${appId(store)}/commands`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "ping" }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("allows a USER context-menu name with spaces and capitals", async () => {
+    const { app, store } = createDiscordTestApp();
+    const res = await app.request(api(`/applications/${appId(store)}/commands`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "Report User", type: 2 }),
+    });
+    expect(res.status).toBe(201);
+  });
+});
+
 describe("discord interactions over the gateway", () => {
   let emu: RunningDiscordEmulator;
   const sockets: WebSocket[] = [];
