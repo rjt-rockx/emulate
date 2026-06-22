@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore, type DiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, toAPIUser, toAPIMessage, recordAudit, AuditLogEvent } from "../helpers.js";
+import { getAuth, unauthorized, notFound, toAPIUser, toAPIMessage, recordAudit, AuditLogEvent, auditReason } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 import type { DiscordBan, DiscordInvite } from "../entities.js";
 
@@ -95,8 +95,9 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
     const user = ds.users.findOneBy("snowflake", userId);
     if (!guild || !user) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as { reason?: string };
+    const reason = auditReason(c) ?? body.reason ?? null;
     if (!ds.bans.findBy("guild_snowflake", guildId).some((b) => b.user_snowflake === userId)) {
-      ds.bans.insert({ guild_snowflake: guildId, user_snowflake: userId, reason: body.reason ?? null });
+      ds.bans.insert({ guild_snowflake: guildId, user_snowflake: userId, reason });
     }
     // Remove the member if present.
     const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId);
@@ -121,7 +122,7 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
       actionType: AuditLogEvent.MemberBanAdd,
       actorSnowflake: auth.user?.snowflake ?? null,
       targetSnowflake: userId,
-      reason: body.reason ?? null,
+      reason,
     });
     return new Response(null, { status: 204 });
   });
@@ -147,6 +148,7 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
       actionType: AuditLogEvent.MemberBanRemove,
       actorSnowflake: auth.user?.snowflake ?? null,
       targetSnowflake: userId,
+      reason: auditReason(c),
     });
     return new Response(null, { status: 204 });
   });
@@ -160,6 +162,7 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
     const guild = ds.guilds.findOneBy("snowflake", guildId);
     if (!guild) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as { user_ids?: string[]; reason?: string };
+    const reason = auditReason(c) ?? body.reason ?? null;
     const userIds = Array.isArray(body.user_ids) ? body.user_ids.slice(0, 200) : [];
     const banned: string[] = [];
     const failed: string[] = [];
@@ -183,7 +186,7 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
         actionType: AuditLogEvent.MemberBanAdd,
         actorSnowflake: auth.user?.snowflake ?? null,
         targetSnowflake: userId,
-        reason: body.reason ?? null,
+        reason,
       });
       banned.push(userId);
     }

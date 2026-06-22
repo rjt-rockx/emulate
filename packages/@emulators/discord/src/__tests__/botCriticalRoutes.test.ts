@@ -107,6 +107,22 @@ describe("member + role management", () => {
     expect(bans.some((b) => b.user.id === developer)).toBe(true);
   });
 
+  it("attaches the X-Audit-Log-Reason header to bans and the audit log", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild, developer } = ids(store);
+    const res = await app.request(api(`/guilds/${guild}/bans/${developer}`), {
+      method: "PUT",
+      headers: { ...botHeaders(), "X-Audit-Log-Reason": "spamming%20links" },
+      body: "{}",
+    });
+    expect(res.status).toBe(204);
+    // The ban record and the audit entry both carry the decoded reason.
+    const ban = getDiscordStore(store).bans.findBy("guild_snowflake", guild).find((b) => b.user_snowflake === developer)!;
+    expect(ban.reason).toBe("spamming links");
+    const log = (await (await app.request(api(`/guilds/${guild}/audit-logs?action_type=22`), { headers: botHeaders() })).json()) as { audit_log_entries: Array<{ reason?: string }> };
+    expect(log.audit_log_entries[0]?.reason).toBe("spamming links");
+  });
+
   it("gets the current member then leaves the guild", async () => {
     const { app, store } = createDiscordTestApp();
     const { guild, bot } = ids(store);

@@ -11,6 +11,7 @@ import {
   toAPIUser,
   recordAudit,
   AuditLogEvent,
+  auditReason,
 } from "../helpers.js";
 import {
   createGuild,
@@ -540,6 +541,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       actionType: AuditLogEvent.MemberKick,
       actorSnowflake: auth.user?.snowflake ?? null,
       targetSnowflake: userId,
+      reason: auditReason(c),
     });
     return new Response(null, { status: 204 });
   });

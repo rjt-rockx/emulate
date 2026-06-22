@@ -149,6 +149,21 @@ export const AuditLogEvent = {
   WebhookDelete: 52,
 } as const;
 
+/**
+ * Read the moderation reason from the `X-Audit-Log-Reason` header (Discord's documented way
+ * to attach a reason to ban/kick/role/channel mutations — it is NOT a body field). The header
+ * is percent-encoded; decode it leniently.
+ */
+export function auditReason(c: Context<AppEnv>): string | null {
+  const raw = c.req.header("x-audit-log-reason") ?? c.req.header("X-Audit-Log-Reason");
+  if (!raw) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 export function recordAudit(
   ds: DiscordStore,
   bus: DiscordEventBus,
