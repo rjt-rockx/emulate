@@ -47,7 +47,7 @@ describe("discord auto-moderation", () => {
       await app.request(api(`/guilds/${guild}/auto-moderation/rules`), {
         method: "POST",
         headers: botHeaders(),
-        body: JSON.stringify({ name: "no spam", event_type: 1, trigger_type: 1, actions: [{ type: 1 }] }),
+        body: JSON.stringify({ name: "no spam", event_type: 1, trigger_type: 1, actions: [{ type: 1 }], enabled: true }),
       })
     ).json()) as { id: string; name: string; enabled: boolean };
     expect(created.name).toBe("no spam");
