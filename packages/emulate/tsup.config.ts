@@ -21,6 +21,9 @@ const shared = {
   define: {
     PKG_VERSION: JSON.stringify(pkg.version),
   },
+  // ws (used by the bundled @emulators/discord gateway) is CommonJS; keep it external so
+  // its internal require() calls run in a real CJS context instead of being bundled into ESM.
+  external: ["ws"],
 };
 
 export default defineConfig([
