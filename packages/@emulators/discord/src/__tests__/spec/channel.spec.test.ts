@@ -688,3 +688,388 @@ describe("channel.mdx — Pins", () => {
     expect(unpin.status).toBe(204);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Modify Channel validation (50035)
+// ---------------------------------------------------------------------------
+
+describe("channel.mdx — Modify Channel validation (50035)", () => {
+  it("rejects name shorter than 1 character", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const res = await app.request(api(`/channels/${general.snowflake}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "" }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects name longer than 100 characters", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const res = await app.request(api(`/channels/${general.snowflake}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "a".repeat(101) }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("accepts name at boundary length of 100", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const res = await app.request(api(`/channels/${general.snowflake}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "a".repeat(100) }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects topic longer than 1024 characters on a text channel", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const res = await app.request(api(`/channels/${general.snowflake}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ topic: "x".repeat(1025) }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects rate_limit_per_user above 21600", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const res = await app.request(api(`/channels/${general.snowflake}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ rate_limit_per_user: 21601 }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("accepts rate_limit_per_user at boundary of 21600", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const res = await app.request(api(`/channels/${general.snowflake}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ rate_limit_per_user: 21600 }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects bitrate below 8000", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { voice } = ids(store);
+    const res = await app.request(api(`/channels/${voice.snowflake}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ bitrate: 7999 }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("accepts bitrate exactly 8000", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { voice } = ids(store);
+    const res = await app.request(api(`/channels/${voice.snowflake}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ bitrate: 8000 }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects default_auto_archive_duration not in {60,1440,4320,10080}", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const res = await app.request(api(`/channels/${general.snowflake}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ default_auto_archive_duration: 999 }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("accepts default_auto_archive_duration values 60, 1440, 4320, 10080", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    for (const dur of [60, 1440, 4320, 10080]) {
+      const ch = (await (
+        await app.request(api(`/guilds/${guild}/channels`), {
+          method: "POST",
+          headers: botHeaders(),
+          body: JSON.stringify({ name: `ch-${dur}`, type: 0 }),
+        })
+      ).json()) as { id: string };
+      const res = await app.request(api(`/channels/${ch.id}`), {
+        method: "PATCH",
+        headers: botHeaders(),
+        body: JSON.stringify({ default_auto_archive_duration: dur }),
+      });
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it("rejects available_tags with more than 20 entries", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const forum = (await (
+      await app.request(api(`/guilds/${guild}/channels`), {
+        method: "POST",
+        headers: botHeaders(),
+        body: JSON.stringify({ name: "forum-validate", type: 15 }),
+      })
+    ).json()) as { id: string };
+    const res = await app.request(api(`/channels/${forum.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ available_tags: Array.from({ length: 21 }, (_, i) => ({ name: `tag${i}` })) }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects applied_tags with more than 5 entries", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const thread = (await (
+      await app.request(api(`/channels/${general.snowflake}/threads`), {
+        method: "POST",
+        headers: botHeaders(),
+        body: JSON.stringify({ name: "t", type: 11 }),
+      })
+    ).json()) as { id: string };
+    const res = await app.request(api(`/channels/${thread.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ applied_tags: ["1", "2", "3", "4", "5", "6"] }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Create Channel validation (50035)
+// ---------------------------------------------------------------------------
+
+describe("channel.mdx — Create Channel validation (50035)", () => {
+  it("rejects name longer than 100 characters", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const res = await app.request(api(`/guilds/${guild}/channels`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "a".repeat(101), type: 0 }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects rate_limit_per_user above 21600 on create", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const res = await app.request(api(`/guilds/${guild}/channels`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "slow", type: 0, rate_limit_per_user: 99999 }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects bitrate below 8000 on create", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const res = await app.request(api(`/guilds/${guild}/channels`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "vc", type: 2, bitrate: 100 }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects available_tags with more than 20 entries on create", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const res = await app.request(api(`/guilds/${guild}/channels`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "forum-over", type: 15, available_tags: Array.from({ length: 21 }, (_, i) => ({ name: `t${i}` })) }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Modify Channel type conversion
+// ---------------------------------------------------------------------------
+
+describe("channel.mdx — Modify Channel type conversion", () => {
+  it("allows converting a GUILD_TEXT (0) to GUILD_ANNOUNCEMENT (5)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const res = await app.request(api(`/channels/${general.snowflake}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ type: 5 }),
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { type: number }).type).toBe(5);
+  });
+
+  it("allows converting a GUILD_ANNOUNCEMENT (5) back to GUILD_TEXT (0)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const ann = (await (
+      await app.request(api(`/guilds/${guild}/channels`), {
+        method: "POST",
+        headers: botHeaders(),
+        body: JSON.stringify({ name: "news", type: 5 }),
+      })
+    ).json()) as { id: string };
+    const res = await app.request(api(`/channels/${ann.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ type: 0 }),
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { type: number }).type).toBe(0);
+  });
+
+  it("rejects converting a GUILD_TEXT (0) to GUILD_VOICE (2)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const res = await app.request(api(`/channels/${general.snowflake}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ type: 2 }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Get Channel Pins / Pin / Unpin — response shape assertions (group-B 4.4)
+// ---------------------------------------------------------------------------
+
+describe("channel.mdx — Pins response shape", () => {
+  it("Get Channel Pins returns {items, has_more} shape", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const res = await app.request(api(`/channels/${general.snowflake}/messages/pins`), { headers: botHeaders() });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: unknown[]; has_more: boolean };
+    expect(Array.isArray(body.items)).toBe(true);
+    expect(typeof body.has_more).toBe("boolean");
+  });
+
+  it("pinned message appears in items with message shape", async () => {
+    const { app, store } = createDiscordTestApp();
+    const ds = getDiscordStore(store);
+    const { general, botSnowflake } = ids(store);
+    const msg = createMessage(ds, {
+      channelSnowflake: general.snowflake,
+      guildSnowflake: general.guild_snowflake,
+      authorSnowflake: botSnowflake,
+      content: "pin me 2",
+    });
+    await app.request(api(`/channels/${general.snowflake}/messages/pins/${msg.snowflake}`), { method: "PUT", headers: botHeaders() });
+    const body = (await (await app.request(api(`/channels/${general.snowflake}/messages/pins`), { headers: botHeaders() })).json()) as {
+      items: Array<{ pinned_at: string; message: { id: string; content: string } }>;
+      has_more: boolean;
+    };
+    const item = body.items.find((i) => i.message.id === msg.snowflake);
+    expect(item).toBeDefined();
+    expect(typeof item!.pinned_at).toBe("string");
+    expect(item!.message.content).toBe("pin me 2");
+    expect(body.has_more).toBe(false);
+  });
+
+  it("Pin returns 204", async () => {
+    const { app, store } = createDiscordTestApp();
+    const ds = getDiscordStore(store);
+    const { general, botSnowflake } = ids(store);
+    const msg = createMessage(ds, {
+      channelSnowflake: general.snowflake,
+      guildSnowflake: general.guild_snowflake,
+      authorSnowflake: botSnowflake,
+      content: "pin status",
+    });
+    const res = await app.request(api(`/channels/${general.snowflake}/messages/pins/${msg.snowflake}`), {
+      method: "PUT",
+      headers: botHeaders(),
+    });
+    expect(res.status).toBe(204);
+  });
+
+  it("Unpin returns 204", async () => {
+    const { app, store } = createDiscordTestApp();
+    const ds = getDiscordStore(store);
+    const { general, botSnowflake } = ids(store);
+    const msg = createMessage(ds, {
+      channelSnowflake: general.snowflake,
+      guildSnowflake: general.guild_snowflake,
+      authorSnowflake: botSnowflake,
+      content: "unpin me",
+    });
+    await app.request(api(`/channels/${general.snowflake}/messages/pins/${msg.snowflake}`), { method: "PUT", headers: botHeaders() });
+    const res = await app.request(api(`/channels/${general.snowflake}/messages/pins/${msg.snowflake}`), {
+      method: "DELETE",
+      headers: botHeaders(),
+    });
+    expect(res.status).toBe(204);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Set Voice Channel Status — 500-char limit and nullable
+// ---------------------------------------------------------------------------
+
+describe("channel.mdx — Set Voice Channel Status", () => {
+  it("rejects status longer than 500 characters", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { voice } = ids(store);
+    const res = await app.request(api(`/channels/${voice.snowflake}/voice-status`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify({ status: "x".repeat(501) }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("accepts status at exactly 500 characters", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { voice } = ids(store);
+    const res = await app.request(api(`/channels/${voice.snowflake}/voice-status`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify({ status: "x".repeat(500) }),
+    });
+    expect(res.status).toBe(204);
+  });
+
+  it("accepts null status (clear status)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { voice } = ids(store);
+    const res = await app.request(api(`/channels/${voice.snowflake}/voice-status`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify({ status: null }),
+    });
+    expect(res.status).toBe(204);
+  });
+});

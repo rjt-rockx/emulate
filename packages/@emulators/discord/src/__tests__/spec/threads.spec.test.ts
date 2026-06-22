@@ -502,3 +502,141 @@ describe("threads.mdx — List Active Guild Threads", () => {
     expect(body.threads.some((t) => t.id === archived.id)).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Thread archive_timestamp refresh (TH1)
+// ---------------------------------------------------------------------------
+
+describe("threads.mdx — archive_timestamp refreshes on archive/unarchive", () => {
+  it("archive_timestamp is updated when a thread is archived", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const thread = (await (
+      await app.request(api(`/channels/${general.snowflake}/threads`), {
+        method: "POST",
+        headers: botHeaders(),
+        body: JSON.stringify({ name: "ts-test", type: 11 }),
+      })
+    ).json()) as { id: string; thread_metadata: { archive_timestamp: string } };
+    const originalTs = thread.thread_metadata.archive_timestamp;
+
+    // Small delay to ensure a different timestamp.
+    await new Promise((r) => setTimeout(r, 10));
+
+    const patched = (await (
+      await app.request(api(`/channels/${thread.id}`), {
+        method: "PATCH",
+        headers: botHeaders(),
+        body: JSON.stringify({ archived: true }),
+      })
+    ).json()) as { thread_metadata: { archive_timestamp: string; archived: boolean } };
+
+    expect(patched.thread_metadata.archived).toBe(true);
+    expect(patched.thread_metadata.archive_timestamp).not.toBe(originalTs);
+  });
+
+  it("archive_timestamp is updated when a thread is unarchived", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const thread = (await (
+      await app.request(api(`/channels/${general.snowflake}/threads`), {
+        method: "POST",
+        headers: botHeaders(),
+        body: JSON.stringify({ name: "ts-unarchive", type: 11 }),
+      })
+    ).json()) as { id: string };
+
+    // Archive first.
+    await app.request(api(`/channels/${thread.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ archived: true }),
+    });
+
+    const archived = (await (await app.request(api(`/channels/${thread.id}`), { headers: botHeaders() })).json()) as {
+      thread_metadata: { archive_timestamp: string };
+    };
+    const archivedTs = archived.thread_metadata.archive_timestamp;
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    const unarchived = (await (
+      await app.request(api(`/channels/${thread.id}`), {
+        method: "PATCH",
+        headers: botHeaders(),
+        body: JSON.stringify({ archived: false }),
+      })
+    ).json()) as { thread_metadata: { archive_timestamp: string; archived: boolean } };
+
+    expect(unarchived.thread_metadata.archived).toBe(false);
+    expect(unarchived.thread_metadata.archive_timestamp).not.toBe(archivedTs);
+  });
+
+  it("archive_timestamp updates when auto_archive_duration changes", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const thread = (await (
+      await app.request(api(`/channels/${general.snowflake}/threads`), {
+        method: "POST",
+        headers: botHeaders(),
+        body: JSON.stringify({ name: "ts-dur", type: 11, auto_archive_duration: 60 }),
+      })
+    ).json()) as { id: string; thread_metadata: { archive_timestamp: string } };
+    const originalTs = thread.thread_metadata.archive_timestamp;
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    const patched = (await (
+      await app.request(api(`/channels/${thread.id}`), {
+        method: "PATCH",
+        headers: botHeaders(),
+        body: JSON.stringify({ auto_archive_duration: 1440 }),
+      })
+    ).json()) as { thread_metadata: { archive_timestamp: string } };
+
+    expect(patched.thread_metadata.archive_timestamp).not.toBe(originalTs);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Thread modify: applied_tags <= 5
+// ---------------------------------------------------------------------------
+
+describe("threads.mdx — Thread modify applied_tags limit", () => {
+  it("rejects applied_tags with more than 5 entries on thread modify", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const thread = (await (
+      await app.request(api(`/channels/${general.snowflake}/threads`), {
+        method: "POST",
+        headers: botHeaders(),
+        body: JSON.stringify({ name: "t", type: 11 }),
+      })
+    ).json()) as { id: string };
+    const res = await app.request(api(`/channels/${thread.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ applied_tags: ["1", "2", "3", "4", "5", "6"] }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("accepts applied_tags with exactly 5 entries", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const thread = (await (
+      await app.request(api(`/channels/${general.snowflake}/threads`), {
+        method: "POST",
+        headers: botHeaders(),
+        body: JSON.stringify({ name: "t", type: 11 }),
+      })
+    ).json()) as { id: string };
+    const res = await app.request(api(`/channels/${thread.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ applied_tags: ["1", "2", "3", "4", "5"] }),
+    });
+    expect(res.status).toBe(200);
+  });
+});

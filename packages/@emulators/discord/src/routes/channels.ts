@@ -9,6 +9,7 @@ import {
   unknownGuild,
   unknownChannel,
   unknownMessage,
+  invalidFormBody,
   toAPIChannel,
   toAPIMember,
   toAPIMessage,
@@ -55,6 +56,34 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
       body = await c.req.json();
     } catch {
       // no-op
+    }
+    // Validate Create Channel params
+    if (typeof body.name === "string" && (body.name.length < 1 || body.name.length > 100)) {
+      return invalidFormBody(c, { name: "Must be between 1 and 100 in length." });
+    }
+    if (typeof body.topic === "string") {
+      const t = body.type as number | undefined;
+      const maxTopic = (t === 15 || t === 16) ? 4096 : 1024;
+      if (body.topic.length > maxTopic) {
+        return invalidFormBody(c, { topic: `Must be ${maxTopic} or fewer in length.` });
+      }
+    }
+    if (typeof body.rate_limit_per_user === "number" && (body.rate_limit_per_user < 0 || body.rate_limit_per_user > 21600)) {
+      return invalidFormBody(c, { rate_limit_per_user: "Must be between 0 and 21600." });
+    }
+    if (typeof body.user_limit === "number" && (body.user_limit < 0 || body.user_limit > 10000)) {
+      return invalidFormBody(c, { user_limit: "Must be between 0 and 10000." });
+    }
+    if (typeof body.bitrate === "number" && body.bitrate < 8000) {
+      return invalidFormBody(c, { bitrate: "Must be 8000 or greater." });
+    }
+    const VALID_AUTO_ARCHIVE_CREATE = new Set([60, 1440, 4320, 10080]);
+    if (body.default_auto_archive_duration !== undefined && body.default_auto_archive_duration !== null &&
+        !VALID_AUTO_ARCHIVE_CREATE.has(body.default_auto_archive_duration as number)) {
+      return invalidFormBody(c, { default_auto_archive_duration: "Must be one of 60, 1440, 4320, 10080." });
+    }
+    if (Array.isArray(body.available_tags) && body.available_tags.length > 20) {
+      return invalidFormBody(c, { available_tags: "Must be 20 or fewer in length." });
     }
     const channel = createChannel(ds, {
       name: (body.name as string | undefined) ?? "new-channel",
@@ -141,7 +170,67 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     } catch {
       // no-op
     }
+    // --- Validation: field ranges per the Discord docs ---
+
+    if (typeof body.name === "string" && (body.name.length < 1 || body.name.length > 100)) {
+      return invalidFormBody(c, { name: "Must be between 1 and 100 in length." });
+    }
+
+    // Topic length: text/announcement channels allow up to 1024 chars; forum/media up to 4096
+    if (typeof body.topic === "string") {
+      const maxTopic = (channel.type === 15 || channel.type === 16) ? 4096 : 1024;
+      if (body.topic.length > maxTopic) {
+        return invalidFormBody(c, { topic: `Must be ${maxTopic} or fewer in length.` });
+      }
+    }
+
+    if (typeof body.rate_limit_per_user === "number" && (body.rate_limit_per_user < 0 || body.rate_limit_per_user > 21600)) {
+      return invalidFormBody(c, { rate_limit_per_user: "Must be between 0 and 21600." });
+    }
+
+    if (typeof body.user_limit === "number") {
+      // voice: 0-99, stage: 0-10000; treat both as 0-10000
+      if (body.user_limit < 0 || body.user_limit > 10000) {
+        return invalidFormBody(c, { user_limit: "Must be between 0 and 10000." });
+      }
+    }
+
+    if (typeof body.bitrate === "number" && body.bitrate < 8000) {
+      return invalidFormBody(c, { bitrate: "Must be 8000 or greater." });
+    }
+
+    const VALID_AUTO_ARCHIVE = new Set([60, 1440, 4320, 10080]);
+    if (body.default_auto_archive_duration !== undefined && body.default_auto_archive_duration !== null &&
+        !VALID_AUTO_ARCHIVE.has(body.default_auto_archive_duration as number)) {
+      return invalidFormBody(c, { default_auto_archive_duration: "Must be one of 60, 1440, 4320, 10080." });
+    }
+
+    if (Array.isArray(body.available_tags) && body.available_tags.length > 20) {
+      return invalidFormBody(c, { available_tags: "Must be 20 or fewer in length." });
+    }
+
+    if (Array.isArray(body.applied_tags) && body.applied_tags.length > 5) {
+      return invalidFormBody(c, { applied_tags: "Must be 5 or fewer in length." });
+    }
+
     const patch: Record<string, unknown> = {};
+
+    // Type conversion: only Text (0) <-> Announcement (5) is allowed.
+    if (body.type !== undefined) {
+      const fromType = channel.type;
+      const toType = body.type as number;
+      const allowedConversion =
+        (fromType === 0 && toType === 5) || (fromType === 5 && toType === 0);
+      if (!allowedConversion) {
+        if (fromType !== toType) {
+          return invalidFormBody(c, { type: "Cannot convert channel to this type." });
+        }
+        // same type: ignore silently
+      } else {
+        patch.type = toType;
+      }
+    }
+
     if (body.name !== undefined) patch.name = body.name;
     if (body.topic !== undefined) patch.topic = body.topic;
     if (body.position !== undefined) patch.position = body.position;
@@ -171,12 +260,16 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
         body.auto_archive_duration !== undefined ||
         body.invitable !== undefined)
     ) {
+      const existingMeta = channel.thread_metadata ?? { archived: false, auto_archive_duration: 1440, archive_timestamp: new Date().toISOString(), locked: false };
+      const newArchived = body.archived !== undefined ? !!body.archived : existingMeta.archived;
+      const archiveChanged = body.archived !== undefined || body.auto_archive_duration !== undefined;
       patch.thread_metadata = {
-        ...(channel.thread_metadata ?? { archived: false, auto_archive_duration: 1440, archive_timestamp: new Date().toISOString(), locked: false }),
-        ...(body.archived !== undefined ? { archived: !!body.archived } : {}),
+        ...existingMeta,
+        ...(body.archived !== undefined ? { archived: newArchived } : {}),
         ...(body.locked !== undefined ? { locked: !!body.locked } : {}),
         ...(body.auto_archive_duration !== undefined ? { auto_archive_duration: body.auto_archive_duration } : {}),
         ...(body.invitable !== undefined ? { invitable: !!body.invitable } : {}),
+        ...(archiveChanged ? { archive_timestamp: new Date().toISOString() } : {}),
       };
     }
     const channelChanges = Object.keys(patch)
@@ -473,6 +566,9 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
     if (!channel) return unknownChannel(c);
     const body = (await c.req.json().catch(() => ({}))) as { status?: string | null };
+    if (typeof body.status === "string" && body.status.length > 500) {
+      return invalidFormBody(c, { status: "Must be 500 or fewer in length." });
+    }
     store.setData(`discord.voice_status.${channel.snowflake}`, body.status ?? null);
     bus.publish({
       t: "VOICE_CHANNEL_STATUS_UPDATE",
