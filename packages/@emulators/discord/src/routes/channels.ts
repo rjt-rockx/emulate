@@ -14,9 +14,11 @@ import {
   recordAudit,
   AuditLogEvent,
   snowflake,
+  requirePermission,
 } from "../helpers.js";
 import { createChannel } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
+import { PermissionFlags } from "../permissions.js";
 
 /** Message flag bit for a crossposted (published) announcement message. */
 const MESSAGE_FLAG_CROSSPOSTED = 1 << 1;
@@ -43,6 +45,8 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
     if (!ds.guilds.findOneBy("snowflake", guildId)) return unknownGuild(c);
+    const denied = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageChannels, { guildId });
+    if (denied) return denied;
     let body: Record<string, unknown> = {};
     try {
       body = await c.req.json();

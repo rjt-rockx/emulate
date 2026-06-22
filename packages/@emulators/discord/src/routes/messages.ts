@@ -1,8 +1,9 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, unknownChannel, unknownMessage, discordError, toAPIMessage, redactMessageContent, isEphemeral, parseMessageBody } from "../helpers.js";
+import { getAuth, unauthorized, unknownChannel, unknownMessage, discordError, toAPIMessage, redactMessageContent, isEphemeral, parseMessageBody, requirePermission } from "../helpers.js";
 import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
+import { PermissionFlags } from "../permissions.js";
 import type { DiscordMessage } from "../entities.js";
 
 const MENTION_RE = /<@!?(\d+)>/g;
@@ -82,6 +83,8 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
     const channelId = c.req.param("channelId");
     const channel = ds.channels.findOneBy("snowflake", channelId);
     if (!channel) return unknownChannel(c);
+    const denied = requirePermission(c, store, auth.user.snowflake, PermissionFlags.SendMessages, { channelId });
+    if (denied) return denied;
     // Accept JSON or multipart/form-data (file uploads -> synthesized attachment objects).
     const { body, attachments: uploaded } = await parseMessageBody(c, baseUrl, channelId);
     const content = typeof body.content === "string" ? body.content : "";

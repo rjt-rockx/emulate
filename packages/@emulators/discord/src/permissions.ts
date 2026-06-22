@@ -98,6 +98,24 @@ export function computePermissions(ds: DiscordStore, userSnowflake: string, chan
   return base;
 }
 
+/**
+ * Compute a member's guild-level permissions (no channel overwrites), for guild-wide actions
+ * like kick/ban/manage-guild. Owner and ADMINISTRATOR short-circuit to all permissions.
+ */
+export function computeGuildPermissions(ds: DiscordStore, userSnowflake: string, guildSnowflake: string): bigint {
+  const guild = ds.guilds.findOneBy("snowflake", guildSnowflake);
+  if (!guild) return 0n;
+  if (guild.owner_snowflake === userSnowflake) return ALL;
+  const member = ds.members.findBy("guild_snowflake", guildSnowflake).find((m) => m.user_snowflake === userSnowflake);
+  const everyoneRole = ds.roles.findOneBy("snowflake", guildSnowflake);
+  let base = parse(everyoneRole?.permissions);
+  const memberRoleIds = new Set(member?.role_snowflakes ?? []);
+  for (const role of ds.roles.findBy("guild_snowflake", guildSnowflake)) {
+    if (memberRoleIds.has(role.snowflake)) base |= parse(role.permissions);
+  }
+  return base & PermissionFlags.Administrator ? ALL : base;
+}
+
 export function hasPermission(perms: bigint, flag: bigint): boolean {
   return (perms & PermissionFlags.Administrator) === PermissionFlags.Administrator || (perms & flag) === flag;
 }

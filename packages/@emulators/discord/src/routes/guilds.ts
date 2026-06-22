@@ -17,6 +17,7 @@ import {
   recordAudit,
   AuditLogEvent,
   auditReason,
+  requirePermission,
 } from "../helpers.js";
 import {
   createGuild,
@@ -25,6 +26,7 @@ import {
   createEmoji,
 } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
+import { PermissionFlags } from "../permissions.js";
 
 export function guildsRoutes(ctx: DiscordRouteContext): void {
   const { app, store, bus } = ctx;
@@ -301,6 +303,8 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const guildId = c.req.param("guildId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
     if (!guild) return unknownGuild(c);
+    const denied = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageRoles, { guildId });
+    if (denied) return denied;
     let body: Record<string, unknown> = {};
     try {
       body = await c.req.json();
@@ -393,6 +397,8 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (!guild) return unknownGuild(c);
     const role = ds.roles.findOneBy("snowflake", roleId);
     if (!role || role.guild_snowflake !== guildId) return unknownRole(c);
+    const denied = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageRoles, { guildId });
+    if (denied) return denied;
     ds.roles.delete(role.id);
     bus.publish({
       t: "GUILD_ROLE_DELETE",
@@ -545,6 +551,8 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (!guild) return unknownGuild(c);
     const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId);
     if (!member) return unknownMember(c);
+    const denied = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.KickMembers, { guildId });
+    if (denied) return denied;
     const user = ds.users.findOneBy("snowflake", userId);
     ds.members.delete(member.id);
     // Remove from guild.member_snowflakes.

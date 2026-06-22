@@ -1,5 +1,6 @@
 import { type Context, type AppEnv, type ContentfulStatusCode, type Store } from "@emulators/core";
 import { getDiscordStore, type DiscordStore } from "./store.js";
+import { computePermissions, computeGuildPermissions, hasPermission } from "./permissions.js";
 import { Intents } from "./gateway/intents.js";
 import type { DiscordEventBus } from "./gateway/dispatcher.js";
 import type {
@@ -79,6 +80,38 @@ export const unknownBan = (c: Context<AppEnv>): Response => discordError(c, 404,
 export const unknownInvite = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Invite", 10006);
 export const unknownEmoji = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Emoji", 10014);
 export const unknownWebhook = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Webhook", 10015);
+
+// ---------------------------------------------------------------------------
+// Permission enforcement (opt-in)
+// ---------------------------------------------------------------------------
+
+/** Whether permission checks are enforced (off by default; enable via seed `enforce_permissions`). */
+export function permissionsEnforced(store: Store): boolean {
+  return store.getData<boolean>("discord.enforce_permissions") === true;
+}
+
+/**
+ * When enforcement is enabled, verify the acting bot holds `flag` (channel-scoped if a
+ * channelId is given, otherwise guild-scoped) and return a 403 "Missing Permissions" (50013)
+ * if not. Returns null (proceed) when enforcement is off or the permission is held — so it is
+ * a no-op by default and every existing caller stays lenient.
+ */
+export function requirePermission(
+  c: Context<AppEnv>,
+  store: Store,
+  userSnowflake: string | undefined,
+  flag: bigint,
+  scope: { channelId?: string; guildId?: string },
+): Response | null {
+  if (!permissionsEnforced(store)) return null;
+  if (!userSnowflake) return discordError(c, 403, "Missing Permissions", 50013);
+  const ds = getDiscordStore(store);
+  const perms = scope.channelId
+    ? computePermissions(ds, userSnowflake, scope.channelId)
+    : computeGuildPermissions(ds, userSnowflake, scope.guildId ?? "");
+  if (hasPermission(perms, flag)) return null;
+  return discordError(c, 403, "Missing Permissions", 50013);
+}
 
 // ---------------------------------------------------------------------------
 // Multipart-aware body parsing (file uploads)

@@ -82,6 +82,8 @@ export interface DiscordSeedConfig {
   tokens?: DiscordSeedToken[];
   webhooks?: DiscordSeedWebhook[];
   strict_scopes?: boolean;
+  /** Enforce Discord permissions on mutations (50013 when the bot lacks them). Default off. */
+  enforce_permissions?: boolean;
 }
 
 const DEFAULT_BOT_TOKEN = "test_bot_token";
@@ -128,6 +130,9 @@ export function seedDefaults(store: Store, _baseUrl: string): void {
 export function seedFromConfig(store: Store, _baseUrl: string, config: DiscordSeedConfig): void {
   const ds = getDiscordStore(store);
 
+  if (typeof config.enforce_permissions === "boolean") {
+    store.setData("discord.enforce_permissions", config.enforce_permissions);
+  }
   if (typeof config.strict_scopes === "boolean") {
     store.setData("discord.strict_scopes", config.strict_scopes);
   }
