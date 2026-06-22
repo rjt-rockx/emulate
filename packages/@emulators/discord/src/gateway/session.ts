@@ -31,6 +31,14 @@ export interface GatewaySession {
   /** Set when the connection requested transport compression (zlib-stream). */
   compressor?: ZlibCompressor;
   heartbeatAckPending: boolean;
+  /** Heartbeat interval (ms) advertised to this connection; drives zombie detection. */
+  heartbeatInterval: number;
+  /** Timer that closes the connection (4009) if no heartbeat arrives in time. */
+  zombieTimer?: ReturnType<typeof setTimeout>;
+  /** Start of the current command-rate-limit window (ms epoch). */
+  commandWindowStart: number;
+  /** Number of inbound commands counted in the current window. */
+  commandCount: number;
 }
 
 /**

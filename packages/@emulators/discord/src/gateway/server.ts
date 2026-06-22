@@ -49,10 +49,27 @@ export class GatewayServer {
   // Connection lifecycle
   // -------------------------------------------------------------------------
 
+  /** Heartbeat interval advertised to clients (overridable via store data for testing). */
+  private heartbeatInterval(): number {
+    const v = this.store.getData<number>("discord.gateway.heartbeat_interval");
+    return typeof v === "number" && v > 0 ? v : HEARTBEAT_INTERVAL;
+  }
+
+  /** Inbound-command rate limit per window (default Discord's 120 / 60s). */
+  private commandLimit(): { limit: number; windowMs: number } {
+    const limit = this.store.getData<number>("discord.gateway.command_limit");
+    const windowMs = this.store.getData<number>("discord.gateway.command_window_ms");
+    return {
+      limit: typeof limit === "number" && limit > 0 ? limit : 120,
+      windowMs: typeof windowMs === "number" && windowMs > 0 ? windowMs : 60_000,
+    };
+  }
+
   private onConnection(ws: WebSocket, req: IncomingMessage): void {
     const url = new URL(req.url ?? "/", "http://localhost");
     const encoding = (url.searchParams.get("encoding") ?? "json") as "json" | "etf";
     const compress = url.searchParams.get("compress");
+    const heartbeatInterval = this.heartbeatInterval();
 
     const session: GatewaySession = {
       ws,
@@ -68,6 +85,9 @@ export class GatewayServer {
       buffer: [],
       encoding,
       heartbeatAckPending: false,
+      heartbeatInterval,
+      commandWindowStart: Date.now(),
+      commandCount: 0,
     };
     this.sessions.add(session);
 
@@ -80,11 +100,36 @@ export class GatewayServer {
     // context for the connection). Other schemes (e.g. zstd-stream) fall back to plain.
     if (compress === "zlib-stream") session.compressor = new ZlibCompressor();
 
-    this.send(session, { op: GatewayOpcodes.Hello, d: { heartbeat_interval: HEARTBEAT_INTERVAL } });
+    this.send(session, { op: GatewayOpcodes.Hello, d: { heartbeat_interval: heartbeatInterval } });
 
     ws.on("message", (raw) => this.onMessage(session, raw));
     ws.on("close", () => this.removeSession(session, true));
     ws.on("error", () => this.removeSession(session, true));
+  }
+
+  /**
+   * Arm (or re-arm) the zombie timer: if the client doesn't heartbeat within ~1.5x the
+   * advertised interval, the connection is declared dead and closed with 4009.
+   */
+  private armZombieTimer(session: GatewaySession): void {
+    if (session.zombieTimer) clearTimeout(session.zombieTimer);
+    const timer = setTimeout(() => {
+      this.closeSession(session, GatewayCloseCodes.SessionTimedOut, "Session timed out");
+    }, Math.ceil(session.heartbeatInterval * 1.5));
+    if (typeof timer.unref === "function") timer.unref();
+    session.zombieTimer = timer;
+  }
+
+  /** Count an inbound command; returns false if the per-window limit is exceeded. */
+  private withinCommandLimit(session: GatewaySession): boolean {
+    const { limit, windowMs } = this.commandLimit();
+    const now = Date.now();
+    if (now - session.commandWindowStart >= windowMs) {
+      session.commandWindowStart = now;
+      session.commandCount = 0;
+    }
+    session.commandCount += 1;
+    return session.commandCount <= limit;
   }
 
   private onMessage(session: GatewaySession, raw: RawData): void {
@@ -98,6 +143,12 @@ export class GatewayServer {
       }
     } catch {
       this.closeSession(session, GatewayCloseCodes.DecodeError, "Failed to decode payload");
+      return;
+    }
+
+    // Per-connection command rate limit (Discord closes 4008 when exceeded).
+    if (!this.withinCommandLimit(session)) {
+      this.closeSession(session, GatewayCloseCodes.RateLimited, "Rate limited");
       return;
     }
 
@@ -117,6 +168,7 @@ export class GatewayServer {
         break;
       case GatewayOpcodes.Heartbeat:
         session.heartbeatAckPending = false;
+        if (session.identified) this.armZombieTimer(session); // a live heartbeat clears the zombie countdown
         this.send(session, { op: GatewayOpcodes.HeartbeatAck });
         break;
       case GatewayOpcodes.Resume:
@@ -203,6 +255,8 @@ export class GatewayServer {
       const guild = ds.guilds.findOneBy("snowflake", guildId);
       if (guild) this.dispatch(session, "GUILD_CREATE", toAPIGuild(guild, ds, { full: true }));
     }
+
+    this.armZombieTimer(session);
   }
 
   private handleRequestGuildMembers(session: GatewaySession, data: unknown): void {
@@ -284,6 +338,7 @@ export class GatewayServer {
       }
     }
     this.dispatch(session, "RESUMED", {});
+    this.armZombieTimer(session);
   }
 
   /**
@@ -459,6 +514,7 @@ export class GatewayServer {
   private removeSession(session: GatewaySession, resumable = false): void {
     if (!this.sessions.has(session)) return;
     this.sessions.delete(session);
+    if (session.zombieTimer) clearTimeout(session.zombieTimer);
     session.compressor?.close();
     const ds = getDiscordStore(this.store);
     const record = ds.gatewaySessions.findOneBy("session_id", session.sessionId);
