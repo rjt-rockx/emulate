@@ -22,6 +22,7 @@ import type {
   DiscordStageInstance,
   DiscordAutoModRule,
   DiscordGuildTemplate,
+  DiscordPollVote,
   DiscordGatewaySession,
 } from "./entities.js";
 
@@ -48,6 +49,7 @@ export interface DiscordStore {
   stageInstances: Collection<DiscordStageInstance>;
   autoModRules: Collection<DiscordAutoModRule>;
   guildTemplates: Collection<DiscordGuildTemplate>;
+  pollVotes: Collection<DiscordPollVote>;
   gatewaySessions: Collection<DiscordGatewaySession>;
 }
 
@@ -86,6 +88,7 @@ export function getDiscordStore(store: Store): DiscordStore {
     stageInstances: store.collection<DiscordStageInstance>("discord.stage_instances", ["snowflake", "channel_snowflake"]),
     autoModRules: store.collection<DiscordAutoModRule>("discord.automod_rules", ["snowflake", "guild_snowflake"]),
     guildTemplates: store.collection<DiscordGuildTemplate>("discord.guild_templates", ["code", "source_guild_snowflake"]),
+    pollVotes: store.collection<DiscordPollVote>("discord.poll_votes", ["message_snowflake", "user_snowflake"]),
     gatewaySessions: store.collection<DiscordGatewaySession>("discord.gateway_sessions", ["session_id"]),
   };
 }

@@ -276,6 +276,30 @@ export function toAPIMessage(m: DiscordMessage, ds: DiscordStore, meSnowflake?: 
           return ref ? toAPIMessage(ref, ds) : null;
         })()
       : undefined,
+    poll: m.poll ? toAPIPoll(m, ds, meSnowflake) : undefined,
+  };
+}
+
+export function toAPIPoll(m: DiscordMessage, ds: DiscordStore, meSnowflake?: string): Record<string, unknown> {
+  const poll = m.poll!;
+  const votes = ds.pollVotes.findBy("message_snowflake", m.snowflake);
+  const counts = new Map<number, { count: number; me: boolean }>();
+  for (const v of votes) {
+    const agg = counts.get(v.answer_id) ?? { count: 0, me: false };
+    agg.count += 1;
+    if (meSnowflake && v.user_snowflake === meSnowflake) agg.me = true;
+    counts.set(v.answer_id, agg);
+  }
+  return {
+    question: poll.question,
+    answers: poll.answers,
+    expiry: poll.expiry ?? null,
+    allow_multiselect: poll.allow_multiselect ?? false,
+    layout_type: poll.layout_type ?? 1,
+    results: {
+      is_finalized: !!m.poll_finalized,
+      answer_counts: [...counts.entries()].map(([id, a]) => ({ id, count: a.count, me_voted: a.me })),
+    },
   };
 }
 

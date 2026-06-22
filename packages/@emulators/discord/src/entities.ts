@@ -167,6 +167,24 @@ export interface DiscordMessage extends Entity {
   nonce: string | null;
   message_reference: DiscordMessageReference | null;
   referenced_message_snowflake: string | null;
+  poll?: DiscordPoll | null;
+  poll_finalized?: boolean;
+}
+
+export interface DiscordPoll {
+  question: { text: string };
+  answers: Array<{ answer_id: number; poll_media: { text?: string; emoji?: unknown } }>;
+  expiry?: string | null;
+  allow_multiselect?: boolean;
+  layout_type?: number;
+}
+
+export interface DiscordPollVote extends Entity {
+  message_snowflake: string;
+  channel_snowflake: string;
+  guild_snowflake: string | null;
+  answer_id: number;
+  user_snowflake: string;
 }
 
 export interface DiscordMessageReference {

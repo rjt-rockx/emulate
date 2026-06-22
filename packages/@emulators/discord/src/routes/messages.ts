@@ -70,6 +70,7 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
       components: (body.components as unknown[] | undefined) ?? [],
       nonce: typeof body.nonce === "string" ? body.nonce : null,
       messageReference: (body.message_reference as never) ?? null,
+      poll: (body.poll as never) ?? null,
       mentionSnowflakes: mentions.users,
       mentionEveryone: mentions.everyone,
     });

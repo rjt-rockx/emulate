@@ -271,6 +271,7 @@ export interface CreateMessageInput {
   mentionEveryone?: boolean;
   messageReference?: DiscordMessage["message_reference"];
   referencedMessageSnowflake?: string | null;
+  poll?: DiscordMessage["poll"];
 }
 
 export function createMessage(ds: DiscordStore, input: CreateMessageInput): DiscordMessage {
@@ -296,6 +297,8 @@ export function createMessage(ds: DiscordStore, input: CreateMessageInput): Disc
     nonce: input.nonce ?? null,
     message_reference: input.messageReference ?? null,
     referenced_message_snowflake: input.referencedMessageSnowflake ?? null,
+    poll: input.poll ?? null,
+    poll_finalized: false,
   });
   const channel = ds.channels.findOneBy("snowflake", input.channelSnowflake);
   if (channel) ds.channels.update(channel.id, { last_message_snowflake: message.snowflake });

@@ -29,6 +29,7 @@ import { threadsRoutes } from "./routes/threads.js";
 import { guildMiscRoutes } from "./routes/guildMisc.js";
 import { moderationRoutes } from "./routes/moderation.js";
 import { templatesRoutes } from "./routes/templates.js";
+import { pollsRoutes } from "./routes/polls.js";
 import { inspectorRoutes } from "./routes/inspector.js";
 
 export const discordPlugin: ServicePlugin = {
@@ -63,6 +64,7 @@ export const discordPlugin: ServicePlugin = {
     guildMiscRoutes(ctx);
     moderationRoutes(ctx);
     templatesRoutes(ctx);
+    pollsRoutes(ctx);
     inspectorRoutes(ctx);
   },
 
