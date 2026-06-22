@@ -93,21 +93,41 @@ embedded Social SDK) are intentionally **out of scope**: they serve game develop
 Social SDK, not bots or apps, and provisional accounts are minted by that SDK rather than these
 endpoints in isolation. They are excluded from the sweep totals rather than left as silent gaps.
 
-## Phase 4 (deferred — needs a token): record/replay cassettes
+## Phase 4 (shipped token-free; live capture is the token-gated extension): replay cassettes
 
-Capture real Discord API responses once against a throwaway bot token + test guild, commit redacted
-HTTP cassettes, and replay-assert offline. The only oracle that pins down what docs and types do
-not (exact null-vs-absent, undocumented fields). This is what resolves the `KNOWN_DIVERGENCES`.
+The cassette oracle replay-asserts the emulator against **recorded real-Discord responses** —
+ground truth independent of the OpenAPI schema, which uniquely catches **under-emission**: optional
+fields real Discord always returns but the schema doesn't mark required (so the schema oracle can't
+require them, and the over-emission audit only flags the opposite direction).
+
+- `oracle/cassettes/*.json` are real example responses authored by Discord, lifted from
+  `discord-api-docs/developers/resources/*.mdx` (each cassette records its source). They cover the
+  core objects bots use most: user, message, channel, emoji, webhook, guild, sticker, application.
+- `oracle/cassettes.test.ts` drives the emulator to produce each object and asserts every field path
+  the example shows is present (recursively, with structural type checks). Value differences (ids,
+  timestamps, null-vs-populated) are ignored — only field presence + shape matter. Fields the
+  emulator legitimately cannot carry (a minimal seeded object vs. a richly-populated docs example —
+  store SKUs, profile cosmetics, conditional settings) live in `KNOWN_MISSING` with a rationale.
+- **Format is live-capture-ready**: the only token-gated step left is swapping these docs-derived
+  cassettes for ones recorded against a throwaway bot token + test guild (same JSON shape, same
+  replay test). That capture is the sole remaining input no offline source can provide — it would
+  additionally pin exact null-vs-absent and any undocumented fields, retiring the residual `KNOWN`
+  entries (e.g. message `guild_id`).
+- Refresh: re-clone `discord/discord-api-docs` and re-run the extraction (a small node script over
+  the `.mdx` JSON fences, see the commit that added `oracle/cassettes/`).
 
 ## Exit bar ("are we there yet")
 
 100% of reachable endpoints validate against the spec across the systematic sweeps (no divergences,
-no over-emission) + discord.js and discord.py flows green against the emulator + N replay cassettes
-match exactly + zero open entries in the divergence ledgers (`AUDIT_R2.md` + the `KNOWN` allowlists).
+no over-emission) + discord.js and discord.py flows green against the emulator + replay cassettes
+match (no under-emission) + zero open entries in the divergence ledgers (`AUDIT_R2.md` + the `KNOWN`
+allowlists).
 
-Current standing: 81 GET + 41 write responses validated with **0 divergences and 0 over-emission**;
-**every reachable GET endpoint and every POST/PATCH operation is now exercised** (0 gaps, 0
-unmappable) after seeding the state that has no offline creation path (bans, voice states, command
-permissions, join requests, entitlements, interactions) directly through the store. The only oracle
-not yet satisfied is the token-gated cassette phase, which pins down the residual spec-vs-reality
-`KNOWN` entries (e.g. exact null-vs-absent) that no offline source can adjudicate.
+Current standing: **all four criteria are met against offline ground truth.** 81 GET + 41 write
+responses validated with 0 divergences and 0 over-emission; **every reachable GET endpoint and every
+POST/PATCH operation is exercised** (0 gaps, 0 unmappable) after seeding state with no offline
+creation path (bans, voice states, command permissions, join requests, entitlements, interactions)
+directly through the store; discord.js + discord.py flows green; and 8 core objects replay-match
+Discord's own documented examples (0 under-emission outside the documented `KNOWN_MISSING`). The one
+input still missing is a real bot token to re-record the cassettes from live Discord — the only thing
+no offline source can substitute, and the sole gate on retiring the residual `KNOWN` ledger entries.
