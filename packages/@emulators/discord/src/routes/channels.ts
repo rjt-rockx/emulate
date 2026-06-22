@@ -5,6 +5,9 @@ import {
   getAuth,
   unauthorized,
   notFound,
+  unknownGuild,
+  unknownChannel,
+  unknownMessage,
   toAPIChannel,
   toAPIMessage,
   redactMessageContent,
@@ -26,7 +29,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
-    if (!ds.guilds.findOneBy("snowflake", guildId)) return notFound(c);
+    if (!ds.guilds.findOneBy("snowflake", guildId)) return unknownGuild(c);
     const channels = ds.channels
       .findBy("guild_snowflake", guildId)
       .sort((a, b) => a.position - b.position)
@@ -39,7 +42,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
-    if (!ds.guilds.findOneBy("snowflake", guildId)) return notFound(c);
+    if (!ds.guilds.findOneBy("snowflake", guildId)) return unknownGuild(c);
     let body: Record<string, unknown> = {};
     try {
       body = await c.req.json();
@@ -95,7 +98,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
-    if (!channel) return notFound(c);
+    if (!channel) return unknownChannel(c);
     return c.json(toAPIChannel(channel));
   });
 
@@ -104,7 +107,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
-    if (!channel) return notFound(c);
+    if (!channel) return unknownChannel(c);
     let body: Record<string, unknown> = {};
     try {
       body = await c.req.json();
@@ -162,7 +165,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
-    if (!channel) return notFound(c);
+    if (!channel) return unknownChannel(c);
     const payload = toAPIChannel(channel);
     const isThread = channel.type === 10 || channel.type === 11 || channel.type === 12;
     for (const m of ds.messages.findBy("channel_snowflake", channel.snowflake)) ds.messages.delete(m.id);
@@ -190,7 +193,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     if (!auth || !auth.user) return unauthorized(c);
     const ds = getDiscordStore(store);
     const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
-    if (!channel) return notFound(c);
+    if (!channel) return unknownChannel(c);
     bus.publish({
       t: "TYPING_START",
       guildId: channel.guild_snowflake,
@@ -214,7 +217,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
-    if (!channel) return notFound(c);
+    if (!channel) return unknownChannel(c);
     const overwriteId = c.req.param("overwriteId");
     const body = (await c.req.json().catch(() => ({}))) as { type?: number; allow?: string; deny?: string };
     const overwrite = {
@@ -236,7 +239,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
-    if (!channel) return notFound(c);
+    if (!channel) return unknownChannel(c);
     const overwriteId = c.req.param("overwriteId");
     ds.channels.update(channel.id, {
       permission_overwrites: channel.permission_overwrites.filter((o) => o.id !== overwriteId),
@@ -256,7 +259,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const channelId = c.req.param("channelId");
     const message = ds.messages.findOneBy("snowflake", c.req.param("messageId"));
-    if (!message || message.channel_snowflake !== channelId) return notFound(c);
+    if (!message || message.channel_snowflake !== channelId) return unknownMessage(c);
     ds.messages.update(message.id, { flags: message.flags | MESSAGE_FLAG_CROSSPOSTED });
     const updated = ds.messages.findOneBy("snowflake", message.snowflake)!;
     const payload = toAPIMessage(updated, ds);
@@ -277,11 +280,11 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const source = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
-    if (!source) return notFound(c);
+    if (!source) return unknownChannel(c);
     const body = (await c.req.json().catch(() => ({}))) as { webhook_channel_id?: string };
     const targetId = body.webhook_channel_id ?? "";
     const target = ds.channels.findOneBy("snowflake", targetId);
-    if (!target) return notFound(c);
+    if (!target) return unknownChannel(c);
     const webhook = ds.webhooks.insert({
       snowflake: snowflake(),
       type: 2, // Channel Follower
@@ -305,7 +308,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const channelId = c.req.param("channelId");
-    if (!ds.channels.findOneBy("snowflake", channelId)) return notFound(c);
+    if (!ds.channels.findOneBy("snowflake", channelId)) return unknownChannel(c);
     const items = ds.messages
       .findBy("channel_snowflake", channelId)
       .filter((m) => m.pinned)
@@ -319,7 +322,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const message = ds.messages.findOneBy("snowflake", messageIdParam);
-    if (!message || message.channel_snowflake !== channelIdParam) return notFound(c);
+    if (!message || message.channel_snowflake !== channelIdParam) return unknownMessage(c);
     ds.messages.update(message.id, { pinned });
     bus.publish({
       t: "CHANNEL_PINS_UPDATE",
@@ -359,7 +362,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     if (!auth) return unauthorized(c);
     const ds = getDiscordStore(store);
     const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
-    if (!channel) return notFound(c);
+    if (!channel) return unknownChannel(c);
     const userId = c.req.param("userId");
     ds.channels.update(channel.id, { recipient_snowflakes: channel.recipient_snowflakes.filter((s) => s !== userId) });
     return new Response(null, { status: 204 });
@@ -371,7 +374,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
-    if (!channel) return notFound(c);
+    if (!channel) return unknownChannel(c);
     const body = (await c.req.json().catch(() => ({}))) as { status?: string | null };
     store.setData(`discord.voice_status.${channel.snowflake}`, body.status ?? null);
     bus.publish({

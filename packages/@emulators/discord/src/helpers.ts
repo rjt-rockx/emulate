@@ -68,6 +68,18 @@ export const unauthorized = (c: Context<AppEnv>): Response => discordError(c, 40
 export const forbidden = (c: Context<AppEnv>): Response => discordError(c, 403, "Missing Access", 50001);
 export const notFound = (c: Context<AppEnv>): Response => discordError(c, 404, "404: Not Found", 0);
 
+// Resource-specific 404s (Discord JSON error codes) so clients can branch on the cause.
+export const unknownGuild = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Guild", 10004);
+export const unknownChannel = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Channel", 10003);
+export const unknownMember = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Member", 10007);
+export const unknownRole = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Role", 10011);
+export const unknownMessage = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Message", 10008);
+export const unknownUser = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown User", 10013);
+export const unknownBan = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Ban", 10026);
+export const unknownInvite = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Invite", 10006);
+export const unknownEmoji = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Emoji", 10014);
+export const unknownWebhook = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Webhook", 10015);
+
 // ---------------------------------------------------------------------------
 // Auth (Bot <token> and Bearer <token>)
 // ---------------------------------------------------------------------------
@@ -381,7 +393,14 @@ export function aggregateReactions(
     agg.count++;
     if (meSnowflake && r.user_snowflake === meSnowflake) agg.me = true;
   }
-  return [...map.values()].map((a) => ({ count: a.count, me: a.me, emoji: a.emoji }));
+  return [...map.values()].map((a) => ({
+    count: a.count,
+    count_details: { burst: 0, normal: a.count },
+    me: a.me,
+    me_burst: false,
+    emoji: a.emoji,
+    burst_colors: [],
+  }));
 }
 
 export function toAPIMessage(m: DiscordMessage, ds: DiscordStore, meSnowflake?: string): Record<string, unknown> {

@@ -1,7 +1,7 @@
 import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore, type DiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, snowflake, toAPIUser, toAPIMessage, redactMessageContent, recordAudit, AuditLogEvent, isEphemeral } from "../helpers.js";
+import { getAuth, unauthorized, notFound, unknownChannel, unknownWebhook, snowflake, toAPIUser, toAPIMessage, redactMessageContent, recordAudit, AuditLogEvent, isEphemeral } from "../helpers.js";
 import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import { getOriginalResponse, setOriginalResponse } from "../interactions/dispatch.js";
@@ -41,7 +41,7 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
-    if (!channel) return notFound(c);
+    if (!channel) return unknownChannel(c);
     const body = (await c.req.json().catch(() => ({}))) as { name?: string; avatar?: string | null };
     const webhook = ds.webhooks.insert({
       snowflake: snowflake(),
@@ -89,22 +89,22 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const webhook = ds.webhooks.findOneBy("snowflake", c.req.param("webhookId"));
-    if (!webhook) return notFound(c);
+    if (!webhook) return unknownWebhook(c);
     return c.json(toAPIWebhook(webhook, ds, baseUrl));
   });
 
   app.get("/api/v:version/webhooks/:webhookId/:token", (c) => {
     const ds = getDiscordStore(store);
     const webhook = ds.webhooks.findOneBy("snowflake", c.req.param("webhookId"));
-    if (!webhook || webhook.token !== c.req.param("token")) return notFound(c);
+    if (!webhook || webhook.token !== c.req.param("token")) return unknownWebhook(c);
     return c.json(toAPIWebhook(webhook, ds, baseUrl));
   });
 
   const modify = async (c: Context<AppEnv>, requireToken: boolean) => {
     const ds = getDiscordStore(store);
     const webhook = ds.webhooks.findOneBy("snowflake", c.req.param("webhookId"));
-    if (!webhook) return notFound(c);
-    if (requireToken && webhook.token !== c.req.param("token")) return notFound(c);
+    if (!webhook) return unknownWebhook(c);
+    if (requireToken && webhook.token !== c.req.param("token")) return unknownWebhook(c);
     const body = (await c.req.json().catch(() => ({}))) as { name?: string; avatar?: string | null; channel_id?: string };
     const patch: Record<string, unknown> = {};
     if (body.name !== undefined) patch.name = body.name;
@@ -126,8 +126,8 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
   const remove = (c: Context<AppEnv>, requireToken: boolean, actorSnowflake?: string | null) => {
     const ds = getDiscordStore(store);
     const webhook = ds.webhooks.findOneBy("snowflake", c.req.param("webhookId"));
-    if (!webhook) return notFound(c);
-    if (requireToken && webhook.token !== c.req.param("token")) return notFound(c);
+    if (!webhook) return unknownWebhook(c);
+    if (requireToken && webhook.token !== c.req.param("token")) return unknownWebhook(c);
     ds.webhooks.delete(webhook.id);
     recordAudit(ds, bus, {
       guildSnowflake: webhook.guild_snowflake,
@@ -186,7 +186,7 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
 
     // Webhook execute.
     const webhook = ds.webhooks.findOneBy("snowflake", id);
-    if (!webhook || webhook.token !== token) return notFound(c);
+    if (!webhook || webhook.token !== token) return unknownWebhook(c);
     // ?thread_id (or body.thread_id) posts into a thread under the webhook's channel.
     const threadId = c.req.query("thread_id") ?? (typeof body.thread_id === "string" ? body.thread_id : undefined);
     const targetChannel = threadId && ds.channels.findOneBy("snowflake", threadId) ? threadId : webhook.channel_snowflake;

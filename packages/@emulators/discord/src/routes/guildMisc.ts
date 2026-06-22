@@ -1,6 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, toAPIUser } from "../helpers.js";
+import { getAuth, unauthorized, unknownGuild, toAPIUser } from "../helpers.js";
 
 const VOICE_REGIONS = [
   { id: "us-east", name: "US East", optimal: true, deprecated: false, custom: false },
@@ -54,7 +54,7 @@ export function guildMiscRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
-    if (!ds.guilds.findOneBy("snowflake", guildId)) return notFound(c);
+    if (!ds.guilds.findOneBy("snowflake", guildId)) return unknownGuild(c);
 
     const actionTypeFilter = c.req.query("action_type");
     const userIdFilter = c.req.query("user_id");

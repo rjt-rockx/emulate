@@ -1,7 +1,7 @@
 import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, toAPIUser } from "../helpers.js";
+import { getAuth, unauthorized, unknownMessage, toAPIUser, toAPIMember } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 
 interface ParsedEmoji {
@@ -42,7 +42,7 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
     const channelId = c.req.param("channelId");
     const messageId = c.req.param("messageId");
     const message = resolveMessage(channelId, messageId);
-    if (!message) return notFound(c);
+    if (!message) return unknownMessage(c);
     const emoji = parseEmoji(c.req.param("emoji"));
 
     const already = ds.reactions
@@ -59,6 +59,9 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
         emoji_animated: emoji.animated,
       });
     }
+    const reactingMember = message.guild_snowflake
+      ? ds.members.findBy("guild_snowflake", message.guild_snowflake).find((m) => m.user_snowflake === auth.user!.snowflake)
+      : undefined;
     bus.publish({
       t: "MESSAGE_REACTION_ADD",
       guildId: message.guild_snowflake,
@@ -68,7 +71,11 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
         channel_id: channelId,
         message_id: messageId,
         guild_id: message.guild_snowflake ?? undefined,
+        member: reactingMember ? { ...toAPIMember(reactingMember, ds), user: toAPIUser(auth.user) } : undefined,
         emoji: emojiPayload(emoji),
+        message_author_id: message.author_snowflake,
+        burst: false,
+        type: 0,
       },
     });
     return new Response(null, { status: 204 });
@@ -79,7 +86,7 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
     const channelId = c.req.param("channelId");
     const messageId = c.req.param("messageId");
     const message = resolveMessage(channelId, messageId);
-    if (!message) return notFound(c);
+    if (!message) return unknownMessage(c);
     const emoji = parseEmoji(c.req.param("emoji"));
     const row = ds.reactions
       .findBy("message_snowflake", messageId)
@@ -95,6 +102,8 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
         message_id: messageId,
         guild_id: message.guild_snowflake ?? undefined,
         emoji: emojiPayload(emoji),
+        burst: false,
+        type: 0,
       },
     });
     return new Response(null, { status: 204 });
@@ -118,7 +127,7 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const messageId = c.req.param("messageId");
-    if (!resolveMessage(c.req.param("channelId"), messageId)) return notFound(c);
+    if (!resolveMessage(c.req.param("channelId"), messageId)) return unknownMessage(c);
     const emoji = parseEmoji(c.req.param("emoji"));
     const limit = Math.min(Number(c.req.query("limit") ?? 25) || 25, 100);
     const users = ds.reactions
@@ -139,7 +148,7 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
     const channelId = c.req.param("channelId");
     const messageId = c.req.param("messageId");
     const message = resolveMessage(channelId, messageId);
-    if (!message) return notFound(c);
+    if (!message) return unknownMessage(c);
     const emoji = parseEmoji(c.req.param("emoji"));
     for (const r of ds.reactions
       .findBy("message_snowflake", messageId)
@@ -168,7 +177,7 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
     const channelId = c.req.param("channelId");
     const messageId = c.req.param("messageId");
     const message = resolveMessage(channelId, messageId);
-    if (!message) return notFound(c);
+    if (!message) return unknownMessage(c);
     for (const r of ds.reactions.findBy("message_snowflake", messageId)) ds.reactions.delete(r.id);
     bus.publish({
       t: "MESSAGE_REACTION_REMOVE_ALL",

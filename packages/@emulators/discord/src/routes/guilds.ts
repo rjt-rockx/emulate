@@ -4,6 +4,12 @@ import {
   getAuth,
   unauthorized,
   notFound,
+  unknownGuild,
+  unknownChannel,
+  unknownMember,
+  unknownRole,
+  unknownUser,
+  unknownEmoji,
   toAPIGuild,
   toAPIRole,
   toAPIMember,
@@ -47,7 +53,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
     const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === auth.user!.snowflake);
-    if (!member) return notFound(c);
+    if (!member) return unknownMember(c);
     const body = (await c.req.json().catch(() => ({}))) as { nick?: string | null };
     if (body.nick !== undefined) ds.members.update(member.id, { nick: body.nick });
     const updated = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === auth.user!.snowflake)!;
@@ -63,7 +69,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
     const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === auth.user!.snowflake);
-    if (!member) return notFound(c);
+    if (!member) return unknownMember(c);
     const body = (await c.req.json().catch(() => ({}))) as { nick?: string | null };
     if (body.nick !== undefined) ds.members.update(member.id, { nick: body.nick });
     return c.json({ nick: body.nick ?? null });
@@ -75,7 +81,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
-    if (!ds.guilds.findOneBy("snowflake", guildId)) return notFound(c);
+    if (!ds.guilds.findOneBy("snowflake", guildId)) return unknownGuild(c);
     const query = (c.req.query("query") ?? "").toLowerCase();
     const limit = Math.min(Number(c.req.query("limit") ?? 1) || 1, 1000);
     const matches = ds.members
@@ -98,7 +104,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
-    if (!ds.guilds.findOneBy("snowflake", guildId)) return notFound(c);
+    if (!ds.guilds.findOneBy("snowflake", guildId)) return unknownGuild(c);
     const counts: Record<string, number> = {};
     for (const role of ds.roles.findBy("guild_snowflake", guildId)) {
       counts[role.snowflake] = ds.members
@@ -118,7 +124,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
     const withCounts = c.req.query("with_counts") === "true";
     return c.json(toAPIGuild(guild, ds, { withCounts }));
   });
@@ -130,7 +136,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
     const memberCount = ds.members.findBy("guild_snowflake", guildId).length;
     return c.json({
       id: guild.snowflake,
@@ -178,7 +184,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
     let body: Record<string, unknown> = {};
     try {
       body = await c.req.json();
@@ -218,7 +224,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
 
     // Cascade: messages in guild channels, then channels, then roles, members, emojis, guild.
     const channels = ds.channels.findBy("guild_snowflake", guildId);
@@ -254,7 +260,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
     const roles = ds.roles.findBy("guild_snowflake", guildId).map(toAPIRole);
     return c.json(roles);
   });
@@ -266,7 +272,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
     const role = ds.roles.findOneBy("snowflake", c.req.param("roleId"));
-    if (!role || role.guild_snowflake !== guildId) return notFound(c);
+    if (!role || role.guild_snowflake !== guildId) return unknownRole(c);
     return c.json(toAPIRole(role));
   });
 
@@ -276,7 +282,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
-    if (!ds.guilds.findOneBy("snowflake", guildId)) return notFound(c);
+    if (!ds.guilds.findOneBy("snowflake", guildId)) return unknownGuild(c);
     const body = (await c.req.json().catch(() => [])) as Array<{ id: string; position?: number }>;
     for (const entry of Array.isArray(body) ? body : []) {
       const role = ds.roles.findOneBy("snowflake", entry.id);
@@ -295,7 +301,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
     let body: Record<string, unknown> = {};
     try {
       body = await c.req.json();
@@ -335,9 +341,9 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const guildId = c.req.param("guildId");
     const roleId = c.req.param("roleId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
     const role = ds.roles.findOneBy("snowflake", roleId);
-    if (!role || role.guild_snowflake !== guildId) return notFound(c);
+    if (!role || role.guild_snowflake !== guildId) return unknownRole(c);
     let body: Record<string, unknown> = {};
     try {
       body = await c.req.json();
@@ -385,9 +391,9 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const guildId = c.req.param("guildId");
     const roleId = c.req.param("roleId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
     const role = ds.roles.findOneBy("snowflake", roleId);
-    if (!role || role.guild_snowflake !== guildId) return notFound(c);
+    if (!role || role.guild_snowflake !== guildId) return unknownRole(c);
     ds.roles.delete(role.id);
     bus.publish({
       t: "GUILD_ROLE_DELETE",
@@ -415,7 +421,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
     const members = ds.members.findBy("guild_snowflake", guildId).map((m) => toAPIMember(m, ds));
     return c.json(members);
   });
@@ -427,9 +433,9 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const guildId = c.req.param("guildId");
     const userId = c.req.param("userId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
     const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId);
-    if (!member) return notFound(c);
+    if (!member) return unknownMember(c);
     return c.json(toAPIMember(member, ds));
   });
 
@@ -440,9 +446,9 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const guildId = c.req.param("guildId");
     const userId = c.req.param("userId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
     const user = ds.users.findOneBy("snowflake", userId);
-    if (!user) return notFound(c);
+    if (!user) return unknownUser(c);
     let body: Record<string, unknown> = {};
     try {
       body = await c.req.json();
@@ -485,9 +491,9 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const guildId = c.req.param("guildId");
     const userId = c.req.param("userId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
     const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId);
-    if (!member) return notFound(c);
+    if (!member) return unknownMember(c);
     let body: Record<string, unknown> = {};
     try {
       body = await c.req.json();
@@ -537,9 +543,9 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const guildId = c.req.param("guildId");
     const userId = c.req.param("userId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
     const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId);
-    if (!member) return notFound(c);
+    if (!member) return unknownMember(c);
     const user = ds.users.findOneBy("snowflake", userId);
     ds.members.delete(member.id);
     // Remove from guild.member_snowflakes.
@@ -602,7 +608,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const userId = c.req.param("userId");
     const roleId = c.req.param("roleId");
     const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId);
-    if (!member) return notFound(c);
+    if (!member) return unknownMember(c);
     if (member.role_snowflakes.includes(roleId)) {
       ds.members.update(member.id, { role_snowflakes: member.role_snowflakes.filter((r) => r !== roleId) });
       const updated = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId)!;
@@ -634,7 +640,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
     const emojis = ds.emojis.findBy("guild_snowflake", guildId).map((e) => toAPIEmoji(e, ds));
     return c.json(emojis);
   });
@@ -646,9 +652,9 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const guildId = c.req.param("guildId");
     const emojiId = c.req.param("emojiId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
     const emoji = ds.emojis.findOneBy("snowflake", emojiId);
-    if (!emoji || emoji.guild_snowflake !== guildId) return notFound(c);
+    if (!emoji || emoji.guild_snowflake !== guildId) return unknownEmoji(c);
     return c.json(toAPIEmoji(emoji, ds));
   });
 
@@ -658,7 +664,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
     let body: Record<string, unknown> = {};
     try {
       body = await c.req.json();
@@ -682,9 +688,9 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const guildId = c.req.param("guildId");
     const emojiId = c.req.param("emojiId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
     const emoji = ds.emojis.findOneBy("snowflake", emojiId);
-    if (!emoji || emoji.guild_snowflake !== guildId) return notFound(c);
+    if (!emoji || emoji.guild_snowflake !== guildId) return unknownEmoji(c);
     let body: Record<string, unknown> = {};
     try {
       body = await c.req.json();
@@ -707,9 +713,9 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const guildId = c.req.param("guildId");
     const emojiId = c.req.param("emojiId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
     const emoji = ds.emojis.findOneBy("snowflake", emojiId);
-    if (!emoji || emoji.guild_snowflake !== guildId) return notFound(c);
+    if (!emoji || emoji.guild_snowflake !== guildId) return unknownEmoji(c);
     ds.emojis.delete(emoji.id);
     emitEmojisUpdate(guildId);
     return new Response(null, { status: 204 });
