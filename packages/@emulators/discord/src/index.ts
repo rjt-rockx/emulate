@@ -48,7 +48,16 @@ export const discordPlugin: ServicePlugin = {
     // own content types.
     app.use("*", async (c, next) => {
       await next();
-      if (c.req.path.startsWith("/api/")) c.header("Content-Type", "application/json");
+      if (c.req.path.startsWith("/api/")) {
+        c.header("Content-Type", "application/json");
+        // Discord-style rate-limit headers (lenient: the emulator does not enforce limits,
+        // but real clients/libraries read these).
+        c.header("X-RateLimit-Limit", "50");
+        c.header("X-RateLimit-Remaining", "49");
+        c.header("X-RateLimit-Reset", String(Math.floor(Date.now() / 1000) + 1));
+        c.header("X-RateLimit-Reset-After", "1");
+        c.header("X-RateLimit-Bucket", "emulate");
+      }
     });
 
     gatewayRoutes(ctx);
