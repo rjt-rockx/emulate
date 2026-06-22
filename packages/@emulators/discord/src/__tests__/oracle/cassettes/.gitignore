@@ -1,0 +1,3 @@
+# Raw live cassette captures may contain real ids/tokens; review + value-redact before
+# committing (the replay oracle ignores values, so redaction does not weaken it).
+live/

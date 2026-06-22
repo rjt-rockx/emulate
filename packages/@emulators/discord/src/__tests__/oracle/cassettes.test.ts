@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { createDiscordTestApp, api, botHeaders, seededIds } from "../helpers.js";
+import { getDiscordStore } from "../../store.js";
+import { snowflake } from "../../helpers.js";
 
 /**
  * Cassette replay oracle (token-free): Discord's own documentation embeds real example responses
@@ -48,6 +50,9 @@ const KNOWN_MISSING: Record<string, string> = {
   // a target; a plain channel invite has neither.
   "invite.target_type": "conditional; only on stream / embedded-application invites",
   "invite.target_user": "conditional; only on stream invites",
+  // Conditional entitlement provenance fields: present only for promotional / gift entitlements.
+  "entitlement.promotion_id": "conditional; only for promotional entitlements",
+  "entitlement.gift_code_flags": "conditional; only for gift entitlements",
 };
 
 type Diff = { path: string; kind: "missing" | "type"; detail?: string };
@@ -91,7 +96,11 @@ function collectDiffs(expected: unknown, actual: unknown, path: string, out: Dif
 const PNG = "data:image/png;base64,iVBORw0KGgo=";
 
 /** Per-cassette drivers: produce the emulator's equivalent response object for the named cassette. */
-type Driver = (ctx: { app: ReturnType<typeof createDiscordTestApp>["app"]; ids: ReturnType<typeof seededIds> }) => Promise<unknown>;
+type Driver = (ctx: {
+  app: ReturnType<typeof createDiscordTestApp>["app"];
+  ids: ReturnType<typeof seededIds>;
+  store: ReturnType<typeof createDiscordTestApp>["store"];
+}) => Promise<unknown>;
 
 const get = async (app: ReturnType<typeof createDiscordTestApp>["app"], path: string) =>
   (await app.request(api(path), { headers: botHeaders() }).then((r) => r.json())) as unknown;
@@ -124,29 +133,100 @@ const DRIVERS: Record<string, Driver> = {
     return packs.sticker_packs[0]?.stickers[0];
   },
   application: ({ app }) => get(app, "/applications/@me"),
+  member: ({ app, ids }) => get(app, `/guilds/${ids.guild}/members/${ids.developer}`),
+  soundboard_sound: ({ app, ids }) => post(app, `/guilds/${ids.guild}/soundboard-sounds`, { name: "cassette-sound", sound: "data:audio/ogg;base64,AAAA" }),
+  voice_state: async ({ app, ids, store }) => {
+    const ds = getDiscordStore(store);
+    ds.voiceStates.insert({
+      guild_snowflake: ids.guild,
+      channel_snowflake: ids.voice,
+      user_snowflake: ids.developer,
+      session_id: "cassette-session",
+      deaf: false,
+      mute: false,
+      self_deaf: false,
+      self_mute: false,
+      self_video: false,
+      suppress: false,
+      request_to_speak_timestamp: null,
+    });
+    return get(app, `/guilds/${ids.guild}/voice-states/${ids.developer}`);
+  },
+  entitlement: async ({ app, ids, store }) => {
+    const ds = getDiscordStore(store);
+    const sku = ds.skus.insert({ snowflake: snowflake(), application_snowflake: ids.app, type: 5, name: "cassette-sku", slug: "cassette-sku", flags: 0 });
+    const ent = ds.entitlements.insert({
+      snowflake: snowflake(),
+      sku_snowflake: sku.snowflake,
+      application_snowflake: ids.app,
+      user_snowflake: ids.developer,
+      guild_snowflake: ids.guild,
+      type: 8,
+      deleted: false,
+      starts_at: new Date().toISOString(),
+      ends_at: new Date(Date.now() + 86_400_000).toISOString(),
+      consumed: false,
+      subscription_snowflake: snowflake(),
+    });
+    return get(app, `/applications/${ids.app}/entitlements/${ent.snowflake}`);
+  },
+  subscription: async ({ app, ids, store }) => {
+    const ds = getDiscordStore(store);
+    const skuId = snowflake();
+    ds.skus.insert({ snowflake: skuId, application_snowflake: ids.app, type: 5, name: "cassette-sub-sku", slug: "cassette-sub-sku", flags: 0 });
+    const sub = ds.subscriptions.insert({
+      snowflake: snowflake(),
+      user_snowflake: ids.developer,
+      sku_snowflakes: [skuId],
+      entitlement_snowflakes: [snowflake()],
+      renewal_sku_snowflakes: null,
+      current_period_start: new Date().toISOString(),
+      current_period_end: new Date(Date.now() + 86_400_000).toISOString(),
+      status: 0,
+      canceled_at: null,
+    });
+    return get(app, `/skus/${skuId}/subscriptions/${sub.snowflake}?user_id=${ids.developer}`);
+  },
 };
 
-describe("cassette replay oracle (docs example responses)", () => {
-  const files = readdirSync(CASSETTE_DIR).filter((f) => f.endsWith(".json"));
+/** Cassettes live at the top level (docs-derived, committed) and optionally under live/ (recorded
+ * against real Discord; same format, same drivers). Live cassettes are authoritative when present. */
+function loadCassetteFiles(): Array<{ name: string; url: URL; origin: "docs" | "live" }> {
+  const out: Array<{ name: string; url: URL; origin: "docs" | "live" }> = [];
+  for (const f of readdirSync(CASSETTE_DIR).filter((f) => f.endsWith(".json"))) {
+    out.push({ name: f.replace(/\.json$/, ""), url: new URL(f, CASSETTE_DIR), origin: "docs" });
+  }
+  try {
+    const liveDir = new URL("live/", CASSETTE_DIR);
+    for (const f of readdirSync(liveDir).filter((f) => f.endsWith(".json"))) {
+      out.push({ name: f.replace(/\.json$/, ""), url: new URL(f, liveDir), origin: "live" });
+    }
+  } catch {
+    // no live/ directory — only docs-derived cassettes are present
+  }
+  return out;
+}
+
+describe("cassette replay oracle (recorded Discord responses)", () => {
+  const cassettes = loadCassetteFiles();
 
   it("has a driver for every cassette", () => {
-    for (const f of files) expect(DRIVERS[f.replace(/\.json$/, "")], `missing driver for ${f}`).toBeDefined();
+    for (const c of cassettes) expect(DRIVERS[c.name], `missing driver for ${c.origin} cassette ${c.name}`).toBeDefined();
   });
 
-  for (const file of files) {
-    const name = file.replace(/\.json$/, "");
-    it(`emulator response covers the documented ${name} example`, async () => {
-      const cassette = JSON.parse(readFileSync(new URL(file, CASSETTE_DIR), "utf8")) as Cassette;
+  for (const c of cassettes) {
+    it(`emulator ${c.name} response covers the ${c.origin} recording`, async () => {
+      const cassette = JSON.parse(readFileSync(c.url, "utf8")) as Cassette;
       const { app, store } = createDiscordTestApp();
       const ids = seededIds(store);
-      const actual = await DRIVERS[name]({ app, ids });
+      const actual = await DRIVERS[c.name]({ app, ids, store });
 
       const diffs: Diff[] = [];
       collectDiffs(cassette.response, actual, "", diffs);
-      const unexpected = diffs.filter((d) => !(d.kind === "missing" && `${name}.${d.path}` in KNOWN_MISSING));
+      const unexpected = diffs.filter((d) => !(d.kind === "missing" && `${c.name}.${d.path}` in KNOWN_MISSING));
 
-      const report = unexpected.map((d) => `  ${d.kind} ${name}.${d.path}${d.detail ? ` (${d.detail})` : ""}`).join("\n");
-      expect(unexpected, `Emulator ${name} response diverges from the documented example:\n${report}\nsource: ${cassette.source}`).toHaveLength(0);
+      const report = unexpected.map((d) => `  ${d.kind} ${c.name}.${d.path}${d.detail ? ` (${d.detail})` : ""}`).join("\n");
+      expect(unexpected, `Emulator ${c.name} response diverges from the ${c.origin} recording:\n${report}\nsource: ${cassette.source}`).toHaveLength(0);
     });
   }
 });

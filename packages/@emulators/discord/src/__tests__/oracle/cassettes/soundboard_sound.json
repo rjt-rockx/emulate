@@ -1,0 +1,11 @@
+{
+  "source": "discord-api-docs developers/resources/soundboard.mdx (Soundboard Sound Object)",
+  "response": {
+    "name": "quack",
+    "sound_id": "1",
+    "volume": 1,
+    "emoji_id": null,
+    "emoji_name": "🦆",
+    "available": true
+  }
+}
