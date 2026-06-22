@@ -19,7 +19,32 @@ import { Intents } from "../gateway/intents.js";
 import type { APIAutoModerationRule } from "discord-api-types/v10";
 import type { DiscordAutoModRule } from "../entities.js";
 
+/** Per-trigger-type required keys the spec mandates on trigger_metadata (filled with defaults). */
+function normalizeTriggerMetadata(triggerType: number, meta: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  const m: Record<string, unknown> = { ...(meta ?? {}) };
+  if (triggerType === 1) {
+    // KEYWORD: keyword_filter + regex_patterns + allow_list are all required.
+    m.keyword_filter ??= [];
+    m.regex_patterns ??= [];
+    m.allow_list ??= [];
+  } else if (triggerType === 4) {
+    // KEYWORD_PRESET: presets + allow_list.
+    m.presets ??= [];
+    m.allow_list ??= [];
+  } else if (triggerType === 5) {
+    // MENTION_SPAM.
+    m.mention_total_limit ??= 0;
+    m.mention_raid_protection_enabled ??= false;
+  }
+  return m;
+}
+
 function toAPIAutoMod(r: DiscordAutoModRule): APIAutoModerationRule {
+  // Each action object requires a `metadata` object on the wire (empty for BLOCK_MESSAGE).
+  const actions = (Array.isArray(r.actions) ? r.actions : []).map((a) => {
+    const action = a as { type?: number; metadata?: unknown };
+    return { type: action.type, metadata: action.metadata ?? {} };
+  });
   return {
     id: r.snowflake,
     guild_id: r.guild_snowflake,
@@ -27,8 +52,8 @@ function toAPIAutoMod(r: DiscordAutoModRule): APIAutoModerationRule {
     name: r.name,
     event_type: r.event_type,
     trigger_type: r.trigger_type,
-    trigger_metadata: r.trigger_metadata,
-    actions: r.actions,
+    trigger_metadata: normalizeTriggerMetadata(r.trigger_type, r.trigger_metadata as Record<string, unknown> | null | undefined),
+    actions,
     enabled: r.enabled,
     exempt_roles: r.exempt_roles,
     exempt_channels: r.exempt_channels,

@@ -137,22 +137,25 @@ describe("OpenAPI conformance (official discord-api-spec oracle)", () => {
     // Each step: POST a valid body, then (optionally) GET the created resource back. Both
     // responses are validated against the spec for their operation.
     const steps: Array<{ method: string; path: string; body?: unknown; readBack?: (id: string) => string }> = [
-      { method: "POST", path: `/guilds/${ids.guild}/roles`, body: { name: "oracle-role" } },
+      { method: "POST", path: `/guilds/${ids.guild}/roles`, body: { name: "oracle-role", color: 0x336699 }, readBack: (id) => `/guilds/${ids.guild}/roles/${id}` },
       { method: "POST", path: `/guilds/${ids.guild}/channels`, body: { name: "oracle-chan", type: 0 }, readBack: (id) => `/channels/${id}` },
       { method: "POST", path: `/channels/${ids.general}/messages`, body: { content: "oracle hi" }, readBack: (id) => `/channels/${ids.general}/messages/${id}` },
       { method: "POST", path: `/channels/${ids.general}/webhooks`, body: { name: "oracle-hook" }, readBack: (id) => `/webhooks/${id}` },
-      { method: "POST", path: `/guilds/${ids.guild}/emojis`, body: { name: "oracle_emoji", image: png } },
+      { method: "POST", path: `/guilds/${ids.guild}/emojis`, body: { name: "oracle_emoji", image: png }, readBack: (id) => `/guilds/${ids.guild}/emojis/${id}` },
       { method: "POST", path: `/channels/${ids.general}/invites`, body: {} },
       {
         method: "POST",
         path: `/guilds/${ids.guild}/scheduled-events`,
         body: { name: "Oracle Event", privacy_level: 2, scheduled_start_time: startsAt, scheduled_end_time: endsAt, entity_type: 3, entity_metadata: { location: "somewhere" } },
+        readBack: (id) => `/guilds/${ids.guild}/scheduled-events/${id}`,
       },
       {
         method: "POST",
         path: `/guilds/${ids.guild}/auto-moderation/rules`,
         body: { name: "oracle-rule", event_type: 1, trigger_type: 1, trigger_metadata: { keyword_filter: ["x"] }, actions: [{ type: 1 }] },
+        readBack: (id) => `/guilds/${ids.guild}/auto-moderation/rules/${id}`,
       },
+      { method: "POST", path: `/channels/${ids.general}/threads`, body: { name: "oracle-thread", type: 11, auto_archive_duration: 1440 }, readBack: (id) => `/channels/${id}` },
     ];
 
     const all: Array<{ label: string; status: number; validated: boolean; errors: string[] }> = [];

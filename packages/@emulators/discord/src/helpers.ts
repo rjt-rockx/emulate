@@ -1016,6 +1016,8 @@ export function toAPIScheduledEvent(e: DiscordScheduledEvent, ds: DiscordStore):
     creator: creator ? toAPIUser(creator) : undefined,
     image: e.image ?? null,
     recurrence_rule: e.recurrence_rule ?? null,
+    // Required by the spec; non-empty only for recurring events with per-occurrence overrides.
+    guild_scheduled_event_exceptions: [],
   } as unknown as APIGuildScheduledEvent;
 }
 
