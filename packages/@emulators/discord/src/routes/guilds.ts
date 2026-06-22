@@ -5,7 +5,6 @@ import {
   unauthorized,
   notFound,
   unknownGuild,
-  unknownChannel,
   unknownMember,
   unknownRole,
   unknownUser,
