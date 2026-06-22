@@ -14,3 +14,6 @@ packages/emulate/README.md
 
 # opensrc - source code for packages
 opensrc/
+
+# Claude Code agent worktrees and local state
+.claude/
