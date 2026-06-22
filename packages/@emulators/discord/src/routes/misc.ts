@@ -1,6 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, toAPIMessage, redactMessageContent } from "../helpers.js";
+import { getAuth, requireBot, requireUser, unauthorized, notFound, toAPIMessage, redactMessageContent } from "../helpers.js";
 import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 
@@ -72,22 +72,23 @@ export function miscRoutes(ctx: DiscordRouteContext): void {
 
   // ----- Delete the current user's application role connection -----
   app.delete("/api/v:version/users/@me/applications/:appId/role-connection", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireUser(c, store);
+    if (g instanceof Response) return g;
+    const { auth, ds } = g;
+    const user = auth.user!;
     const appId = c.req.param("appId");
     const existing = ds.roleConnections
       .findBy("application_snowflake", appId)
-      .find((r) => r.user_snowflake === auth.user!.snowflake);
+      .find((r) => r.user_snowflake === user.snowflake);
     if (existing) ds.roleConnections.delete(existing.id);
     return new Response(null, { status: 204 });
   });
 
   // ----- Guild incident (safety) actions -----
   app.put("/api/v:version/guilds/:guildId/incident-actions", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const guildId = c.req.param("guildId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
     if (!guild) return notFound(c);
@@ -112,8 +113,8 @@ export function miscRoutes(ctx: DiscordRouteContext): void {
 
   // ----- Embedded activity instance -----
   app.get("/api/v:version/applications/:appId/activity-instances/:instanceId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
     const instanceId = c.req.param("instanceId");
     return c.json({
       application_id: c.req.param("appId"),

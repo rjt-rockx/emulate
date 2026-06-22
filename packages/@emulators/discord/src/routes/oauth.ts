@@ -12,7 +12,7 @@ import {
 } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, toAPIUser, toAPIGuild, snowflake } from "../helpers.js";
+import { getAuth, requireBot, unauthorized, toAPIUser, toAPIGuild, snowflake } from "../helpers.js";
 import { createToken } from "../factories.js";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -308,9 +308,9 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
   app.get("/api/v:version/oauth2/@me", currentAuthHandler);
 
   const currentApplicationHandler = (c: Context<AppEnv>): Response => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { auth, ds } = g;
     const application = auth.application ?? ds.applications.all()[0];
     if (!application) return unauthorized(c);
     const botUser = ds.users.findOneBy("snowflake", application.bot_user_snowflake);

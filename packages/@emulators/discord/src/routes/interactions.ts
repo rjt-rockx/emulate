@@ -1,6 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, discordError, invalidFormBody, toAPIMessage, redactMessageContent } from "../helpers.js";
+import { requireBot, notFound, discordError, invalidFormBody, toAPIMessage, redactMessageContent } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 import { buildInteraction, type TriggerInput } from "../interactions/trigger.js";
 import {
@@ -190,9 +190,9 @@ export function interactionsRoutes(ctx: DiscordRouteContext): void {
   // Emulator control plane: simulate a user triggering an interaction. Not a real Discord
   // route. Routes the interaction to the bot over the Gateway and/or the HTTP endpoint.
   app.post("/__emulate/interactions", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const input = (await c.req.json().catch(() => ({}))) as TriggerInput;
     const built = buildInteraction(ds, input);
     if (!built) return notFound(c);

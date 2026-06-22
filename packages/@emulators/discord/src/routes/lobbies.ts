@@ -9,6 +9,7 @@ import {
   toAPIUser,
   invalidFormBody,
   resolveBotUser,
+  readBody,
   type DiscordAuth,
 } from "../helpers.js";
 import type { DiscordLobby, DiscordLobbyMember, DiscordLobbyMessage, DiscordUser } from "../entities.js";
@@ -109,12 +110,7 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
     const application = auth.application ?? ds.applications.all()[0];
     if (!application) return notFound(c);
 
-    let body: Record<string, unknown> = {};
-    try {
-      body = (await c.req.json()) as Record<string, unknown>;
-    } catch {
-      // empty body is fine
-    }
+    const body = await readBody<Record<string, unknown>>(c);
 
     const secret = body.secret as string | undefined;
     const lobbyMetadata = (body.lobby_metadata ?? body.metadata) as Record<string, string> | null | undefined;
@@ -186,12 +182,7 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
     const application = auth.application ?? ds.applications.all()[0];
     if (!application) return notFound(c);
 
-    let body: Record<string, unknown> = {};
-    try {
-      body = (await c.req.json()) as Record<string, unknown>;
-    } catch {
-      // empty body ok
-    }
+    const body = await readBody<Record<string, unknown>>(c);
 
     const metadata = body.metadata as Record<string, string> | null | undefined;
     const members = body.members as
@@ -260,12 +251,7 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
     const lobby = ds.lobbies.findOneBy("snowflake", c.req.param("lobbyId"));
     if (!lobby) return notFound(c);
 
-    let body: Record<string, unknown> = {};
-    try {
-      body = (await c.req.json()) as Record<string, unknown>;
-    } catch {
-      // empty body ok
-    }
+    const body = await readBody<Record<string, unknown>>(c);
 
     if ("metadata" in body) {
       // Overwrites metadata, preserving the internal secret bookkeeping key if present.
@@ -325,12 +311,7 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
     const lobby = ds.lobbies.findOneBy("snowflake", lobbyId);
     if (!lobby) return notFound(c);
 
-    let body: Record<string, unknown> = {};
-    try {
-      body = (await c.req.json()) as Record<string, unknown>;
-    } catch {
-      // empty body ok
-    }
+    const body = await readBody<Record<string, unknown>>(c);
 
     const metadata = body.metadata as Record<string, string> | null | undefined;
     const flags = typeof body.flags === "number" ? body.flags : 0;
@@ -376,12 +357,7 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
     const lobby = ds.lobbies.findOneBy("snowflake", lobbyId);
     if (!lobby) return notFound(c);
 
-    let body: Record<string, unknown> = {};
-    try {
-      body = (await c.req.json()) as Record<string, unknown>;
-    } catch {
-      // empty body ok
-    }
+    const body = await readBody<Record<string, unknown>>(c);
 
     const members = (body.members ?? body) as Array<{
       id: string;
@@ -482,12 +458,7 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
     // The calling user must be a member of the lobby.
     if (!lobbyMemberFor(ds, lobbyId, authorUser.snowflake)) return forbidden(c);
 
-    let body: Record<string, unknown> = {};
-    try {
-      body = (await c.req.json()) as Record<string, unknown>;
-    } catch {
-      // empty body
-    }
+    const body = await readBody<Record<string, unknown>>(c);
 
     const content = (body.content as string | undefined) ?? "";
     if (typeof content !== "string" || content.length === 0) {
@@ -549,12 +520,7 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
     const message = ds.lobbyMessages.findOneBy("snowflake", messageId);
     if (!message || message.lobby_snowflake !== lobbyId) return notFound(c);
 
-    let body: Record<string, unknown> = {};
-    try {
-      body = (await c.req.json()) as Record<string, unknown>;
-    } catch {
-      // empty body ok
-    }
+    const body = await readBody<Record<string, unknown>>(c);
 
     // Up to 5 keys; key length <= 1024; value length <= 2000.
     const keys = Object.keys(body);
@@ -584,12 +550,7 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
     const member = user ? lobbyMemberFor(ds, lobbyId, user.snowflake) : undefined;
     if (!member || (member.flags & LobbyMemberFlags.CanLinkLobby) === 0) return forbidden(c);
 
-    let body: Record<string, unknown> = {};
-    try {
-      body = (await c.req.json()) as Record<string, unknown>;
-    } catch {
-      // empty body = unlink
-    }
+    const body = await readBody<Record<string, unknown>>(c);
 
     const channelId = (body.channel_id as string | null | undefined) ?? null;
     ds.lobbies.update(lobby.id, { linked_channel_snowflake: channelId });

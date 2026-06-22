@@ -1,8 +1,7 @@
 import type { DiscordRouteContext } from "../context.js";
-import { getDiscordStore } from "../store.js";
+
 import {
-  getAuth,
-  unauthorized,
+  requireBot,
   notFound,
   snowflake,
   unknownSku,
@@ -98,9 +97,9 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
 
   // 1. GET /applications/:appId/skus
   app.get("/api/v:version/applications/:appId/skus", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const appId = c.req.param("appId");
     const skus = ds.skus.findBy("application_snowflake", appId).map(toAPISKU);
     return c.json(skus);
@@ -108,9 +107,9 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
 
   // 2. GET /applications/:appId/entitlements
   app.get("/api/v:version/applications/:appId/entitlements", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const appId = c.req.param("appId");
 
     const userId = c.req.query("user_id");
@@ -141,9 +140,9 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
 
   // 3. GET /applications/:appId/entitlements/:entitlementId
   app.get("/api/v:version/applications/:appId/entitlements/:entitlementId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const entitlementId = c.req.param("entitlementId");
     const appId = c.req.param("appId");
     const entitlement = ds.entitlements.findOneBy("snowflake", entitlementId);
@@ -153,9 +152,9 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
 
   // 4. POST /applications/:appId/entitlements (create test entitlement)
   app.post("/api/v:version/applications/:appId/entitlements", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const appId = c.req.param("appId");
 
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -197,9 +196,9 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
 
   // 5. DELETE /applications/:appId/entitlements/:entitlementId
   app.delete("/api/v:version/applications/:appId/entitlements/:entitlementId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const entitlementId = c.req.param("entitlementId");
     const appId = c.req.param("appId");
     const entitlement = ds.entitlements.findOneBy("snowflake", entitlementId);
@@ -211,9 +210,9 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
 
   // 6. POST /applications/:appId/entitlements/:entitlementId/consume
   app.post("/api/v:version/applications/:appId/entitlements/:entitlementId/consume", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const entitlementId = c.req.param("entitlementId");
     const appId = c.req.param("appId");
     const entitlement = ds.entitlements.findOneBy("snowflake", entitlementId);
@@ -239,9 +238,9 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
 
   // 7. GET /skus/:skuId/subscriptions
   app.get("/api/v:version/skus/:skuId/subscriptions", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const skuId = c.req.param("skuId");
 
     const userId = c.req.query("user_id");
@@ -257,9 +256,9 @@ export function monetizationRoutes(ctx: DiscordRouteContext): void {
 
   // 8. GET /skus/:skuId/subscriptions/:subscriptionId
   app.get("/api/v:version/skus/:skuId/subscriptions/:subscriptionId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const skuId = c.req.param("skuId");
     const subscriptionId = c.req.param("subscriptionId");
     const subscription = ds.subscriptions.findOneBy("snowflake", subscriptionId);

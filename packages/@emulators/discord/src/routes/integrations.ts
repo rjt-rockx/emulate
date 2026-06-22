@@ -1,9 +1,9 @@
 import type { DiscordRouteContext } from "../context.js";
-import { getDiscordStore, type DiscordStore } from "../store.js";
+import type { DiscordStore } from "../store.js";
 import {
-  getAuth,
-  unauthorized,
-  unknownGuild,
+  requireBot,
+  requireUser,
+  requireGuild,
   unknownIntegration,
   toAPIUser,
   recordAudit,
@@ -54,12 +54,12 @@ export function integrationsRoutes(ctx: DiscordRouteContext): void {
   // -------------------------------------------------------------------------
 
   app.get("/api/v:version/guilds/:guildId/integrations", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const guildId = c.req.param("guildId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId);
+    if (guild instanceof Response) return guild;
 
     // A maximum of 50 integrations is returned.
     const integrations = ds.integrations
@@ -74,12 +74,12 @@ export function integrationsRoutes(ctx: DiscordRouteContext): void {
   // -------------------------------------------------------------------------
 
   app.post("/api/v:version/guilds/:guildId/integrations", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { auth, ds } = g;
     const guildId = c.req.param("guildId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId);
+    if (guild instanceof Response) return guild;
     const body = (await c.req.json().catch(() => ({}))) as Partial<{
       id: string;
       name: string;
@@ -141,12 +141,12 @@ export function integrationsRoutes(ctx: DiscordRouteContext): void {
   // -------------------------------------------------------------------------
 
   app.get("/api/v:version/guilds/:guildId/integrations/:integrationId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const guildId = c.req.param("guildId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId);
+    if (guild instanceof Response) return guild;
     const integ = ds.integrations.findOneBy("snowflake", c.req.param("integrationId"));
     if (!integ || integ.guild_snowflake !== guildId) return unknownIntegration(c);
     return c.json(toAPIIntegration(integ, ds));
@@ -157,12 +157,12 @@ export function integrationsRoutes(ctx: DiscordRouteContext): void {
   // -------------------------------------------------------------------------
 
   app.patch("/api/v:version/guilds/:guildId/integrations/:integrationId", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { auth, ds } = g;
     const guildId = c.req.param("guildId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId);
+    if (guild instanceof Response) return guild;
     const integ = ds.integrations.findOneBy("snowflake", c.req.param("integrationId"));
     if (!integ || integ.guild_snowflake !== guildId) return unknownIntegration(c);
     const body = (await c.req.json().catch(() => ({}))) as Partial<{
@@ -209,13 +209,13 @@ export function integrationsRoutes(ctx: DiscordRouteContext): void {
   // -------------------------------------------------------------------------
 
   app.delete("/api/v:version/guilds/:guildId/integrations/:integrationId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     const integrationId = c.req.param("integrationId");
-    const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return unknownGuild(c);
+    const guild = requireGuild(c, ds, guildId);
+    if (guild instanceof Response) return guild;
     const integ = ds.integrations.findOneBy("snowflake", integrationId);
     if (!integ || integ.guild_snowflake !== guildId) return unknownIntegration(c);
 
@@ -253,12 +253,10 @@ export function integrationsRoutes(ctx: DiscordRouteContext): void {
   // -------------------------------------------------------------------------
 
   app.get("/api/v:version/users/@me/connections", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth) return unauthorized(c);
-    const user = auth.user;
-    if (!user) return unauthorized(c);
-
-    const ds = getDiscordStore(store);
+    const g = requireUser(c, store);
+    if (g instanceof Response) return g;
+    const { auth, ds } = g;
+    const user = auth.user!;
     const connections = ds.connections.findBy("user_snowflake", user.snowflake).map((conn) => {
       const obj: Record<string, unknown> = {
         id: conn.connection_id,

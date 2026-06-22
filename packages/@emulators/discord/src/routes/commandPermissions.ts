@@ -1,6 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, discordError } from "../helpers.js";
+import { getAuth, requireBot, unauthorized, discordError } from "../helpers.js";
 
 /** Discord API error code for unknown application command permissions. */
 const UNKNOWN_COMMAND_PERMISSIONS_CODE = 10066;
@@ -46,8 +46,8 @@ export function commandPermissionsRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
 
     if (c.req.method === "GET") {
-      const auth = getAuth(c, store);
-      if (!auth || auth.type !== "bot") return unauthorized(c);
+      const gb = requireBot(c, store);
+      if (gb instanceof Response) return gb;
       const rows = ds.commandPermissions
         .findBy("application_snowflake", appId)
         .filter((row) => row.guild_snowflake === guildId);
@@ -84,9 +84,9 @@ export function commandPermissionsRoutes(ctx: DiscordRouteContext): void {
   // GET /api/v:version/applications/:appId/guilds/:guildId/commands/:commandId/permissions
   // Returns the single command-permission object; 404 if none exists.
   app.get("/api/v:version/applications/:appId/guilds/:guildId/commands/:commandId/permissions", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const appId = c.req.param("appId");
     const guildId = c.req.param("guildId");
     const commandId = c.req.param("commandId");

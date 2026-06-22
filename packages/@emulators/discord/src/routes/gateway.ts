@@ -1,4 +1,4 @@
-import { getAuth, gatewayUrlFromBaseUrl, unauthorized } from "../helpers.js";
+import { gatewayUrlFromBaseUrl, requireBot } from "../helpers.js";
 import type { DiscordRouteContext } from "../context.js";
 
 /** Gateway bootstrap: tells a bot which WebSocket URL to connect to. */
@@ -8,8 +8,8 @@ export function gatewayRoutes(ctx: DiscordRouteContext): void {
   app.get("/api/v:version/gateway", (c) => c.json({ url: gatewayUrlFromBaseUrl(baseUrl) }));
 
   app.get("/api/v:version/gateway/bot", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
     return c.json({
       url: gatewayUrlFromBaseUrl(baseUrl),
       shards: 1,

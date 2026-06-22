@@ -1,9 +1,8 @@
 import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
-import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, discordError, snowflake, toAPIApplicationCommand } from "../helpers.js";
-import type { DiscordApplicationCommand } from "../entities.js";
 import type { DiscordStore } from "../store.js";
+import { requireBot, notFound, discordError, snowflake, toAPIApplicationCommand } from "../helpers.js";
+import type { DiscordApplicationCommand } from "../entities.js";
 
 // CHAT_INPUT and PRIMARY_ENTRY_POINT (1, 4): lowercase-only name, no spaces.
 const CHAT_INPUT_NAME_RE = /^[-_\p{L}\p{N}]{1,32}$/u;
@@ -285,18 +284,14 @@ function checkCommandCap(
 export function applicationCommandsRoutes(ctx: DiscordRouteContext): void {
   const { app, store } = ctx;
 
-  const requireBot = (c: Context<AppEnv>) => {
-    const auth = getAuth(c, store);
-    return auth && auth.type === "bot" ? auth : null;
-  };
-
   // Register both global and guild variants. Guild routes are registered before the
   // global ones so the more specific path wins where it matters.
 
   // ----- Guild commands -----
   app.get("/api/v:version/applications/:appId/guilds/:guildId/commands", (c) => {
-    if (!requireBot(c)) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const appId = c.req.param("appId");
     const guildId = c.req.param("guildId");
     const cmds = ds.commands
@@ -307,8 +302,9 @@ export function applicationCommandsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.post("/api/v:version/applications/:appId/guilds/:guildId/commands", async (c) => {
-    if (!requireBot(c)) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const body = (await c.req.json().catch(() => ({}))) as CommandInput;
     const errors = validateCommand(body);
     if (errors) return discordError(c, 400, "Invalid Form Body", 50035, { errors });
@@ -319,8 +315,9 @@ export function applicationCommandsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.put("/api/v:version/applications/:appId/guilds/:guildId/commands", async (c) => {
-    if (!requireBot(c)) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const appId = c.req.param("appId");
     const guildId = c.req.param("guildId");
     const body = (await c.req.json().catch(() => [])) as CommandInput[];
@@ -337,16 +334,18 @@ export function applicationCommandsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.get("/api/v:version/applications/:appId/guilds/:guildId/commands/:commandId", (c) => {
-    if (!requireBot(c)) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const cmd = ds.commands.findOneBy("snowflake", c.req.param("commandId"));
     if (!cmd || cmd.guild_snowflake !== c.req.param("guildId")) return notFound(c);
     return c.json(toAPIApplicationCommand(cmd));
   });
 
   app.patch("/api/v:version/applications/:appId/guilds/:guildId/commands/:commandId", async (c) => {
-    if (!requireBot(c)) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const cmd = ds.commands.findOneBy("snowflake", c.req.param("commandId"));
     if (!cmd || cmd.guild_snowflake !== c.req.param("guildId")) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as CommandInput;
@@ -373,8 +372,9 @@ export function applicationCommandsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/applications/:appId/guilds/:guildId/commands/:commandId", (c) => {
-    if (!requireBot(c)) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const cmd = ds.commands.findOneBy("snowflake", c.req.param("commandId"));
     if (!cmd || cmd.guild_snowflake !== c.req.param("guildId")) return notFound(c);
     ds.commands.delete(cmd.id);
@@ -383,8 +383,9 @@ export function applicationCommandsRoutes(ctx: DiscordRouteContext): void {
 
   // ----- Global commands -----
   app.get("/api/v:version/applications/:appId/commands", (c) => {
-    if (!requireBot(c)) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const appId = c.req.param("appId");
     const cmds = ds.commands
       .findBy("application_snowflake", appId)
@@ -394,8 +395,9 @@ export function applicationCommandsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.post("/api/v:version/applications/:appId/commands", async (c) => {
-    if (!requireBot(c)) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const body = (await c.req.json().catch(() => ({}))) as CommandInput;
     const errors = validateCommand(body);
     if (errors) return discordError(c, 400, "Invalid Form Body", 50035, { errors });
@@ -406,8 +408,9 @@ export function applicationCommandsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.put("/api/v:version/applications/:appId/commands", async (c) => {
-    if (!requireBot(c)) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const appId = c.req.param("appId");
     const body = (await c.req.json().catch(() => [])) as CommandInput[];
     // Validate all entries first.
@@ -423,16 +426,18 @@ export function applicationCommandsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.get("/api/v:version/applications/:appId/commands/:commandId", (c) => {
-    if (!requireBot(c)) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const cmd = ds.commands.findOneBy("snowflake", c.req.param("commandId"));
     if (!cmd || cmd.guild_snowflake !== null) return notFound(c);
     return c.json(toAPIApplicationCommand(cmd));
   });
 
   app.patch("/api/v:version/applications/:appId/commands/:commandId", async (c) => {
-    if (!requireBot(c)) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const cmd = ds.commands.findOneBy("snowflake", c.req.param("commandId"));
     if (!cmd || cmd.guild_snowflake !== null) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as CommandInput;
@@ -459,8 +464,9 @@ export function applicationCommandsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/applications/:appId/commands/:commandId", (c) => {
-    if (!requireBot(c)) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const cmd = ds.commands.findOneBy("snowflake", c.req.param("commandId"));
     if (!cmd || cmd.guild_snowflake !== null) return notFound(c);
     ds.commands.delete(cmd.id);

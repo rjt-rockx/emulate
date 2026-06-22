@@ -1,6 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, discordError, toAPIUser, snowflake } from "../helpers.js";
+import { requireBot, unauthorized, notFound, discordError, toAPIUser, snowflake } from "../helpers.js";
 import { signInteraction } from "../interactions/ed25519.js";
 import type { APIApplication, APIEmoji } from "discord-api-types/v10";
 import type { DiscordApplication, DiscordApplicationEmoji } from "../entities.js";
@@ -194,9 +194,9 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
 
   // GET /api/v:version/applications/@me
   app.get("/api/v:version/applications/@me", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { auth, ds } = g;
     const appRecord = auth.application ?? ds.applications.all()[0];
     if (!appRecord) return unauthorized(c);
     return c.json(toAPIApplication(appRecord, ds, store));
@@ -204,9 +204,9 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
 
   // PATCH /api/v:version/applications/@me
   app.patch("/api/v:version/applications/@me", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { auth, ds } = g;
     const appRecord = auth.application ?? ds.applications.all()[0];
     if (!appRecord) return unauthorized(c);
 
@@ -259,9 +259,9 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
 
   // GET /api/v:version/applications/:appId/emojis
   app.get("/api/v:version/applications/:appId/emojis", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const appId = c.req.param("appId");
     const emojis = ds.appEmojis.findBy("application_snowflake", appId).map((e) => toAPIAppEmoji(e, ds));
     return c.json({ items: emojis });
@@ -269,9 +269,9 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
 
   // GET /api/v:version/applications/:appId/emojis/:emojiId
   app.get("/api/v:version/applications/:appId/emojis/:emojiId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const emojiId = c.req.param("emojiId");
     const emoji = ds.appEmojis.findOneBy("snowflake", emojiId);
     if (!emoji) return notFound(c);
@@ -280,9 +280,9 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
 
   // POST /api/v:version/applications/:appId/emojis
   app.post("/api/v:version/applications/:appId/emojis", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { auth, ds } = g;
     const appId = c.req.param("appId");
     const body = await c.req.json<{ name: string; image?: string; roles?: string[] }>();
 
@@ -305,9 +305,9 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
 
   // PATCH /api/v:version/applications/:appId/emojis/:emojiId
   app.patch("/api/v:version/applications/:appId/emojis/:emojiId", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const emojiId = c.req.param("emojiId");
     const emoji = ds.appEmojis.findOneBy("snowflake", emojiId);
     if (!emoji) return notFound(c);
@@ -322,9 +322,9 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
 
   // DELETE /api/v:version/applications/:appId/emojis/:emojiId
   app.delete("/api/v:version/applications/:appId/emojis/:emojiId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
     const emojiId = c.req.param("emojiId");
     const emoji = ds.appEmojis.findOneBy("snowflake", emojiId);
     if (!emoji) return notFound(c);

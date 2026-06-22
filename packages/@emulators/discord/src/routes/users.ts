@@ -2,6 +2,7 @@ import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
 import {
   getAuth,
+  requireUser,
   unauthorized,
   unknownUser,
   unknownGuild,
@@ -11,6 +12,7 @@ import {
   toAPIUser,
   toAPIChannel,
   toAPIMember,
+  getGuildMember,
 } from "../helpers.js";
 import { createChannel } from "../factories.js";
 import { computeGuildPermissions } from "../permissions.js";
@@ -41,11 +43,12 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
   // Register @me literal routes before the :userId param route so "@me" is not
   // captured as a user id.
   app.get("/api/v:version/users/@me", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
+    const g = requireUser(c, store);
+    if (g instanceof Response) return g;
+    const { auth } = g;
     const scopeErr = requireScope(c, store, auth, "identify");
     if (scopeErr) return scopeErr;
-    const userObj = toAPIUser(auth.user, true);
+    const userObj = toAPIUser(auth.user!, true);
     // When strict scopes are enabled, strip the email field unless the email
     // scope is also present (bot tokens are exempt — they see all self fields).
     const strict = store.getData<boolean>("discord.strict_scopes") === true;
@@ -56,9 +59,10 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.patch("/api/v:version/users/@me", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireUser(c, store);
+    if (g instanceof Response) return g;
+    const { auth, ds } = g;
+    const user = auth.user!;
     let body: Record<string, unknown> = {};
     try {
       body = await c.req.json();
@@ -85,45 +89,46 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
     if (body.global_name !== undefined) patch.global_name = body.global_name;
     if (body.avatar !== undefined) patch.avatar = body.avatar;
     if (body.banner !== undefined) patch.banner = body.banner;
-    if (Object.keys(patch).length > 0) ds.users.update(auth.user.id, patch);
-    const updated = ds.users.findOneBy("snowflake", auth.user.snowflake) ?? auth.user;
+    if (Object.keys(patch).length > 0) ds.users.update(user.id, patch);
+    const updated = ds.users.findOneBy("snowflake", user.snowflake) ?? user;
     bus.publish({ t: "USER_UPDATE", guildId: null, requiredIntents: 0, d: toAPIUser(updated, true) });
     return c.json(toAPIUser(updated, true));
   });
 
   app.get("/api/v:version/users/@me/guilds", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
+    const g = requireUser(c, store);
+    if (g instanceof Response) return g;
+    const { auth, ds } = g;
+    const user = auth.user!;
     const scopeErr = requireScope(c, store, auth, "guilds");
     if (scopeErr) return scopeErr;
-    const ds = getDiscordStore(store);
     const withCounts = c.req.query("with_counts") === "true";
     const before = c.req.query("before");
     const after = c.req.query("after");
     const limitRaw = c.req.query("limit");
     const limit = limitRaw !== undefined ? Math.max(0, Math.min(200, Number(limitRaw) || 0)) : 200;
-    const memberships = ds.members.findBy("user_snowflake", auth.user.snowflake);
+    const memberships = ds.members.findBy("user_snowflake", user.snowflake);
     let resolved = memberships
       .map((m) => ds.guilds.findOneBy("snowflake", m.guild_snowflake))
-      .filter((g): g is NonNullable<typeof g> => !!g)
+      .filter((guild): guild is NonNullable<typeof guild> => !!guild)
       .sort((a, b) => (BigInt(a.snowflake) < BigInt(b.snowflake) ? -1 : 1));
     // before/after are snowflake cursors over the guild id.
-    if (after) resolved = resolved.filter((g) => BigInt(g.snowflake) > BigInt(after));
-    if (before) resolved = resolved.filter((g) => BigInt(g.snowflake) < BigInt(before));
+    if (after) resolved = resolved.filter((guild) => BigInt(guild.snowflake) > BigInt(after));
+    if (before) resolved = resolved.filter((guild) => BigInt(guild.snowflake) < BigInt(before));
     resolved = resolved.slice(0, limit);
-    const guilds = resolved.map((g) => {
+    const guilds = resolved.map((guild) => {
       const partial: Record<string, unknown> = {
-        id: g.snowflake,
-        name: g.name,
-        icon: g.icon,
-        banner: g.banner ?? null,
-        owner: g.owner_snowflake === auth.user!.snowflake,
-        permissions: computeGuildPermissions(ds, auth.user!.snowflake, g.snowflake).toString(),
-        features: g.features,
+        id: guild.snowflake,
+        name: guild.name,
+        icon: guild.icon,
+        banner: guild.banner ?? null,
+        owner: guild.owner_snowflake === user.snowflake,
+        permissions: computeGuildPermissions(ds, user.snowflake, guild.snowflake).toString(),
+        features: guild.features,
       };
       if (withCounts) {
-        partial.approximate_member_count = g.member_snowflakes.length;
-        partial.approximate_presence_count = g.member_snowflakes.length;
+        partial.approximate_member_count = guild.member_snowflakes.length;
+        partial.approximate_presence_count = guild.member_snowflakes.length;
       }
       return partial;
     });
@@ -132,46 +137,49 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
 
   // Current user's member object within a specific guild (oauth `guilds.members.read`).
   app.get("/api/v:version/users/@me/guilds/:guildId/member", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
+    const g = requireUser(c, store);
+    if (g instanceof Response) return g;
+    const { auth, ds } = g;
+    const user = auth.user!;
     const scopeErr = requireScope(c, store, auth, "guilds.members.read");
     if (scopeErr) return scopeErr;
-    const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
     if (!ds.guilds.findOneBy("snowflake", guildId)) return unknownGuild(c);
-    const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === auth.user!.snowflake);
+    const member = getGuildMember(ds, guildId, user.snowflake);
     if (!member) return unknownMember(c);
     return c.json(toAPIMember(member, ds));
   });
 
   // Leave a guild.
   app.delete("/api/v:version/users/@me/guilds/:guildId", (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireUser(c, store);
+    if (g instanceof Response) return g;
+    const { auth, ds } = g;
+    const user = auth.user!;
     const guildId = c.req.param("guildId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
     if (!guild) return unknownGuild(c);
-    const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === auth.user!.snowflake);
+    const member = getGuildMember(ds, guildId, user.snowflake);
     if (member) {
       ds.members.delete(member.id);
-      ds.guilds.update(guild.id, { member_snowflakes: guild.member_snowflakes.filter((s) => s !== auth.user!.snowflake) });
+      ds.guilds.update(guild.id, { member_snowflakes: guild.member_snowflakes.filter((s) => s !== user.snowflake) });
       bus.publish({
         t: "GUILD_MEMBER_REMOVE",
         guildId,
         requiredIntents: Intents.GuildMembers,
-        d: { guild_id: guildId, user: toAPIUser(auth.user) },
+        d: { guild_id: guildId, user: toAPIUser(user) },
       });
       // The leaving user/bot sees the guild become unavailable (targeted: only it leaves).
-      bus.publish({ t: "GUILD_DELETE", guildId, requiredIntents: 0, targetUserId: auth.user.snowflake, d: { id: guildId, unavailable: false } });
+      bus.publish({ t: "GUILD_DELETE", guildId, requiredIntents: 0, targetUserId: user.snowflake, d: { id: guildId, unavailable: false } });
     }
     return new Response(null, { status: 204 });
   });
 
   app.post("/api/v:version/users/@me/channels", async (c) => {
-    const auth = getAuth(c, store);
-    if (!auth || !auth.user) return unauthorized(c);
-    const ds = getDiscordStore(store);
+    const g = requireUser(c, store);
+    if (g instanceof Response) return g;
+    const { auth, ds } = g;
+    const caller = auth.user!;
     let body: Record<string, unknown> = {};
     try {
       body = await c.req.json();
@@ -188,13 +196,13 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
       // Collect unique recipient snowflakes from tokens (emulator: token == snowflake).
       const recipientSnowflakes: string[] = [];
       for (const token of tokens) {
-        const user = ds.users.findOneBy("snowflake", token);
-        if (user && !recipientSnowflakes.includes(user.snowflake)) {
-          recipientSnowflakes.push(user.snowflake);
+        const tokenUser = ds.users.findOneBy("snowflake", token);
+        if (tokenUser && !recipientSnowflakes.includes(tokenUser.snowflake)) {
+          recipientSnowflakes.push(tokenUser.snowflake);
         }
       }
       // Include the caller as an owner/member.
-      const allMembers = [auth.user.snowflake, ...recipientSnowflakes.filter((s) => s !== auth.user!.snowflake)];
+      const allMembers = [caller.snowflake, ...recipientSnowflakes.filter((s) => s !== caller.snowflake)];
 
       // Cap at 10 recipients (the API enforces a 10-GDM limit; owner counts toward the total).
       if (allMembers.length > 10) {
@@ -217,7 +225,7 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
       const gdmRecord = ds.channels.findOneBy("snowflake", gdmRaw.snowflake)!;
       ds.channels.update(gdmRecord.id, {
         recipient_snowflakes: allMembers,
-        owner_snowflake: auth.user.snowflake,
+        owner_snowflake: caller.snowflake,
       });
       const created = ds.channels.findOneBy("snowflake", gdmRaw.snowflake)!;
       return c.json(toAPIChannel(created));
@@ -234,13 +242,13 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
       .find(
         (ch) =>
           ch.type === 1 &&
-          ch.recipient_snowflakes.includes(auth.user!.snowflake) &&
+          ch.recipient_snowflakes.includes(caller.snowflake) &&
           ch.recipient_snowflakes.includes(recipient.snowflake),
       );
     if (existing) return c.json(toAPIChannel(existing));
 
     const dm = createChannel(ds, { name: "", type: 1, guildSnowflake: null });
-    ds.channels.update(dm.id, { recipient_snowflakes: [auth.user.snowflake, recipient.snowflake] });
+    ds.channels.update(dm.id, { recipient_snowflakes: [caller.snowflake, recipient.snowflake] });
     const created = ds.channels.findOneBy("snowflake", dm.snowflake)!;
     return c.json(toAPIChannel(created));
   });
