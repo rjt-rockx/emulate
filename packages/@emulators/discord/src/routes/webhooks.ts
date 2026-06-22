@@ -187,14 +187,21 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
     // Webhook execute.
     const webhook = ds.webhooks.findOneBy("snowflake", id);
     if (!webhook || webhook.token !== token) return notFound(c);
+    // ?thread_id (or body.thread_id) posts into a thread under the webhook's channel.
+    const threadId = c.req.query("thread_id") ?? (typeof body.thread_id === "string" ? body.thread_id : undefined);
+    const targetChannel = threadId && ds.channels.findOneBy("snowflake", threadId) ? threadId : webhook.channel_snowflake;
     const message = createMessage(ds, {
-      channelSnowflake: webhook.channel_snowflake,
+      channelSnowflake: targetChannel,
       guildSnowflake: webhook.guild_snowflake,
       authorSnowflake: webhook.user_snowflake ?? ds.applications.all()[0]?.bot_user_snowflake ?? "",
       content: typeof body.content === "string" ? body.content : "",
       embeds: (body.embeds as unknown[]) ?? [],
       components: (body.components as unknown[]) ?? [],
+      tts: body.tts === true,
+      flags: typeof body.flags === "number" ? body.flags : 0,
       webhookSnowflake: webhook.snowflake,
+      webhookUsername: typeof body.username === "string" ? body.username : (webhook.name ?? null),
+      webhookAvatar: typeof body.avatar_url === "string" ? body.avatar_url : webhook.avatar,
     });
     const payload = toAPIMessage(message, ds);
     bus.publish({

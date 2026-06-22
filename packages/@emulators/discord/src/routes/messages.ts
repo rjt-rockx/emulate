@@ -3,14 +3,42 @@ import { getDiscordStore } from "../store.js";
 import { getAuth, unauthorized, notFound, toAPIMessage, redactMessageContent, isEphemeral } from "../helpers.js";
 import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
+import type { DiscordMessage } from "../entities.js";
 
 const MENTION_RE = /<@!?(\d+)>/g;
+const ROLE_MENTION_RE = /<@&(\d+)>/g;
 
-function parseMentions(content: string): { users: string[]; everyone: boolean } {
+function parseMentions(content: string): { users: string[]; roles: string[]; everyone: boolean } {
   const users = new Set<string>();
+  const roles = new Set<string>();
   let m: RegExpExecArray | null;
   while ((m = MENTION_RE.exec(content)) !== null) users.add(m[1]);
-  return { users: [...users], everyone: /@everyone\b/.test(content) };
+  while ((m = ROLE_MENTION_RE.exec(content)) !== null) roles.add(m[1]);
+  return { users: [...users], roles: [...roles], everyone: /@everyone\b|@here\b/.test(content) };
+}
+
+interface AllowedMentions {
+  parse?: string[];
+  users?: string[];
+  roles?: string[];
+  replied_user?: boolean;
+}
+
+/**
+ * Apply an `allowed_mentions` allow-list to the mentions parsed from content. When omitted,
+ * every mention in the content pings (REST default). When present, only the categories in
+ * `parse` ping, plus any ids explicitly whitelisted in `users`/`roles` that actually appear.
+ */
+function applyAllowedMentions(
+  parsed: { users: string[]; roles: string[]; everyone: boolean },
+  allowed: AllowedMentions | undefined,
+): { users: string[]; roles: string[]; everyone: boolean } {
+  if (!allowed) return parsed;
+  const parse = allowed.parse;
+  const users = (parse?.includes("users") ? parsed.users : (allowed.users ?? [])).filter((id) => parsed.users.includes(id));
+  const roles = (parse?.includes("roles") ? parsed.roles : (allowed.roles ?? [])).filter((id) => parsed.roles.includes(id));
+  const everyone = (parse?.includes("everyone") ?? false) && parsed.everyone;
+  return { users, roles, everyone };
 }
 
 export function messagesRoutes(ctx: DiscordRouteContext): void {
@@ -61,19 +89,32 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
       // no-op
     }
     const content = typeof body.content === "string" ? body.content : "";
-    const mentions = parseMentions(content);
+    const mentions = applyAllowedMentions(parseMentions(content), body.allowed_mentions as AllowedMentions | undefined);
+    // A message_reference with a message_id makes this a reply (type 19) that hydrates
+    // referenced_message from the target.
+    const ref = body.message_reference as { message_id?: string; type?: number } | undefined;
+    const isReply = !!ref?.message_id && (ref.type ?? 0) === 0;
+    // Polls specify a duration in hours; convert it to a concrete expiry timestamp.
+    let poll = body.poll as DiscordMessage["poll"] | undefined;
+    if (poll && typeof (body.poll as { duration?: number }).duration === "number") {
+      const hours = (body.poll as { duration: number }).duration;
+      poll = { ...poll, expiry: new Date(Date.now() + hours * 3600_000).toISOString() };
+    }
     const message = createMessage(ds, {
       channelSnowflake: channelId,
       guildSnowflake: channel.guild_snowflake,
       authorSnowflake: auth.user.snowflake,
       content,
       tts: body.tts === true,
+      type: isReply ? 19 : 0,
       embeds: (body.embeds as unknown[] | undefined) ?? [],
       components: (body.components as unknown[] | undefined) ?? [],
-      nonce: typeof body.nonce === "string" ? body.nonce : null,
+      nonce: typeof body.nonce === "string" ? body.nonce : typeof body.nonce === "number" ? String(body.nonce) : null,
       messageReference: (body.message_reference as never) ?? null,
-      poll: (body.poll as never) ?? null,
+      referencedMessageSnowflake: isReply ? ref!.message_id! : null,
+      poll: poll ?? null,
       mentionSnowflakes: mentions.users,
+      mentionRoleSnowflakes: mentions.roles,
       mentionEveryone: mentions.everyone,
     });
     const payload = toAPIMessage(message, ds);

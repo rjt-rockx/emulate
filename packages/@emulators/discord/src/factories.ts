@@ -266,6 +266,8 @@ export interface CreateMessageInput {
   components?: unknown[];
   attachments?: unknown[];
   webhookSnowflake?: string | null;
+  webhookUsername?: string | null;
+  webhookAvatar?: string | null;
   mentionSnowflakes?: string[];
   mentionRoleSnowflakes?: string[];
   mentionEveryone?: boolean;
@@ -292,6 +294,8 @@ export function createMessage(ds: DiscordStore, input: CreateMessageInput): Disc
     components: input.components ?? [],
     pinned: false,
     webhook_snowflake: input.webhookSnowflake ?? null,
+    webhook_username: input.webhookUsername ?? null,
+    webhook_avatar: input.webhookAvatar ?? null,
     type: input.type ?? 0,
     flags: input.flags ?? 0,
     nonce: input.nonce ?? null,

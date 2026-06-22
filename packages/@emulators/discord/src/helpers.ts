@@ -385,7 +385,22 @@ export function aggregateReactions(
 }
 
 export function toAPIMessage(m: DiscordMessage, ds: DiscordStore, meSnowflake?: string): Record<string, unknown> {
-  const author = ds.users.findOneBy("snowflake", m.author_snowflake);
+  // Webhook messages with a custom username/avatar present a webhook-shaped author.
+  const author =
+    m.webhook_snowflake && m.webhook_username
+      ? {
+          id: m.webhook_snowflake,
+          username: m.webhook_username,
+          global_name: null,
+          avatar: m.webhook_avatar ?? null,
+          discriminator: "0000",
+          bot: true,
+          public_flags: 0,
+        }
+      : (() => {
+          const user = ds.users.findOneBy("snowflake", m.author_snowflake);
+          return user ? toAPIUser(user) : undefined;
+        })();
   const mentions = m.mention_snowflakes
     .map((s) => ds.users.findOneBy("snowflake", s))
     .filter((u): u is DiscordUser => !!u)
@@ -394,7 +409,7 @@ export function toAPIMessage(m: DiscordMessage, ds: DiscordStore, meSnowflake?: 
     id: m.snowflake,
     channel_id: m.channel_snowflake,
     guild_id: m.guild_snowflake ?? undefined,
-    author: author ? toAPIUser(author) : undefined,
+    author,
     content: m.content,
     timestamp: m.timestamp,
     edited_timestamp: m.edited_timestamp,
@@ -447,7 +462,7 @@ export function toAPIPoll(m: DiscordMessage, ds: DiscordStore, meSnowflake?: str
 
 /** A message payload with content-bearing fields stripped (for sessions lacking MESSAGE_CONTENT). */
 export function redactMessageContent(message: Record<string, unknown>): Record<string, unknown> {
-  return { ...message, content: "", embeds: [], components: [], attachments: [] };
+  return { ...message, content: "", embeds: [], components: [], attachments: [], poll: undefined };
 }
 
 export interface GuildSerializeOptions {

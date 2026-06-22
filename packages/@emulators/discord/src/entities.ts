@@ -175,6 +175,9 @@ export interface DiscordMessage extends Entity {
   components: unknown[];
   pinned: boolean;
   webhook_snowflake: string | null;
+  /** Per-message webhook author overrides (custom username/avatar on webhook execute). */
+  webhook_username?: string | null;
+  webhook_avatar?: string | null;
   type: number; // MessageType
   flags: number;
   nonce: string | null;
