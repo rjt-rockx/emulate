@@ -25,7 +25,7 @@ import {
 import { computeGuildPermissions, hasPermission, PermissionFlags } from "../permissions.js";
 import { Intents } from "../gateway/intents.js";
 import type { Context, AppEnv, Store } from "@emulators/core";
-import type { DiscordScheduledEvent, DiscordSticker } from "../entities.js";
+import type { DiscordScheduledEvent, DiscordScheduledEventException, DiscordSticker } from "../entities.js";
 
 // ---------------------------------------------------------------------------
 // Standard sticker packs (read-only catalog)
@@ -228,6 +228,17 @@ function callerHasExpressionPermission(
 function serializeEvent(e: DiscordScheduledEvent, ds: DiscordStore): APIGuildScheduledEvent {
   const payload = toAPIScheduledEvent({ ...e, user_count: eventUserCount(ds, e.snowflake) }, ds);
   return payload;
+}
+
+/** Serialize a scheduled-event exception to GuildScheduledEventExceptionResponse. */
+function toAPIScheduledEventException(ex: DiscordScheduledEventException): Record<string, unknown> {
+  return {
+    event_id: ex.event_snowflake,
+    event_exception_id: ex.snowflake,
+    scheduled_start_time: ex.scheduled_start_time,
+    scheduled_end_time: ex.scheduled_end_time,
+    is_canceled: ex.is_canceled ?? false,
+  };
 }
 
 /**
@@ -709,6 +720,10 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
     for (const sub of ds.scheduledEventUsers.findBy("event_snowflake", event.snowflake)) {
       ds.scheduledEventUsers.delete(sub.id);
     }
+    // Remove the event's per-occurrence exceptions.
+    for (const ex of ds.scheduledEventExceptions.findBy("event_snowflake", event.snowflake)) {
+      ds.scheduledEventExceptions.delete(ex.id);
+    }
     bus.publish({
       t: "GUILD_SCHEDULED_EVENT_DELETE",
       guildId: event.guild_snowflake,
@@ -723,6 +738,58 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
       changes: [{ key: "name", old_value: event.name }],
       reason: auditReason(c),
     });
+    return new Response(null, { status: 204 });
+  });
+
+  // ----- Scheduled Event Exceptions (overrides for a single recurring occurrence) -----
+  // POST: create an exception. Requires `original_scheduled_start_time` (the occurrence to override).
+  app.post("/api/v:version/guilds/:guildId/scheduled-events/:eventId/exceptions", async (c) => {
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    const guildId = c.req.param("guildId");
+    const event = ds.scheduledEvents.findOneBy("snowflake", c.req.param("eventId"));
+    if (!event || event.guild_snowflake !== guildId) return unknownScheduledEvent(c);
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    if (typeof body.original_scheduled_start_time !== "string") {
+      return invalidFormBody(c, { original_scheduled_start_time: "This field is required." });
+    }
+    const inserted = ds.scheduledEventExceptions.insert({
+      snowflake: snowflake(),
+      event_snowflake: event.snowflake,
+      guild_snowflake: guildId,
+      original_scheduled_start_time: body.original_scheduled_start_time,
+      scheduled_start_time: typeof body.scheduled_start_time === "string" ? body.scheduled_start_time : null,
+      scheduled_end_time: typeof body.scheduled_end_time === "string" ? body.scheduled_end_time : null,
+      is_canceled: typeof body.is_canceled === "boolean" ? body.is_canceled : null,
+    });
+    return c.json(toAPIScheduledEventException(inserted));
+  });
+
+  // PATCH: modify an existing exception's overridden times / canceled flag.
+  app.patch("/api/v:version/guilds/:guildId/scheduled-events/:eventId/exceptions/:exceptionId", async (c) => {
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    const guildId = c.req.param("guildId");
+    const event = ds.scheduledEvents.findOneBy("snowflake", c.req.param("eventId"));
+    if (!event || event.guild_snowflake !== guildId) return unknownScheduledEvent(c);
+    const ex = ds.scheduledEventExceptions.findOneBy("snowflake", c.req.param("exceptionId"));
+    if (!ex || ex.event_snowflake !== event.snowflake) return notFound(c);
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const patch: Partial<DiscordScheduledEventException> = {};
+    if (body.scheduled_start_time !== undefined) patch.scheduled_start_time = body.scheduled_start_time as string | null;
+    if (body.scheduled_end_time !== undefined) patch.scheduled_end_time = body.scheduled_end_time as string | null;
+    if (body.is_canceled !== undefined) patch.is_canceled = body.is_canceled as boolean | null;
+    ds.scheduledEventExceptions.update(ex.id, patch);
+    return c.json(toAPIScheduledEventException(ds.scheduledEventExceptions.findOneBy("snowflake", ex.snowflake)!));
+  });
+
+  // DELETE: remove an exception (the occurrence reverts to the recurrence rule).
+  app.delete("/api/v:version/guilds/:guildId/scheduled-events/:eventId/exceptions/:exceptionId", (c) => {
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    const guildId = c.req.param("guildId");
+    const event = ds.scheduledEvents.findOneBy("snowflake", c.req.param("eventId"));
+    if (!event || event.guild_snowflake !== guildId) return unknownScheduledEvent(c);
+    const ex = ds.scheduledEventExceptions.findOneBy("snowflake", c.req.param("exceptionId"));
+    if (!ex || ex.event_snowflake !== event.snowflake) return notFound(c);
+    ds.scheduledEventExceptions.delete(ex.id);
     return new Response(null, { status: 204 });
   });
 

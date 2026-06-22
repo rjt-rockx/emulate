@@ -415,6 +415,18 @@ export interface DiscordScheduledEventUser extends Entity {
   user_snowflake: string;
 }
 
+/** An override for a single occurrence of a recurring guild scheduled event. */
+export interface DiscordScheduledEventException extends Entity {
+  snowflake: string; // event_exception_id
+  event_snowflake: string;
+  guild_snowflake: string;
+  /** The original start time of the occurrence this exception overrides. */
+  original_scheduled_start_time: string;
+  scheduled_start_time: string | null;
+  scheduled_end_time: string | null;
+  is_canceled: boolean | null;
+}
+
 export interface DiscordStageInstance extends Entity {
   snowflake: string;
   guild_snowflake: string;

@@ -1042,7 +1042,13 @@ export function toAPIScheduledEvent(e: DiscordScheduledEvent, ds: DiscordStore):
     image: e.image ?? null,
     recurrence_rule: e.recurrence_rule ?? null,
     // Required by the spec; non-empty only for recurring events with per-occurrence overrides.
-    guild_scheduled_event_exceptions: [],
+    guild_scheduled_event_exceptions: ds.scheduledEventExceptions.findBy("event_snowflake", e.snowflake).map((ex) => ({
+      event_id: ex.event_snowflake,
+      event_exception_id: ex.snowflake,
+      scheduled_start_time: ex.scheduled_start_time,
+      scheduled_end_time: ex.scheduled_end_time,
+      is_canceled: ex.is_canceled ?? false,
+    })),
   } as unknown as APIGuildScheduledEvent;
 }
 

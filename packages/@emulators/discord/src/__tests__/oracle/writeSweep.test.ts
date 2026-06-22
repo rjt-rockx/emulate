@@ -53,6 +53,18 @@ describe("OpenAPI WRITE sweep (POST/PATCH responses)", () => {
     const sound = await postFull(`/guilds/${ids.guild}/soundboard-sounds`, { name: "ws-sound", sound: "data:audio/ogg;base64,AAAA" });
     const template = await postFull(`/guilds/${ids.guild}/templates`, { name: "ws-template" });
     const stageChannelId = await postId(`/guilds/${ids.guild}/channels`, { name: "ws-stage", type: 13 });
+    const scheduledEventId = await postId(`/guilds/${ids.guild}/scheduled-events`, {
+      name: "WS Event",
+      privacy_level: 2,
+      scheduled_start_time: startsAt,
+      scheduled_end_time: endsAt,
+      entity_type: 3,
+      entity_metadata: { location: "x" },
+    });
+    const exception = await postFull(`/guilds/${ids.guild}/scheduled-events/${scheduledEventId}/exceptions`, {
+      original_scheduled_start_time: startsAt,
+    });
+    const exceptionId = exception.event_exception_id as string | undefined;
     const map: Record<string, string | undefined> = {
       guild_id: ids.guild,
       channel_id: ids.general,
@@ -71,14 +83,8 @@ describe("OpenAPI WRITE sweep (POST/PATCH responses)", () => {
       sound_id: sound.sound_id as string | undefined,
       code: template.code as string | undefined,
       lobby_id: await postId(`/lobbies`, {}),
-      guild_scheduled_event_id: await postId(`/guilds/${ids.guild}/scheduled-events`, {
-        name: "WS Event",
-        privacy_level: 2,
-        scheduled_start_time: startsAt,
-        scheduled_end_time: endsAt,
-        entity_type: 3,
-        entity_metadata: { location: "x" },
-      }),
+      guild_scheduled_event_id: scheduledEventId,
+      exception_id: exceptionId,
       thread_id: await postId(`/channels/${ids.general}/threads`, { name: "ws-thread", type: 11, auto_archive_duration: 1440 }),
     };
     // Resolve id-shaped body fields (recipient_id, channel_id, ...) to real ids when we have them.
@@ -106,6 +112,7 @@ describe("OpenAPI WRITE sweep (POST/PATCH responses)", () => {
         entity_metadata: { location: "x" },
       },
       "POST /stage-instances": { topic: "oracle stage", channel_id: stageChannelId },
+      "POST /guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/exceptions": { original_scheduled_start_time: startsAt },
     };
 
     const ops = specOperations().filter((o) => o.method === "POST" || o.method === "PATCH");

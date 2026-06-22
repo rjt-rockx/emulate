@@ -20,6 +20,7 @@ import type {
   DiscordSticker,
   DiscordScheduledEvent,
   DiscordScheduledEventUser,
+  DiscordScheduledEventException,
   DiscordThreadMember,
   DiscordStageInstance,
   DiscordAutoModRule,
@@ -62,6 +63,7 @@ export interface DiscordStore {
   stickers: Collection<DiscordSticker>;
   scheduledEvents: Collection<DiscordScheduledEvent>;
   scheduledEventUsers: Collection<DiscordScheduledEventUser>;
+  scheduledEventExceptions: Collection<DiscordScheduledEventException>;
   threadMembers: Collection<DiscordThreadMember>;
   stageInstances: Collection<DiscordStageInstance>;
   autoModRules: Collection<DiscordAutoModRule>;
@@ -119,6 +121,11 @@ export function getDiscordStore(store: Store): DiscordStore {
       "event_snowflake",
       "guild_snowflake",
       "user_snowflake",
+    ]),
+    scheduledEventExceptions: store.collection<DiscordScheduledEventException>("discord.scheduled_event_exceptions", [
+      "snowflake",
+      "event_snowflake",
+      "guild_snowflake",
     ]),
     threadMembers: store.collection<DiscordThreadMember>("discord.thread_members", ["thread_snowflake", "user_snowflake"]),
     stageInstances: store.collection<DiscordStageInstance>("discord.stage_instances", [

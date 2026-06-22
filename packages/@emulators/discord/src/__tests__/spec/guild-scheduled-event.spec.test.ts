@@ -822,3 +822,75 @@ describe("guild-scheduled-event.mdx — G6: PATCH field validation", () => {
     expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 });
+
+describe("guild-scheduled-event.mdx — per-occurrence exceptions", () => {
+  const exceptionsPath = (guild: string, eventId: string) =>
+    api(`/guilds/${guild}/scheduled-events/${eventId}/exceptions`);
+
+  it("creates an exception, embeds it in the event, then modifies and deletes it", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ctx(store);
+    const { json: e } = await createEvent(app, guild, externalBody());
+    const eventId = (e as { id: string }).id;
+
+    // Create an exception overriding a single occurrence.
+    const createRes = await app.request(exceptionsPath(guild, eventId), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ original_scheduled_start_time: START, scheduled_start_time: END, is_canceled: false }),
+    });
+    expect(createRes.status).toBe(200);
+    const ex = await json<{ event_id: string; event_exception_id: string; scheduled_start_time: string; is_canceled: boolean }>(createRes);
+    expect(ex.event_id).toBe(eventId);
+    expect(ex.scheduled_start_time).toBe(END);
+    expect(ex.is_canceled).toBe(false);
+
+    // It is embedded in the event's guild_scheduled_event_exceptions list.
+    const getRes = await app.request(api(`/guilds/${guild}/scheduled-events/${eventId}`), { headers: botHeaders() });
+    const fetched = await json<{ guild_scheduled_event_exceptions: Array<{ event_exception_id: string }> }>(getRes);
+    expect(fetched.guild_scheduled_event_exceptions.map((x) => x.event_exception_id)).toContain(ex.event_exception_id);
+
+    // Modify it (cancel the occurrence).
+    const patchRes = await app.request(`${exceptionsPath(guild, eventId)}/${ex.event_exception_id}`, {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ is_canceled: true }),
+    });
+    expect(patchRes.status).toBe(200);
+    expect((await json<{ is_canceled: boolean }>(patchRes)).is_canceled).toBe(true);
+
+    // Delete it.
+    const delRes = await app.request(`${exceptionsPath(guild, eventId)}/${ex.event_exception_id}`, {
+      method: "DELETE",
+      headers: botHeaders(),
+    });
+    expect(delRes.status).toBe(204);
+    const afterRes = await app.request(api(`/guilds/${guild}/scheduled-events/${eventId}`), { headers: botHeaders() });
+    const after = await json<{ guild_scheduled_event_exceptions: unknown[] }>(afterRes);
+    expect(after.guild_scheduled_event_exceptions).toHaveLength(0);
+  });
+
+  it("requires original_scheduled_start_time (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ctx(store);
+    const { json: e } = await createEvent(app, guild, externalBody());
+    const res = await app.request(exceptionsPath(guild, (e as { id: string }).id), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ is_canceled: true }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("404s for an exception on a missing event", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ctx(store);
+    const res = await app.request(exceptionsPath(guild, "999999999999999999"), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ original_scheduled_start_time: START }),
+    });
+    expect(res.status).toBe(404);
+  });
+});
