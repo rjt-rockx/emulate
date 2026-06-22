@@ -292,27 +292,55 @@ export function toAPIVoiceState(v: DiscordVoiceState, ds: DiscordStore): Record<
 }
 
 export function toAPIChannel(c: DiscordChannel): Record<string, unknown> {
+  const isThread = c.type === 10 || c.type === 11 || c.type === 12;
+  const isDM = c.type === 1 || c.type === 3;
   const base: Record<string, unknown> = {
     id: c.snowflake,
     type: c.type,
-    guild_id: c.guild_snowflake ?? undefined,
-    name: c.name,
-    position: c.position,
-    topic: c.topic,
-    nsfw: c.nsfw,
+    flags: 0,
     last_message_id: c.last_message_snowflake,
-    parent_id: c.parent_snowflake,
-    rate_limit_per_user: c.rate_limit_per_user,
-    permission_overwrites: c.permission_overwrites,
   };
+
+  // DM (1) and group DM (3) channels carry no guild-scoped fields.
+  if (isDM) {
+    if (c.recipient_snowflakes.length > 0) base.recipients = c.recipient_snowflakes;
+    if (c.type === 3) {
+      base.name = c.name;
+      base.owner_id = c.owner_snowflake ?? null;
+      base.icon = null;
+    }
+    return base;
+  }
+
+  base.guild_id = c.guild_snowflake ?? undefined;
+  base.name = c.name;
+  base.position = c.position;
+  base.parent_id = c.parent_snowflake;
+  base.permission_overwrites = c.permission_overwrites;
+  base.nsfw = c.nsfw;
+  base.topic = c.topic;
+  base.rate_limit_per_user = c.rate_limit_per_user;
   if (c.bitrate != null) base.bitrate = c.bitrate;
   if (c.user_limit != null) base.user_limit = c.user_limit;
-  if (c.recipient_snowflakes.length > 0) base.recipients = c.recipient_snowflakes;
-  if (c.type === 10 || c.type === 11 || c.type === 12) {
+  // Voice (2) and stage (13) extras.
+  if (c.type === 2 || c.type === 13) {
+    base.rtc_region = null;
+    base.video_quality_mode = 1;
+  }
+  // Forum (15) and media (16) extras.
+  if (c.type === 15 || c.type === 16) {
+    base.available_tags = [];
+    base.default_reaction_emoji = null;
+    base.default_sort_order = null;
+    base.default_forum_layout = 0;
+    base.default_thread_rate_limit_per_user = 0;
+  }
+  if (isThread) {
     base.owner_id = c.owner_snowflake ?? null;
     base.thread_metadata = c.thread_metadata ?? null;
     base.message_count = c.message_count ?? 0;
     base.member_count = c.member_count ?? 0;
+    base.total_message_sent = c.message_count ?? 0;
   }
   return base;
 }
@@ -452,6 +480,36 @@ export function toAPIGuild(g: DiscordGuild, ds: DiscordStore, opts: GuildSeriali
     premium_subscription_count: g.premium_subscription_count,
     preferred_locale: g.preferred_locale,
     description: g.description,
+    // Documented fields emitted with stable defaults (read fidelity); the ones backed by
+    // optional entity columns reflect stored state.
+    icon_hash: null,
+    discovery_splash: null,
+    banner: null,
+    owner: false,
+    region: null,
+    widget_enabled: g.widget_enabled ?? false,
+    widget_channel_id: g.widget_channel_snowflake ?? null,
+    system_channel_flags: 0,
+    rules_channel_id: null,
+    public_updates_channel_id: null,
+    safety_alerts_channel_id: null,
+    max_presences: null,
+    max_members: 500_000,
+    max_video_channel_users: 25,
+    max_stage_video_channel_users: 50,
+    vanity_url_code: null,
+    application_id: null,
+    premium_progress_bar_enabled: false,
+    stickers: ds.stickers.findBy("guild_snowflake", g.snowflake).map((s) => ({
+      id: s.snowflake,
+      name: s.name,
+      tags: s.tags,
+      type: s.type,
+      format_type: s.format_type,
+      available: s.available,
+      guild_id: s.guild_snowflake,
+    })),
+    welcome_screen: g.welcome_screen ?? undefined,
   };
   if (opts.withCounts || opts.full) {
     base.approximate_member_count = g.member_snowflakes.length;

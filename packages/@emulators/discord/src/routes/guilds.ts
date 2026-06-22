@@ -499,6 +499,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (body.roles !== undefined) patch.role_snowflakes = body.roles;
     if (body.deaf !== undefined) patch.deaf = body.deaf;
     if (body.mute !== undefined) patch.mute = body.mute;
+    if (body.communication_disabled_until !== undefined) patch.communication_disabled_until = body.communication_disabled_until;
     const previousRoles = member.role_snowflakes;
     if (Object.keys(patch).length > 0) ds.members.update(member.id, patch);
     const updated = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId)!;
