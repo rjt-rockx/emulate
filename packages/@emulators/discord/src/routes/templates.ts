@@ -39,9 +39,13 @@ function serializeSourceGuild(ds: DiscordStore, sourceGuildSnowflake: string): R
     return {
       id: isEveryone ? 0 : nextRoleId++,
       name: r.name,
-      permissions: Number(r.permissions),
+      // permissions is a stringified bitset in the serialized snapshot, matching the Role object.
+      permissions: String(r.permissions),
       color: r.color,
+      colors: r.colors ?? { primary_color: r.color, secondary_color: null, tertiary_color: null },
       hoist: r.hoist,
+      icon: r.icon ?? null,
+      unicode_emoji: r.unicode_emoji ?? null,
       mentionable: r.mentionable,
     };
   });
@@ -67,6 +71,16 @@ function serializeSourceGuild(ds: DiscordStore, sourceGuildSnowflake: string): R
     permission_overwrites: [],
     id: channelIdMap.get(c.snowflake)!,
     type: c.type,
+    // Forum/thread defaults are part of the serialized channel snapshot (all nullable but required).
+    default_auto_archive_duration: c.default_auto_archive_duration ?? null,
+    available_tags: c.available_tags ?? null,
+    template: "",
+    default_reaction_emoji: c.default_reaction_emoji ?? null,
+    default_thread_rate_limit_per_user: c.default_thread_rate_limit_per_user ?? null,
+    default_sort_order: c.default_sort_order ?? null,
+    default_forum_layout: c.default_forum_layout ?? null,
+    default_tag_setting: null,
+    theme_color: null,
   }));
 
   return {

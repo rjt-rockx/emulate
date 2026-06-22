@@ -1,3 +1,4 @@
+import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
 import { requireBot, unauthorized, notFound, discordError, toAPIUser, snowflake, invalidFormBody } from "../helpers.js";
@@ -216,13 +217,18 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
     return c.json(toAPIApplication(appRecord, ds, store));
   });
 
-  // PATCH /api/v:version/applications/@me
-  app.patch("/api/v:version/applications/@me", async (c) => {
+  // PATCH /api/v:version/applications/@me  (update_my_application)
+  // PATCH /api/v:version/applications/:appId (update_application — same body, app resolved by id)
+  // Both share one handler; `resolveApp` differs only in how the target application is located.
+  const patchApplication = async (
+    c: Context<AppEnv>,
+    resolveApp: (ds: ReturnType<typeof getDiscordStore>, authApp: DiscordApplication | null | undefined) => DiscordApplication | undefined,
+  ): Promise<Response> => {
     const g = requireBot(c, store);
     if (g instanceof Response) return g;
     const { auth, ds } = g;
-    const appRecord = auth.application ?? ds.applications.all()[0];
-    if (!appRecord) return unauthorized(c);
+    const appRecord = resolveApp(ds, auth.application);
+    if (!appRecord) return discordError(c, 404, "Unknown Application", 10002);
 
     const body = await c.req.json<Record<string, unknown>>();
     const patch: Partial<DiscordApplication> = {};
@@ -276,7 +282,14 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
     ds.applications.update(appRecord.id, patch);
     const updated = ds.applications.findOneBy("snowflake", appRecord.snowflake)!;
     return c.json(toAPIApplication(updated, ds, store));
-  });
+  };
+
+  app.patch("/api/v:version/applications/@me", (c) =>
+    patchApplication(c, (ds, authApp) => authApp ?? ds.applications.all()[0]),
+  );
+  app.patch("/api/v:version/applications/:appId", (c) =>
+    patchApplication(c, (ds) => ds.applications.findOneBy("snowflake", c.req.param("appId"))),
+  );
 
   // GET /api/v:version/applications/:appId/emojis
   app.get("/api/v:version/applications/:appId/emojis", (c) => {
