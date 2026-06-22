@@ -39,6 +39,8 @@ import { integrationsRoutes } from "./routes/integrations.js";
 import { applicationManagementRoutes } from "./routes/applicationManagement.js";
 import { commandPermissionsRoutes } from "./routes/commandPermissions.js";
 import { lobbiesRoutes } from "./routes/lobbies.js";
+import { voiceRoutes } from "./routes/voice.js";
+import { miscRoutes } from "./routes/misc.js";
 
 export const discordPlugin: ServicePlugin = {
   name: "discord",
@@ -87,6 +89,8 @@ export const discordPlugin: ServicePlugin = {
     applicationManagementRoutes(ctx);
     commandPermissionsRoutes(ctx);
     lobbiesRoutes(ctx);
+    voiceRoutes(ctx);
+    miscRoutes(ctx);
     inspectorRoutes(ctx);
   },
 

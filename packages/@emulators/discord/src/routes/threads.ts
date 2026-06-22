@@ -151,4 +151,53 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
     }));
     return c.json(members);
   });
+
+  // Single thread member.
+  app.get("/api/v:version/channels/:threadId/thread-members/:userId", (c) => {
+    const auth = getAuth(c, store);
+    if (!auth || auth.type !== "bot") return unauthorized(c);
+    const ds = getDiscordStore(store);
+    const threadId = c.req.param("threadId");
+    const userId = c.req.param("userId");
+    const member = ds.threadMembers.findBy("thread_snowflake", threadId).find((m) => m.user_snowflake === userId);
+    if (!member) return notFound(c);
+    return c.json({ id: threadId, user_id: member.user_snowflake, join_timestamp: member.joined_at, flags: 0 });
+  });
+
+  // Archived threads (public/private) under a channel, newest-archived first.
+  const archivedList = (channelId: string, type: number, joinedOnlyUser?: string) => {
+    const ds = getDiscordStore(store);
+    let threads = ds.channels
+      .findBy("parent_snowflake", channelId)
+      .filter((ch) => ch.type === type && ch.thread_metadata?.archived);
+    if (joinedOnlyUser) {
+      threads = threads.filter((t) => ds.threadMembers.findBy("thread_snowflake", t.snowflake).some((m) => m.user_snowflake === joinedOnlyUser));
+    }
+    threads.sort((a, b) => (a.thread_metadata!.archive_timestamp < b.thread_metadata!.archive_timestamp ? 1 : -1));
+    const members = threads.flatMap((t) =>
+      ds.threadMembers.findBy("thread_snowflake", t.snowflake).map((m) => ({ id: t.snowflake, user_id: m.user_snowflake, join_timestamp: m.joined_at, flags: 0 })),
+    );
+    return { threads: threads.map(toAPIChannel), members, has_more: false };
+  };
+
+  app.get("/api/v:version/channels/:channelId/threads/archived/public", (c) => {
+    const auth = getAuth(c, store);
+    if (!auth || auth.type !== "bot") return unauthorized(c);
+    if (!getDiscordStore(store).channels.findOneBy("snowflake", c.req.param("channelId"))) return notFound(c);
+    return c.json(archivedList(c.req.param("channelId"), 11));
+  });
+
+  app.get("/api/v:version/channels/:channelId/threads/archived/private", (c) => {
+    const auth = getAuth(c, store);
+    if (!auth || auth.type !== "bot") return unauthorized(c);
+    if (!getDiscordStore(store).channels.findOneBy("snowflake", c.req.param("channelId"))) return notFound(c);
+    return c.json(archivedList(c.req.param("channelId"), 12));
+  });
+
+  app.get("/api/v:version/channels/:channelId/users/@me/threads/archived/private", (c) => {
+    const auth = getAuth(c, store);
+    if (!auth || !auth.user) return unauthorized(c);
+    if (!getDiscordStore(store).channels.findOneBy("snowflake", c.req.param("channelId"))) return notFound(c);
+    return c.json(archivedList(c.req.param("channelId"), 12, auth.user.snowflake));
+  });
 }

@@ -3,7 +3,7 @@ import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket, type RawData } from "ws";
 import { type Store } from "@emulators/core";
 import { getDiscordStore } from "../store.js";
-import { snowflake, toAPIUser, toAPIGuild, toAPIMember, gatewayUrlFromBaseUrl } from "../helpers.js";
+import { snowflake, toAPIUser, toAPIGuild, toAPIMember, toAPIVoiceState, gatewayUrlFromBaseUrl } from "../helpers.js";
 import { GatewayOpcodes, GatewayCloseCodes, HEARTBEAT_INTERVAL, type GatewayPayload } from "./opcodes.js";
 import { Intents, hasIntent, intentsAllow } from "./intents.js";
 import { type DiscordEventBus, type GatewayEvent } from "./dispatcher.js";
@@ -115,8 +115,10 @@ export class GatewayServer {
       case GatewayOpcodes.RequestGuildMembers:
         this.handleRequestGuildMembers(session, payload.d);
         break;
-      case GatewayOpcodes.PresenceUpdate:
       case GatewayOpcodes.VoiceStateUpdate:
+        this.handleVoiceStateUpdate(session, payload.d);
+        break;
+      case GatewayOpcodes.PresenceUpdate:
         // Accepted but not acted upon.
         break;
       default:
@@ -266,6 +268,81 @@ export class GatewayServer {
       }
     }
     this.dispatch(session, "RESUMED", {});
+  }
+
+  /**
+   * Voice State Update (op 4): the bot is joining, moving between, or leaving a voice channel.
+   * Persists the voice state, broadcasts VOICE_STATE_UPDATE to the guild, and (on join/move)
+   * sends VOICE_SERVER_UPDATE to the joining session with a token and the voice endpoint host.
+   * Note: real-time audio transport (the voice WebSocket + UDP/RTP) is not emulated; this
+   * covers the signaling/state plane that voice-aware bots and libraries depend on.
+   */
+  private handleVoiceStateUpdate(session: GatewaySession, data: unknown): void {
+    if (!session.identified || !session.botUserSnowflake) return;
+    const d = (data ?? {}) as {
+      guild_id?: string;
+      channel_id?: string | null;
+      self_mute?: boolean;
+      self_deaf?: boolean;
+      self_video?: boolean;
+    };
+    const guildId = typeof d.guild_id === "string" ? d.guild_id : null;
+    if (!guildId) return; // DM/private-call voice is not emulated
+    const ds = getDiscordStore(this.store);
+    const userId = session.botUserSnowflake;
+    const existing = ds.voiceStates.findBy("guild_snowflake", guildId).find((v) => v.user_snowflake === userId);
+
+    if (d.channel_id == null) {
+      // Leaving voice.
+      if (existing) ds.voiceStates.delete(existing.id);
+      this.fanOut({
+        t: "VOICE_STATE_UPDATE",
+        guildId,
+        requiredIntents: Intents.GuildVoiceStates,
+        d: {
+          guild_id: guildId,
+          channel_id: null,
+          user_id: userId,
+          session_id: session.sessionId,
+          deaf: false,
+          mute: false,
+          self_deaf: d.self_deaf ?? false,
+          self_mute: d.self_mute ?? false,
+          self_video: d.self_video ?? false,
+          suppress: false,
+          request_to_speak_timestamp: null,
+        },
+      });
+      return;
+    }
+
+    // Joining or moving.
+    const fields = {
+      guild_snowflake: guildId,
+      channel_snowflake: d.channel_id,
+      user_snowflake: userId,
+      session_id: session.sessionId,
+      deaf: false,
+      mute: false,
+      self_deaf: d.self_deaf ?? false,
+      self_mute: d.self_mute ?? false,
+      self_video: d.self_video ?? false,
+      suppress: false,
+      request_to_speak_timestamp: null,
+    };
+    if (existing) ds.voiceStates.update(existing.id, fields);
+    else ds.voiceStates.insert(fields);
+    const state = ds.voiceStates.findBy("guild_snowflake", guildId).find((v) => v.user_snowflake === userId)!;
+
+    this.fanOut({
+      t: "VOICE_STATE_UPDATE",
+      guildId,
+      requiredIntents: Intents.GuildVoiceStates,
+      d: toAPIVoiceState(state, ds),
+    });
+    // Endpoint host (no scheme), pointing at this emulator. Audio transport is not emulated.
+    const endpoint = this.baseUrl.replace(/^https?:\/\//, "");
+    this.dispatch(session, "VOICE_SERVER_UPDATE", { token: `voice_${snowflake()}`, guild_id: guildId, endpoint });
   }
 
   // -------------------------------------------------------------------------

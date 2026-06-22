@@ -11,6 +11,7 @@ import type {
   DiscordApplication,
   DiscordApplicationCommand,
   DiscordTokenType,
+  DiscordVoiceState,
 } from "./entities.js";
 
 // ---------------------------------------------------------------------------
@@ -235,6 +236,27 @@ export function toAPIMember(
     if (user) member.user = toAPIUser(user);
   }
   return member;
+}
+
+export function toAPIVoiceState(v: DiscordVoiceState, ds: DiscordStore): Record<string, unknown> {
+  const member = v.guild_snowflake
+    ? ds.members.findBy("guild_snowflake", v.guild_snowflake).find((m) => m.user_snowflake === v.user_snowflake)
+    : undefined;
+  return {
+    guild_id: v.guild_snowflake ?? undefined,
+    channel_id: v.channel_snowflake,
+    user_id: v.user_snowflake,
+    member: member ? toAPIMember(member, ds) : undefined,
+    session_id: v.session_id,
+    deaf: v.deaf,
+    mute: v.mute,
+    self_deaf: v.self_deaf,
+    self_mute: v.self_mute,
+    self_stream: v.self_stream ?? undefined,
+    self_video: v.self_video,
+    suppress: v.suppress,
+    request_to_speak_timestamp: v.request_to_speak_timestamp,
+  };
 }
 
 export function toAPIChannel(c: DiscordChannel): Record<string, unknown> {
