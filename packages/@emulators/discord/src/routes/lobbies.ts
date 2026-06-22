@@ -5,6 +5,7 @@ import {
   unauthorized,
   notFound,
   forbidden,
+  discordError,
   snowflake,
   toAPIUser,
   invalidFormBody,
@@ -47,6 +48,26 @@ function toAPILobby(lobby: DiscordLobby, ds: DiscordStore): Record<string, unkno
       ? { linked_channel: { id: lobby.linked_channel_snowflake, type: 0 } }
       : {}),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Lobby validation helpers
+// ---------------------------------------------------------------------------
+
+/** L2: Validate that combined key+value length <= 1000 for metadata. Returns error message or null. */
+function validateMetadataSize(metadata: Record<string, string> | null | undefined): string | null {
+  if (!metadata) return null;
+  const total = Object.entries(metadata).reduce((sum, [k, v]) => sum + k.length + (typeof v === "string" ? v.length : String(v).length), 0);
+  if (total > 1000) return "The total length of all metadata keys and values must not exceed 1000 characters.";
+  return null;
+}
+
+/** L3: Validate that idle_timeout_seconds is in range 5–604800. Returns error message or null. */
+function validateIdleTimeout(idleTimeout: unknown): string | null {
+  if (idleTimeout === undefined || idleTimeout === null) return null;
+  const n = Number(idleTimeout);
+  if (!Number.isInteger(n) || n < 5 || n > 604800) return "Value must be between 5 and 604800.";
+  return null;
 }
 
 /** Strip the internal `__secret` bookkeeping key from surfaced lobby metadata. */
@@ -115,6 +136,13 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
     const secret = body.secret as string | undefined;
     const lobbyMetadata = (body.lobby_metadata ?? body.metadata) as Record<string, string> | null | undefined;
     const memberMetadata = body.member_metadata as Record<string, string> | null | undefined;
+
+    // L2: Validate metadata size.
+    const metaSizeErr = validateMetadataSize(lobbyMetadata) ?? validateMetadataSize(memberMetadata);
+    if (metaSizeErr) return invalidFormBody(c, { metadata: metaSizeErr });
+    // L3: Validate idle_timeout_seconds.
+    const idleTimeoutErr = validateIdleTimeout(body.idle_timeout_seconds);
+    if (idleTimeoutErr) return invalidFormBody(c, { idle_timeout_seconds: idleTimeoutErr });
 
     // Try to find existing lobby by secret (stored under the metadata key "__secret").
     if (secret) {
@@ -189,6 +217,13 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
       | Array<{ id: string; metadata?: Record<string, string> | null; flags?: number }>
       | undefined;
 
+    // L2: Validate metadata size.
+    const metaSizeErr = validateMetadataSize(metadata);
+    if (metaSizeErr) return invalidFormBody(c, { metadata: metaSizeErr });
+    // L3: Validate idle_timeout_seconds.
+    const idleTimeoutErr = validateIdleTimeout(body.idle_timeout_seconds);
+    if (idleTimeoutErr) return invalidFormBody(c, { idle_timeout_seconds: idleTimeoutErr });
+
     const id = snowflake();
     ds.lobbies.insert({
       snowflake: id,
@@ -198,29 +233,10 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
     });
     const lobby = ds.lobbies.findOneBy("snowflake", id)!;
 
-    // The creating caller is added as a member with the CanLinkLobby flag so it can manage the lobby.
-    const creator = callerUser(ds, auth);
-    if (creator) {
-      ds.lobbyMembers.insert({
-        lobby_snowflake: id,
-        user_snowflake: creator.snowflake,
-        metadata: null,
-        flags: LobbyMemberFlags.CanLinkLobby,
-      });
-    }
-
+    // L10: Do NOT auto-add the bot/application as a lobby member on plain Create.
+    // Only add the explicitly specified members from the request body.
     if (members) {
       for (const m of members) {
-        if (creator && m.id === creator.snowflake) {
-          const existing = lobbyMemberFor(ds, id, m.id);
-          if (existing) {
-            ds.lobbyMembers.update(existing.id, {
-              metadata: m.metadata ?? existing.metadata,
-              flags: m.flags ?? existing.flags,
-            });
-          }
-          continue;
-        }
         ds.lobbyMembers.insert({
           lobby_snowflake: id,
           user_snowflake: m.id,
@@ -252,6 +268,14 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
     if (!lobby) return notFound(c);
 
     const body = await readBody<Record<string, unknown>>(c);
+
+    // L2: Validate metadata size.
+    const patchMetadata = "metadata" in body ? (body.metadata as Record<string, string> | null) : undefined;
+    const metaSizeErr = validateMetadataSize(patchMetadata ?? undefined);
+    if (metaSizeErr) return invalidFormBody(c, { metadata: metaSizeErr });
+    // L3: Validate idle_timeout_seconds.
+    const idleTimeoutErr = validateIdleTimeout(body.idle_timeout_seconds);
+    if (idleTimeoutErr) return invalidFormBody(c, { idle_timeout_seconds: idleTimeoutErr });
 
     if ("metadata" in body) {
       // Overwrites metadata, preserving the internal secret bookkeeping key if present.
@@ -314,13 +338,19 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
     const body = await readBody<Record<string, unknown>>(c);
 
     const metadata = body.metadata as Record<string, string> | null | undefined;
-    const flags = typeof body.flags === "number" ? body.flags : 0;
+    // L1: When flags is omitted from the body, PRESERVE the existing member's flags (do not reset to 0).
+    const flagsProvided = typeof body.flags === "number";
+    const flagsValue = flagsProvided ? (body.flags as number) : 0;
+
+    // L2: Validate metadata size.
+    const metaSizeErr = validateMetadataSize(metadata);
+    if (metaSizeErr) return invalidFormBody(c, { metadata: metaSizeErr });
 
     const existing = lobbyMemberFor(ds, lobbyId, userId);
     if (existing) {
       ds.lobbyMembers.update(existing.id, {
         metadata: metadata !== undefined ? (metadata ?? null) : existing.metadata,
-        flags,
+        flags: flagsProvided ? flagsValue : existing.flags,
       });
       return c.json(toAPILobbyMember(lobbyMemberFor(ds, lobbyId, userId)!));
     }
@@ -328,7 +358,7 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
       lobby_snowflake: lobbyId,
       user_snowflake: userId,
       metadata: metadata ?? null,
-      flags,
+      flags: flagsValue,
     });
     return c.json(toAPILobbyMember(lobbyMemberFor(ds, lobbyId, userId)!));
   });
@@ -370,6 +400,11 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
 
     if (Array.isArray(members)) {
       for (const m of members) {
+        // L4: An unknown user id must return 404 UNKNOWN_USER (10013).
+        if (!m.remove_member) {
+          const userExists = ds.users.findOneBy("snowflake", m.id);
+          if (!userExists) return discordError(c, 404, "Unknown User", 10013);
+        }
         const existing = lobbyMemberFor(ds, lobbyId, m.id);
         if (m.remove_member) {
           if (existing) ds.lobbyMembers.delete(existing.id);
@@ -409,7 +444,8 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
     // The caller must be a member of the lobby.
     const user = callerUser(ds, auth);
     if (!user || !lobbyMemberFor(ds, lobbyId, user.snowflake)) return forbidden(c);
-    return c.json({ lobby_id: lobbyId, code: snowflake() });
+    // L8: Return { code } only (no lobby_id).
+    return c.json({ code: snowflake() });
   });
 
   // 7. DELETE /lobbies/:lobbyId/members/:userId
@@ -439,7 +475,8 @@ export function lobbiesRoutes(ctx: DiscordRouteContext): void {
     // The target user must be a member of the lobby.
     const targetUserId = c.req.param("userId");
     if (!lobbyMemberFor(ds, lobbyId, targetUserId)) return forbidden(c);
-    return c.json({ lobby_id: lobbyId, code: snowflake() });
+    // L8: Return { code } only (no lobby_id).
+    return c.json({ code: snowflake() });
   });
 
   // 10. POST /lobbies/:lobbyId/messages — send lobby message

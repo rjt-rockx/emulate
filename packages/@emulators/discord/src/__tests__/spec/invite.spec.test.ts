@@ -13,6 +13,7 @@
 import { describe, it, expect } from "vitest";
 import { createDiscordTestApp, api, botHeaders, json } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
+import { getDiscordRuntime } from "../../runtime.js";
 import { createMessage } from "../../factories.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
@@ -507,5 +508,99 @@ describe("guild — Create Guild Ban with delete_message_seconds", () => {
     });
     expect(res.status).toBe(204);
     expect(ds.messages.findOneBy("snowflake", msg.snowflake)).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// I1 / I4 conformance — target companion field validation + INVITE_CREATE event
+// ---------------------------------------------------------------------------
+
+describe("invite.mdx — I1: target companion field validation", () => {
+  // I1: target_type 1 (STREAM) requires target_user_id; without it → 50035.
+  it("I1: target_type 1 without target_user_id returns 400 with code 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { voiceChannel } = ids(store);
+    const res = await app.request(api(`/channels/${voiceChannel}/invites`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ target_type: 1 }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  // I1: target_type 2 (EMBEDDED_APPLICATION) requires target_application_id; without it → 50035.
+  it("I1: target_type 2 without target_application_id returns 400 with code 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { voiceChannel } = ids(store);
+    const res = await app.request(api(`/channels/${voiceChannel}/invites`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ target_type: 2 }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+});
+
+describe("invite.mdx — I4: INVITE_CREATE event includes expires_at and target fields", () => {
+  // I4: The INVITE_CREATE gateway event must include expires_at.
+  it("I4: INVITE_CREATE event includes expires_at field", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { textChannel } = ids(store);
+    const events: Array<{ t: string; d: unknown }> = [];
+    const unsub = getDiscordRuntime(store).bus.subscribe((e) => events.push(e));
+    await app.request(api(`/channels/${textChannel}/invites`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ max_age: 3600 }),
+    });
+    unsub();
+    const inviteCreate = events.find((e) => e.t === "INVITE_CREATE");
+    expect(inviteCreate).toBeDefined();
+    const d = inviteCreate!.d as Record<string, unknown>;
+    // expires_at must be present (either a timestamp string or null for never-expiring invites).
+    expect("expires_at" in d).toBe(true);
+    // With max_age > 0, expires_at should be a valid ISO date string.
+    expect(typeof d.expires_at).toBe("string");
+    expect(Number.isNaN(Date.parse(d.expires_at as string))).toBe(false);
+  });
+
+  it("I4: INVITE_CREATE event for max_age=0 (never) has null expires_at", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { textChannel } = ids(store);
+    const events: Array<{ t: string; d: unknown }> = [];
+    const unsub = getDiscordRuntime(store).bus.subscribe((e) => events.push(e));
+    await app.request(api(`/channels/${textChannel}/invites`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ max_age: 0 }),
+    });
+    unsub();
+    const inviteCreate = events.find((e) => e.t === "INVITE_CREATE");
+    expect(inviteCreate).toBeDefined();
+    const d = inviteCreate!.d as Record<string, unknown>;
+    expect("expires_at" in d).toBe(true);
+    expect(d.expires_at).toBeNull();
+  });
+
+  // I4: When target_type is set, the INVITE_CREATE event must include the target fields.
+  it("I4: INVITE_CREATE event includes target_type and target_user for STREAM invites", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { voiceChannel, developer } = ids(store);
+    const events: Array<{ t: string; d: unknown }> = [];
+    const unsub = getDiscordRuntime(store).bus.subscribe((e) => events.push(e));
+    await app.request(api(`/channels/${voiceChannel}/invites`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ target_type: 1, target_user_id: developer }),
+    });
+    unsub();
+    const inviteCreate = events.find((e) => e.t === "INVITE_CREATE");
+    expect(inviteCreate).toBeDefined();
+    const d = inviteCreate!.d as Record<string, unknown>;
+    expect(d.target_type).toBe(1);
+    expect(typeof d.target_user).toBe("object");
+    expect((d.target_user as { id: string }).id).toBe(developer);
   });
 });

@@ -1,5 +1,5 @@
 import type { DiscordRouteContext } from "../context.js";
-import { notFound, invalidFormBody, discordError, requireBot, requireUser } from "../helpers.js";
+import { invalidFormBody, discordError, requireBot, requireUser } from "../helpers.js";
 import type { Context, AppEnv, Store } from "@emulators/core";
 import type { DiscordAuth } from "../helpers.js";
 
@@ -65,17 +65,22 @@ export function roleConnectionsRoutes(ctx: DiscordRouteContext): void {
   // Application role-connection metadata records.
   app.get("/api/v:version/applications/:appId/role-connections/metadata", (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
-    const application = ds.applications.findOneBy("snowflake", c.req.param("appId")) ?? ds.applications.all()[0];
-    if (!application) return notFound(c);
+    // A1: Must resolve strictly by appId — do NOT fall back to all()[0].
+    const application = ds.applications.findOneBy("snowflake", c.req.param("appId"));
+    if (!application) return discordError(c, 404, "Unknown Application", 10002);
     return c.json(application.role_connection_metadata ?? []);
   });
 
   app.put("/api/v:version/applications/:appId/role-connections/metadata", async (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
-    const application = ds.applications.findOneBy("snowflake", c.req.param("appId")) ?? ds.applications.all()[0];
-    if (!application) return notFound(c);
-    const body = (await c.req.json().catch(() => [])) as unknown[];
-    const records = Array.isArray(body) ? body : [];
+    // A1: Must resolve strictly by appId — do NOT fall back to all()[0].
+    const application = ds.applications.findOneBy("snowflake", c.req.param("appId"));
+    if (!application) return discordError(c, 404, "Unknown Application", 10002);
+    // A3: A non-array body must return 50035, not silently coerce to [].
+    let body: unknown;
+    try { body = await c.req.json(); } catch { body = undefined; }
+    if (!Array.isArray(body)) return invalidFormBody(c, { "": "This field must be an array." });
+    const records = body as unknown[];
     const errors = validateMetadataRecords(records);
     if (errors) return invalidFormBody(c, errors);
     ds.applications.update(application.id, { role_connection_metadata: records });

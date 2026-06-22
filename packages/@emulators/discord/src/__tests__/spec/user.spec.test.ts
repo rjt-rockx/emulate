@@ -9,6 +9,7 @@
 import { describe, it, expect } from "vitest";
 import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
+import { getDiscordRuntime } from "../../runtime.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
   const s = seededIds(store);
@@ -131,9 +132,16 @@ describe("user.mdx — Get Current User Guilds", () => {
 
   it("honors the limit query param (1-200)", async () => {
     const { app } = createDiscordTestApp();
-    const res = await app.request(api("/users/@me/guilds?limit=0"), { headers: botHeaders() });
-    const guilds = await json<unknown[]>(res);
-    expect(guilds.length).toBe(0);
+    // U5: limit=0 is below the minimum of 1; the API must reject it with 400/50035.
+    const res0 = await app.request(api("/users/@me/guilds?limit=0"), { headers: botHeaders() });
+    expect(res0.status).toBe(400);
+    const err = await json<{ code: number }>(res0);
+    expect(err.code).toBe(50035);
+    // limit=1 is the minimum valid value and should succeed.
+    const res1 = await app.request(api("/users/@me/guilds?limit=1"), { headers: botHeaders() });
+    expect(res1.status).toBe(200);
+    const guilds = await json<unknown[]>(res1);
+    expect(Array.isArray(guilds)).toBe(true);
   });
 });
 
@@ -260,6 +268,41 @@ describe("user.mdx — Modify Current User username validation (U2)", () => {
     expect((await json<{ code: number }>(res)).code).toBe(50035);
   });
 
+  // U4: reserved-word check is case-insensitive; 'Everyone' and 'HERE' must also fail.
+  it("U4: rejects mixed-case 'Everyone' (case-insensitive reserved word check) with 50035", async () => {
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api("/users/@me"), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ username: "Everyone" }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("U4: rejects mixed-case 'HERE' (case-insensitive reserved word check) with 50035", async () => {
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api("/users/@me"), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ username: "HERE" }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  // U4: usernames with internal whitespace must be rejected.
+  it("U4: rejects a username with internal whitespace with 50035", async () => {
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api("/users/@me"), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ username: "bad name" }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
   it("accepts a valid username that passes all rules", async () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/users/@me"), {
@@ -303,6 +346,46 @@ describe("user.mdx — Create Group DM (U1)", () => {
     });
     const ch2 = (await second.json()) as { id: string };
     expect(ch2.id).toBe(ch1.id);
+  });
+
+  // U1: Creating a new group DM must publish a CHANNEL_CREATE gateway event.
+  it("U1: creating a new group DM publishes a CHANNEL_CREATE gateway event", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { developer } = ids(store);
+    const events: Array<{ t: string; d: unknown }> = [];
+    const unsub = getDiscordRuntime(store).bus.subscribe((e) => events.push(e));
+    await app.request(api("/users/@me/channels"), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ access_tokens: [developer] }),
+    });
+    unsub();
+    const channelCreate = events.find((e) => e.t === "CHANNEL_CREATE");
+    expect(channelCreate).toBeDefined();
+    const ch = channelCreate!.d as { type: number };
+    expect(ch.type).toBe(3);
+  });
+
+  // U1: Returning an existing GDM must NOT publish CHANNEL_CREATE again.
+  it("U1: returning an existing group DM does NOT publish a second CHANNEL_CREATE event", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { developer } = ids(store);
+    // Create the GDM first (produces the first CHANNEL_CREATE).
+    await app.request(api("/users/@me/channels"), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ access_tokens: [developer] }),
+    });
+    // Capture events on the second (idempotent) call only.
+    const events: Array<{ t: string }> = [];
+    const unsub = getDiscordRuntime(store).bus.subscribe((e) => events.push(e));
+    await app.request(api("/users/@me/channels"), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ access_tokens: [developer] }),
+    });
+    unsub();
+    expect(events.filter((e) => e.t === "CHANNEL_CREATE").length).toBe(0);
   });
 });
 

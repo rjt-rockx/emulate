@@ -159,7 +159,11 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
     const clientSecret = bodyStr(form.client_secret);
     const oauthApp = clientId ? ds.oauthApps.findOneBy("client_id", clientId) : undefined;
 
-    if (oauthApp && clientSecret && !constantTimeSecretEqual(clientSecret, oauthApp.client_secret)) {
+    // O1: Require client authentication — missing/empty client_secret or unknown client_id → 401.
+    if (!clientId || !oauthApp) {
+      return c.json({ error: "invalid_client" }, 401);
+    }
+    if (!clientSecret || !constantTimeSecretEqual(clientSecret, oauthApp.client_secret)) {
       return c.json({ error: "invalid_client" }, 401);
     }
 
@@ -186,8 +190,11 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
       };
       // client_credentials does not issue a refresh token.
       if (withRefresh) result.refresh_token = refreshToken;
+      // O2: Return the AUTHORIZED guild (the one the bot was added to via opts.guildId).
       if (scopes.includes("bot")) {
-        const guild = ds.guilds.all()[0];
+        const guild = opts.guildId
+          ? (ds.guilds.findOneBy("snowflake", opts.guildId) ?? ds.guilds.all()[0])
+          : ds.guilds.all()[0];
         if (guild) result.guild = toAPIGuild(guild, ds);
       }
       // webhook.incoming creates a fresh webhook and returns it in the token response.
@@ -243,6 +250,10 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
       const refreshToken = bodyStr(form.refresh_token);
       const existing = ds.tokens.all().find((t) => t.type === "bearer" && t.refresh_token === refreshToken);
       if (!existing) return c.json({ error: "invalid_grant" }, 400);
+      // O5: The token must belong to the authenticating client.
+      if (existing.application_snowflake && application?.snowflake && existing.application_snowflake !== application.snowflake) {
+        return c.json({ error: "invalid_grant" }, 400);
+      }
       // Rotate: invalidate the old token pair and issue a fresh one with the same grant.
       ds.tokens.delete(existing.id);
       return issue(existing.user_snowflake, existing.scopes.join(" "));

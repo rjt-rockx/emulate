@@ -49,10 +49,9 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
     const scopeErr = requireScope(c, store, auth, "identify");
     if (scopeErr) return scopeErr;
     const userObj = toAPIUser(auth.user!, true);
-    // When strict scopes are enabled, strip the email field unless the email
-    // scope is also present (bot tokens are exempt — they see all self fields).
-    const strict = store.getData<boolean>("discord.strict_scopes") === true;
-    if (strict && auth.type !== "bot" && !auth.scopes.includes("email")) {
+    // S4: For bearer tokens, gate the email field on the email scope regardless of strict mode.
+    // Bot tokens are exempt and always see self fields.
+    if (auth.type !== "bot" && !auth.scopes.includes("email")) {
       delete userObj.email;
     }
     return c.json(userObj);
@@ -79,7 +78,11 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
         usernameErrors.username = "Must be between 2 and 32 in length.";
       } else if (/[@#:`]/.test(username) || username.toLowerCase().includes("discord")) {
         usernameErrors.username = "Username contains an invalid substring.";
-      } else if (username === "everyone" || username === "here") {
+      } else if (/\s/.test(username)) {
+        // U4: Leading, trailing, or internal whitespace is not allowed.
+        usernameErrors.username = "Username contains disallowed whitespace characters.";
+      } else if (username.toLowerCase() === "everyone" || username.toLowerCase() === "here") {
+        // U4: Reserved-word check must be case-insensitive.
         usernameErrors.username = "Username is a reserved word.";
       }
       if (Object.keys(usernameErrors).length > 0) return invalidFormBody(c, usernameErrors);
@@ -106,7 +109,14 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
     const before = c.req.query("before");
     const after = c.req.query("after");
     const limitRaw = c.req.query("limit");
-    const limit = limitRaw !== undefined ? Math.max(0, Math.min(200, Number(limitRaw) || 0)) : 200;
+    // U5: limit must be >= 1; reject limit=0 as invalid (doc range: 1-200, default 200).
+    if (limitRaw !== undefined) {
+      const parsed = Number(limitRaw);
+      if (!Number.isInteger(parsed) || parsed < 1) {
+        return invalidFormBody(c, { limit: "int value should be between 1 and 200." });
+      }
+    }
+    const limit = limitRaw !== undefined ? Math.min(Number(limitRaw), 200) : 200;
     const memberships = ds.members.findBy("user_snowflake", user.snowflake);
     let resolved = memberships
       .map((m) => ds.guilds.findOneBy("snowflake", m.guild_snowflake))
@@ -217,7 +227,7 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
           ch.recipient_snowflakes.length === allMembers.length &&
           ch.recipient_snowflakes.every((s) => memberSet.has(s)),
       );
-      if (existing) return c.json(toAPIChannel(existing));
+      if (existing) return c.json(toAPIChannel(existing, ds));
 
       const gdmName = Object.keys(nicks).length > 0 ? (Object.values(nicks)[0] ?? "") : "";
       const gdmRaw = createChannel(ds, { name: gdmName, type: 3, guildSnowflake: null });
@@ -228,7 +238,9 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
         owner_snowflake: caller.snowflake,
       });
       const created = ds.channels.findOneBy("snowflake", gdmRaw.snowflake)!;
-      return c.json(toAPIChannel(created));
+      // U1: Publish CHANNEL_CREATE event for a new group DM.
+      bus.publish({ t: "CHANNEL_CREATE", guildId: null, requiredIntents: Intents.DirectMessages, d: toAPIChannel(created, ds) });
+      return c.json(toAPIChannel(created, ds));
     }
 
     // Single-recipient DM path.
@@ -245,12 +257,12 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
           ch.recipient_snowflakes.includes(caller.snowflake) &&
           ch.recipient_snowflakes.includes(recipient.snowflake),
       );
-    if (existing) return c.json(toAPIChannel(existing));
+    if (existing) return c.json(toAPIChannel(existing, ds));
 
     const dm = createChannel(ds, { name: "", type: 1, guildSnowflake: null });
     ds.channels.update(dm.id, { recipient_snowflakes: [caller.snowflake, recipient.snowflake] });
     const created = ds.channels.findOneBy("snowflake", dm.snowflake)!;
-    return c.json(toAPIChannel(created));
+    return c.json(toAPIChannel(created, ds));
   });
 
   app.get("/api/v:version/users/:userId", (c) => {

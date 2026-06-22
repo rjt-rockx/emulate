@@ -226,3 +226,43 @@ describe("application-role-connection-metadata.mdx — optional localizations", 
     expect((got[0].description_localizations as Record<string, string>)["en-US"]).toBe("Account level");
   });
 });
+
+describe("application-role-connection-metadata.mdx — A1/A3 conformance", () => {
+  // A1: GET and PUT on a foreign/unknown application id must return 404 with code 10002.
+  it("A1: GET with unknown appId returns 404 with code 10002 (Unknown Application)", async () => {
+    const ctx = createDiscordTestApp();
+    const res = await get(ctx, "999999999999999999");
+    expect(res.status).toBe(404);
+    expect((await json<{ code: number }>(res)).code).toBe(10002);
+  });
+
+  it("A1: PUT with unknown appId returns 404 with code 10002 (Unknown Application)", async () => {
+    const ctx = createDiscordTestApp();
+    const res = await put(ctx, [record()], "999999999999999999");
+    expect(res.status).toBe(404);
+    expect((await json<{ code: number }>(res)).code).toBe(10002);
+  });
+
+  // A3: A non-array body on PUT must return 400 with code 50035 (Invalid Form Body).
+  it("A3: PUT with non-array body returns 400 with code 50035", async () => {
+    const ctx = createDiscordTestApp();
+    const res = await ctx.app.request(api(`/applications/${appId(ctx.store)}/role-connections/metadata`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify({ type: 2, key: "level", name: "Level", description: "desc" }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("A3: PUT with string body returns 400 with code 50035", async () => {
+    const ctx = createDiscordTestApp();
+    const res = await ctx.app.request(api(`/applications/${appId(ctx.store)}/role-connections/metadata`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify("not an array"),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+});

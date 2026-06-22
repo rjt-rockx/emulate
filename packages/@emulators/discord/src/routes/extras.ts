@@ -112,11 +112,15 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
     const messageId = c.req.param("messageId");
     const message = requireMessage(c, ds, channelId, messageId); if (message instanceof Response) return message;
     ds.messages.update(message.id, { pinned });
+    // B6: Derive last_pin_timestamp from the newest remaining pinned message (null when none remain).
+    const currentPins = ds.messages.findBy("channel_snowflake", channelId).filter((m) => m.pinned);
+    const newestPin = currentPins.sort((a, b) => (BigInt(a.snowflake) > BigInt(b.snowflake) ? -1 : 1))[0];
+    const lastPinTimestamp = newestPin ? newestPin.timestamp : null;
     bus.publish({
       t: "CHANNEL_PINS_UPDATE",
       guildId: message.guild_snowflake,
       requiredIntents: Intents.Guilds,
-      d: { guild_id: message.guild_snowflake ?? undefined, channel_id: channelId, last_pin_timestamp: new Date().toISOString() },
+      d: { guild_id: message.guild_snowflake ?? undefined, channel_id: channelId, last_pin_timestamp: lastPinTimestamp },
     });
     if (message.guild_snowflake) {
       recordAudit(ds, bus, {
@@ -140,7 +144,8 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
     const before = c.req.query("before");
     const after = c.req.query("after");
     const limitRaw = c.req.query("limit");
-    const limit = limitRaw !== undefined ? Math.min(Math.max(Number(limitRaw) || 1000, 1), 1000) : 1000;
+    // B1: limit=0 must return 0 bans; `|| 1000` falsily converts 0 to 1000.
+    const limit = limitRaw !== undefined ? Math.min(Math.max(Number(limitRaw), 0), 1000) : 1000;
     let bans = ds.bans.findBy("guild_snowflake", guildId)
       .slice()
       .sort((a: DiscordBan, b: DiscordBan) => (BigInt(a.user_snowflake) < BigInt(b.user_snowflake) ? -1 : 1));
@@ -294,6 +299,13 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
     if (body.target_type != null && body.target_type !== 1 && body.target_type !== 2) {
       errors.target_type = "Value must be one of (1, 2).";
     }
+    // I1: target_type 1 (STREAM) requires target_user_id; target_type 2 (EMBEDDED_APPLICATION) requires target_application_id.
+    if (body.target_type === 1 && !body.target_user_id) {
+      errors.target_user_id = "This field is required when target_type is 1 (STREAM).";
+    }
+    if (body.target_type === 2 && !body.target_application_id) {
+      errors.target_application_id = "This field is required when target_type is 2 (EMBEDDED_APPLICATION).";
+    }
     if (Object.keys(errors).length > 0) return invalidFormBody(c, errors);
 
     const maxAge = body.max_age ?? 86400;
@@ -329,21 +341,42 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
       target_application_snowflake: body.target_application_id ?? null,
       flags: 0,
     });
+    // I4: INVITE_CREATE must include expires_at and target fields when present.
+    const inviteCreatePayload: Record<string, unknown> = {
+      channel_id: channel.snowflake,
+      code: invite.code,
+      created_at: invite.created_at,
+      guild_id: channel.guild_snowflake ?? undefined,
+      inviter: auth.user ? toAPIUser(auth.user) : undefined,
+      max_age: invite.max_age,
+      max_uses: invite.max_uses,
+      temporary: invite.temporary,
+      uses: 0,
+      expires_at: invite.expires_at,
+    };
+    if (invite.target_type != null) {
+      inviteCreatePayload.target_type = invite.target_type;
+      if (invite.target_user_snowflake) {
+        const targetUser = ds.users.findOneBy("snowflake", invite.target_user_snowflake);
+        if (targetUser) inviteCreatePayload.target_user = toAPIUser(targetUser);
+      }
+      if (invite.target_application_snowflake) {
+        const targetApp = ds.applications.findOneBy("snowflake", invite.target_application_snowflake);
+        if (targetApp) {
+          inviteCreatePayload.target_application = {
+            id: targetApp.snowflake,
+            name: targetApp.name,
+            description: targetApp.description,
+            icon: targetApp.icon,
+          };
+        }
+      }
+    }
     bus.publish({
       t: "INVITE_CREATE",
       guildId: channel.guild_snowflake,
       requiredIntents: Intents.GuildInvites,
-      d: {
-        channel_id: channel.snowflake,
-        code: invite.code,
-        created_at: invite.created_at,
-        guild_id: channel.guild_snowflake ?? undefined,
-        inviter: auth.user ? toAPIUser(auth.user) : undefined,
-        max_age: invite.max_age,
-        max_uses: invite.max_uses,
-        temporary: invite.temporary,
-        uses: 0,
-      },
+      d: inviteCreatePayload,
     });
     if (channel.guild_snowflake) {
       recordAudit(ds, bus, {

@@ -86,6 +86,17 @@ describe("discord lobbies", () => {
     }>(getWithMemberRes);
     expect(withMember.members.some((m) => m.id === secondUser.snowflake)).toBe(true);
 
+    // L10: Bot is NOT auto-added as a member; add it explicitly so it can post a message.
+    const botApp = ds.applications.all()[0];
+    const botUser = botApp ? ds.users.findOneBy("snowflake", botApp.bot_user_snowflake) : null;
+    if (botUser) {
+      await app.request(api(`/lobbies/${lobbyId}/members/${botUser.snowflake}`), {
+        method: "PUT",
+        headers: botHeaders(),
+        body: JSON.stringify({}),
+      });
+    }
+
     // 5. Post a message
     const msgRes = await app.request(api(`/lobbies/${lobbyId}/messages`), {
       method: "POST",
@@ -260,7 +271,8 @@ describe("discord lobbies", () => {
   });
 
   it("channel-linking sets and clears linked_channel", async () => {
-    const { app } = build();
+    const { app, store } = build();
+    const ds = getDiscordStore(store);
 
     // Create lobby
     const createRes = await app.request(api("/lobbies"), {
@@ -270,6 +282,18 @@ describe("discord lobbies", () => {
     });
     const lobby = await json<{ id: string }>(createRes);
     const lobbyId = lobby.id;
+
+    // L10: Bot is NOT auto-added; add it explicitly with CanLinkLobby flag (1 = 1<<0) so it
+    // has permission to use the channel-linking endpoint.
+    const botApp = ds.applications.all()[0];
+    const botUser = botApp ? ds.users.findOneBy("snowflake", botApp.bot_user_snowflake) : null;
+    if (botUser) {
+      await app.request(api(`/lobbies/${lobbyId}/members/${botUser.snowflake}`), {
+        method: "PUT",
+        headers: botHeaders(),
+        body: JSON.stringify({ flags: 1 }), // CanLinkLobby = 1 << 0
+      });
+    }
 
     // Link a channel
     const linkRes = await app.request(api(`/lobbies/${lobbyId}/channel-linking`), {
@@ -326,7 +350,7 @@ describe("discord lobbies", () => {
     }
   });
 
-  it("invite endpoints return lobby_id and code", async () => {
+  it("invite endpoints return code (no lobby_id per L8)", async () => {
     const { app, store } = build();
     const ds = getDiscordStore(store);
 
@@ -339,6 +363,18 @@ describe("discord lobbies", () => {
     const lobby = await json<{ id: string }>(createRes);
     const lobbyId = lobby.id;
 
+    // L10: Bot is NOT auto-added; add it explicitly with CanLinkLobby flag (1 = 1<<0) so it
+    // can use the channel-linking endpoint (required before invite endpoints are accessible).
+    const botApp = ds.applications.all()[0];
+    const botUser = botApp ? ds.users.findOneBy("snowflake", botApp.bot_user_snowflake) : null;
+    if (botUser) {
+      await app.request(api(`/lobbies/${lobbyId}/members/${botUser.snowflake}`), {
+        method: "PUT",
+        headers: botHeaders(),
+        body: JSON.stringify({ flags: 1 }), // CanLinkLobby = 1 << 0
+      });
+    }
+
     // Link a channel so invite endpoints are accessible (lobby.mdx:292,301).
     const textChannel = ds.channels.all().find((ch: { type: number; snowflake: string }) => ch.type === 0);
     if (textChannel) {
@@ -349,15 +385,15 @@ describe("discord lobbies", () => {
       });
     }
 
-    // @me invites
+    // @me invites — L8: response is only { code }, no lobby_id field.
     const meInviteRes = await app.request(api(`/lobbies/${lobbyId}/members/@me/invites`), {
       method: "POST",
       headers: botHeaders(),
     });
     expect(meInviteRes.status).toBe(200);
-    const meInvite = await json<{ lobby_id: string; code: string }>(meInviteRes);
-    expect(meInvite.lobby_id).toBe(lobbyId);
+    const meInvite = await json<{ code: string; lobby_id?: string }>(meInviteRes);
     expect(typeof meInvite.code).toBe("string");
+    expect(meInvite.lobby_id).toBeUndefined(); // L8: lobby_id removed from invite response
 
     // Insert a user to serve as the invite target.
     const targetUser = ds.users.insert({
@@ -385,20 +421,22 @@ describe("discord lobbies", () => {
       headers: botHeaders(),
     });
 
-    // user invites
+    // user invites — L8: response is only { code }, no lobby_id field.
     const userInviteRes = await app.request(api(`/lobbies/${lobbyId}/members/${targetUser.snowflake}/invites`), {
       method: "POST",
       headers: botHeaders(),
     });
     expect(userInviteRes.status).toBe(200);
-    const userInvite = await json<{ lobby_id: string; code: string }>(userInviteRes);
-    expect(userInvite.lobby_id).toBe(lobbyId);
+    const userInvite = await json<{ code: string; lobby_id?: string }>(userInviteRes);
+    expect(typeof userInvite.code).toBe("string");
+    expect(userInvite.lobby_id).toBeUndefined(); // L8: lobby_id removed from invite response
   });
 
   it("moderation-metadata returns 204", async () => {
-    const { app } = build();
+    const { app, store } = build();
+    const ds = getDiscordStore(store);
 
-    // Create lobby and message
+    // Create lobby
     const createRes = await app.request(api("/lobbies"), {
       method: "POST",
       headers: botHeaders(),
@@ -406,6 +444,17 @@ describe("discord lobbies", () => {
     });
     const lobby = await json<{ id: string }>(createRes);
     const lobbyId = lobby.id;
+
+    // L10: Bot is NOT auto-added as a member; add it explicitly so it can post messages.
+    const botApp = ds.applications.all()[0];
+    const botUser = botApp ? ds.users.findOneBy("snowflake", botApp.bot_user_snowflake) : null;
+    if (botUser) {
+      await app.request(api(`/lobbies/${lobbyId}/members/${botUser.snowflake}`), {
+        method: "PUT",
+        headers: botHeaders(),
+        body: JSON.stringify({}),
+      });
+    }
 
     const msgRes = await app.request(api(`/lobbies/${lobbyId}/messages`), {
       method: "POST",

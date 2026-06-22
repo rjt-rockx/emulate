@@ -342,6 +342,43 @@ describe("strict_scopes OFF -- all bearer endpoints are lenient", () => {
 });
 
 // ---------------------------------------------------------------------------
+// S4: GET /users/@me email field gating on the `email` scope (both modes)
+// ---------------------------------------------------------------------------
+
+describe("S4 -- GET /users/@me email field is gated on email scope for bearer tokens", () => {
+  // S4: Bearer tokens without the `email` scope must NOT receive the email field even
+  // when strict_scopes is off (lenient mode). Bot tokens are exempt and always see
+  // the self-detail fields.
+  it("S4: bearer without email scope omits the email field in non-strict mode", async () => {
+    const ctx = createDiscordTestApp(LENIENT_SEED);
+    const res = await ctx.app.request(api("/users/@me"), { headers: bearerHeaders("bt_no_scope") });
+    expect(res.status).toBe(200);
+    const u = await json<Record<string, unknown>>(res);
+    expect("email" in u).toBe(false);
+  });
+
+  it("S4: bearer with email scope receives the email field in non-strict mode", async () => {
+    const ctx = createDiscordTestApp({
+      strict_scopes: false,
+      tokens: [{ token: "bt_email", type: "bearer" as const, user: "developer", scopes: ["email"] }],
+    });
+    const res = await ctx.app.request(api("/users/@me"), { headers: bearerHeaders("bt_email") });
+    expect(res.status).toBe(200);
+    const u = await json<Record<string, unknown>>(res);
+    expect("email" in u).toBe(true);
+  });
+
+  it("S4: bot token always sees the email field (bot tokens are exempt from scope checks)", async () => {
+    const ctx = createDiscordTestApp();
+    const res = await ctx.app.request(api("/users/@me"), { headers: botHeaders() });
+    expect(res.status).toBe(200);
+    const u = await json<Record<string, unknown>>(res);
+    // Bot tokens are type "bot", so the email gate does not apply.
+    expect("email" in u).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Multi-scope token succeeds on all strict endpoints
 // ---------------------------------------------------------------------------
 

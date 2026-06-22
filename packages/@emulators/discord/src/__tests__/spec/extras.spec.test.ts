@@ -9,6 +9,7 @@
 import { describe, it, expect } from "vitest";
 import { createDiscordTestApp, api, botHeaders, json } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
+import { getDiscordRuntime } from "../../runtime.js";
 import { createMessage } from "../../factories.js";
 import { snowflake } from "../../helpers.js";
 
@@ -328,5 +329,92 @@ describe("scheduled event subscribers", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B1: GET /guilds/:id/bans?limit=0 must return an empty array (not 1000 bans)
+// ---------------------------------------------------------------------------
+
+describe("guild.mdx — Get Guild Bans limit=0 (B1 conformance)", () => {
+  it("B1: limit=0 returns an empty array of bans, not the full ban list", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { ds, guild, developer } = ids(store);
+    // Ban the developer so there is at least one ban to potentially leak.
+    await app.request(api(`/guilds/${guild}/bans/${developer}`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify({}),
+    });
+    const bans = ds.guilds.findOneBy("snowflake", guild)!;
+    expect(bans).toBeDefined();
+
+    const res = await app.request(api(`/guilds/${guild}/bans?limit=0`), { headers: botHeaders() });
+    expect(res.status).toBe(200);
+    const list = await json<unknown[]>(res);
+    expect(Array.isArray(list)).toBe(true);
+    expect(list.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B6: CHANNEL_PINS_UPDATE last_pin_timestamp is null after the last pin is removed
+// ---------------------------------------------------------------------------
+
+describe("channel.mdx — CHANNEL_PINS_UPDATE last_pin_timestamp (B6 conformance)", () => {
+  it("B6: unpinning the last message sends CHANNEL_PINS_UPDATE with null last_pin_timestamp", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { ds, textChannel } = ids(store);
+    // Create and pin a message.
+    const msg = createMessage(ds, {
+      channelSnowflake: textChannel,
+      guildSnowflake: ds.guilds.all()[0]!.snowflake,
+      authorSnowflake: ds.users.findOneBy("username", "developer")!.snowflake,
+      content: "pin me",
+    });
+    await app.request(api(`/channels/${textChannel}/pins/${msg.snowflake}`), {
+      method: "PUT",
+      headers: botHeaders(),
+    });
+
+    // Now capture events for the unpin (DELETE).
+    const events: Array<{ t: string; d: unknown }> = [];
+    const unsub = getDiscordRuntime(store).bus.subscribe((e) => events.push(e));
+    await app.request(api(`/channels/${textChannel}/pins/${msg.snowflake}`), {
+      method: "DELETE",
+      headers: botHeaders(),
+    });
+    unsub();
+
+    const pinsUpdate = events.find((e) => e.t === "CHANNEL_PINS_UPDATE");
+    expect(pinsUpdate).toBeDefined();
+    const d = pinsUpdate!.d as Record<string, unknown>;
+    // B6: After removing the last pin, last_pin_timestamp should be null.
+    expect(d.last_pin_timestamp).toBeNull();
+  });
+
+  it("B6: unpinning one of two pins sends CHANNEL_PINS_UPDATE with the remaining pin's timestamp", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { ds, textChannel } = ids(store);
+    const guild = ds.guilds.all()[0]!.snowflake;
+    const author = ds.users.findOneBy("username", "developer")!.snowflake;
+    // Pin two messages.
+    const msg1 = createMessage(ds, { channelSnowflake: textChannel, guildSnowflake: guild, authorSnowflake: author, content: "first" });
+    const msg2 = createMessage(ds, { channelSnowflake: textChannel, guildSnowflake: guild, authorSnowflake: author, content: "second" });
+    await app.request(api(`/channels/${textChannel}/pins/${msg1.snowflake}`), { method: "PUT", headers: botHeaders() });
+    await app.request(api(`/channels/${textChannel}/pins/${msg2.snowflake}`), { method: "PUT", headers: botHeaders() });
+
+    // Unpin only msg1; msg2 remains pinned.
+    const events: Array<{ t: string; d: unknown }> = [];
+    const unsub = getDiscordRuntime(store).bus.subscribe((e) => events.push(e));
+    await app.request(api(`/channels/${textChannel}/pins/${msg1.snowflake}`), { method: "DELETE", headers: botHeaders() });
+    unsub();
+
+    const pinsUpdate = events.find((e) => e.t === "CHANNEL_PINS_UPDATE");
+    expect(pinsUpdate).toBeDefined();
+    const d = pinsUpdate!.d as Record<string, unknown>;
+    // B6: last_pin_timestamp must be non-null when a pin remains.
+    expect(d.last_pin_timestamp).not.toBeNull();
+    expect(typeof d.last_pin_timestamp).toBe("string");
   });
 });

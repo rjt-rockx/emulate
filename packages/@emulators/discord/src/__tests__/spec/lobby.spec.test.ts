@@ -338,12 +338,17 @@ describe("lobby.mdx — Channel linking (membership + CanLinkLobby + linked chan
 
 describe("lobby.mdx — Lobby messages (membership-gated)", () => {
   it("a member sends a message and gets back the documented Lobby Message object", async () => {
-    const { app, application } = setup();
-    // Bot creates the lobby and is thereby a member.
-    const { lobby } = await createLobby(app);
+    const { app, application, outsider } = setup();
+    // L10: Bot is NOT auto-added as member; outsider joins via secret and IS a member.
+    const join = await app.request(api("/lobbies"), {
+      method: "PUT",
+      headers: bearerHeaders("outsider_bearer"),
+      body: JSON.stringify({ secret: "msg-test" }),
+    });
+    const lobby = (await join.json()) as { id: string };
     const res = await app.request(api(`/lobbies/${lobby.id}/messages`), {
       method: "POST",
-      headers: botHeaders(),
+      headers: bearerHeaders("outsider_bearer"),
       body: JSON.stringify({ content: "Hello lobby!", metadata: { priority: "high" } }),
     });
     expect(res.status).toBe(200);
@@ -354,7 +359,7 @@ describe("lobby.mdx — Lobby messages (membership-gated)", () => {
     expect(m.lobby_id).toBe(lobby.id);
     // channel_id is included for messages-interface compatibility and equals lobby_id.
     expect(m.channel_id).toBe(lobby.id);
-    expect((m.author as Record<string, unknown>).id).toBe(application.bot_user_snowflake);
+    expect((m.author as Record<string, unknown>).id).toBe(outsider);
     expect((m.metadata as Record<string, string>).priority).toBe("high");
     expect(typeof m.flags).toBe("number");
     expect(m.application_id).toBe(application.snowflake);
@@ -362,18 +367,33 @@ describe("lobby.mdx — Lobby messages (membership-gated)", () => {
 
   it("rejects an empty content message (content must be non-empty)", async () => {
     const { app } = setup();
-    const { lobby } = await createLobby(app);
+    // Use outsider who IS a member via secret join.
+    const join = await app.request(api("/lobbies"), {
+      method: "PUT",
+      headers: bearerHeaders("outsider_bearer"),
+      body: JSON.stringify({ secret: "empty-content-test" }),
+    });
+    const lobby = (await join.json()) as { id: string };
     const res = await app.request(api(`/lobbies/${lobby.id}/messages`), {
       method: "POST",
-      headers: botHeaders(),
+      headers: bearerHeaders("outsider_bearer"),
       body: JSON.stringify({ content: "" }),
     });
     expect(res.status).toBe(400);
   });
 
   it("a non-member is forbidden from sending a message", async () => {
-    const { app } = setup();
-    const { lobby } = await createLobby(app); // outsider is not a member
+    const { app, ds } = setup();
+    // Create lobby with a specific member, outsider is NOT that member.
+    const u = createUser(ds, { username: "lobby-owner-msg" });
+    createToken(ds, { token: "owner_bearer_msg", type: "bearer", userSnowflake: u.snowflake, applicationSnowflake: null, scopes: [], expiresAt: new Date(Date.now() + 1e9).toISOString(), refreshToken: null });
+    const join = await app.request(api("/lobbies"), {
+      method: "PUT",
+      headers: bearerHeaders("owner_bearer_msg"),
+      body: JSON.stringify({ secret: "no-outsider" }),
+    });
+    const lobby = (await join.json()) as { id: string };
+    // outsider did not join, so should be forbidden
     const res = await app.request(api(`/lobbies/${lobby.id}/messages`), {
       method: "POST",
       headers: bearerHeaders("outsider_bearer"),
@@ -384,15 +404,21 @@ describe("lobby.mdx — Lobby messages (membership-gated)", () => {
 
   it("Get Lobby Messages returns most-recent-first and honors the limit", async () => {
     const { app } = setup();
-    const { lobby } = await createLobby(app);
+    // Use outsider who IS a member via secret join.
+    const join = await app.request(api("/lobbies"), {
+      method: "PUT",
+      headers: bearerHeaders("outsider_bearer"),
+      body: JSON.stringify({ secret: "msg-list-test" }),
+    });
+    const lobby = (await join.json()) as { id: string };
     for (const content of ["first", "second", "third"]) {
       await app.request(api(`/lobbies/${lobby.id}/messages`), {
         method: "POST",
-        headers: botHeaders(),
+        headers: bearerHeaders("outsider_bearer"),
         body: JSON.stringify({ content }),
       });
     }
-    const res = await app.request(api(`/lobbies/${lobby.id}/messages?limit=2`), { headers: botHeaders() });
+    const res = await app.request(api(`/lobbies/${lobby.id}/messages?limit=2`), { headers: bearerHeaders("outsider_bearer") });
     expect(res.status).toBe(200);
     const messages = await json<Array<{ content: string }>>(res);
     expect(messages.length).toBe(2);
@@ -400,8 +426,16 @@ describe("lobby.mdx — Lobby messages (membership-gated)", () => {
   });
 
   it("a non-member is forbidden from listing messages", async () => {
-    const { app } = setup();
-    const { lobby } = await createLobby(app);
+    const { app, ds } = setup();
+    const u = createUser(ds, { username: "lobby-lister" });
+    createToken(ds, { token: "lister_bearer", type: "bearer", userSnowflake: u.snowflake, applicationSnowflake: null, scopes: [], expiresAt: new Date(Date.now() + 1e9).toISOString(), refreshToken: null });
+    const join = await app.request(api("/lobbies"), {
+      method: "PUT",
+      headers: bearerHeaders("lister_bearer"),
+      body: JSON.stringify({ secret: "list-gating" }),
+    });
+    const lobby = (await join.json()) as { id: string };
+    // outsider did not join
     const res = await app.request(api(`/lobbies/${lobby.id}/messages`), {
       headers: bearerHeaders("outsider_bearer"),
     });
@@ -412,11 +446,17 @@ describe("lobby.mdx — Lobby messages (membership-gated)", () => {
 describe("lobby.mdx — Update Lobby Message Moderation Metadata", () => {
   it("persists moderation metadata and surfaces it on the message; returns 204", async () => {
     const { app } = setup();
-    const { lobby } = await createLobby(app);
+    // L10: Use outsider who IS a member via secret join.
+    const join = await app.request(api("/lobbies"), {
+      method: "PUT",
+      headers: bearerHeaders("outsider_bearer"),
+      body: JSON.stringify({ secret: "modmeta-test" }),
+    });
+    const lobby = (await join.json()) as { id: string };
     const sent = (await (
       await app.request(api(`/lobbies/${lobby.id}/messages`), {
         method: "POST",
-        headers: botHeaders(),
+        headers: bearerHeaders("outsider_bearer"),
         body: JSON.stringify({ content: "moderated" }),
       })
     ).json()) as { id: string };
@@ -430,7 +470,7 @@ describe("lobby.mdx — Update Lobby Message Moderation Metadata", () => {
 
     // The moderation metadata is surfaced on subsequent reads.
     const list = (await (
-      await app.request(api(`/lobbies/${lobby.id}/messages`), { headers: botHeaders() })
+      await app.request(api(`/lobbies/${lobby.id}/messages`), { headers: bearerHeaders("outsider_bearer") })
     ).json()) as Array<{ id: string; moderation_metadata?: Record<string, string> }>;
     const found = list.find((m) => m.id === sent.id)!;
     expect(found.moderation_metadata?.decision).toBe("approved");
@@ -439,11 +479,17 @@ describe("lobby.mdx — Update Lobby Message Moderation Metadata", () => {
 
   it("rejects more than 5 moderation keys (50035)", async () => {
     const { app } = setup();
-    const { lobby } = await createLobby(app);
+    // L10: Use outsider who IS a member via secret join.
+    const join = await app.request(api("/lobbies"), {
+      method: "PUT",
+      headers: bearerHeaders("outsider_bearer"),
+      body: JSON.stringify({ secret: "modmeta-toomany" }),
+    });
+    const lobby = (await join.json()) as { id: string };
     const sent = (await (
       await app.request(api(`/lobbies/${lobby.id}/messages`), {
         method: "POST",
-        headers: botHeaders(),
+        headers: bearerHeaders("outsider_bearer"),
         body: JSON.stringify({ content: "x" }),
       })
     ).json()) as { id: string };
@@ -484,17 +530,29 @@ describe("lobby.mdx — Channel invites (membership + linked channel)", () => {
   });
 
   it("Create invite for self fails for a non-member", async () => {
-    const { app, textChannel } = setup();
-    // Bot creates+links via a member; outsider is not a member.
-    const { lobby } = await createLobby(app);
+    const { app, ds, textChannel } = setup();
+    // L10: Create lobby with outsider (a member), set CanLinkLobby, link channel.
+    // Outsider IS a member but we test a different user who is NOT a member.
+    const nonMember = createUser(ds, { username: "non-member-invite" });
+    createToken(ds, { token: "nonmember_bearer", type: "bearer", userSnowflake: nonMember.snowflake, applicationSnowflake: null, scopes: [], expiresAt: new Date(Date.now() + 1e9).toISOString(), refreshToken: null });
+    const join = await app.request(api("/lobbies"), {
+      method: "PUT",
+      headers: bearerHeaders("outsider_bearer"),
+      body: JSON.stringify({ secret: "invite-fail-test" }),
+    });
+    const lobby = (await join.json()) as { id: string };
+    // Grant outsider CanLinkLobby and link channel.
+    const member = ds.lobbyMembers.findBy("lobby_snowflake", lobby.id).find((m) => m.user_snowflake === ds.users.findOneBy("username", "outsider")!.snowflake)!;
+    ds.lobbyMembers.update(member.id, { flags: CAN_LINK_LOBBY });
     await app.request(api(`/lobbies/${lobby.id}/channel-linking`), {
       method: "PATCH",
-      headers: botHeaders(),
+      headers: bearerHeaders("outsider_bearer"),
       body: JSON.stringify({ channel_id: textChannel }),
     });
+    // nonMember is NOT a lobby member — should be forbidden.
     const res = await app.request(api(`/lobbies/${lobby.id}/members/@me/invites`), {
       method: "POST",
-      headers: bearerHeaders("outsider_bearer"),
+      headers: bearerHeaders("nonmember_bearer"),
     });
     expect(res.status).not.toBe(200);
   });
@@ -502,7 +560,15 @@ describe("lobby.mdx — Channel invites (membership + linked channel)", () => {
   it("Create invite for user (Bot token) returns a code when a channel is linked", async () => {
     const { app, ds, textChannel } = setup();
     const target = createUser(ds, { username: "invitee" });
+    // L10: Bot creates lobby but is NOT auto-added as member. Add it explicitly.
     const { lobby } = await createLobby(app);
+    const botUser = ds.users.findOneBy("bot", true)!;
+    // Add bot as a member with CanLinkLobby so it can do channel-linking.
+    await app.request(api(`/lobbies/${lobby.id}/members/${botUser.snowflake}`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify({ flags: CAN_LINK_LOBBY }),
+    });
     await app.request(api(`/lobbies/${lobby.id}/channel-linking`), {
       method: "PATCH",
       headers: botHeaders(),
@@ -523,11 +589,17 @@ describe("lobby.mdx — Channel invites (membership + linked channel)", () => {
 
   it("@me/invites fails (403) when the lobby has no linked channel", async () => {
     const { app } = setup();
-    const { lobby } = await createLobby(app);
+    // L10: Use outsider who IS a member via secret join; test failure is "no linked channel".
+    const join = await app.request(api("/lobbies"), {
+      method: "PUT",
+      headers: bearerHeaders("outsider_bearer"),
+      body: JSON.stringify({ secret: "me-no-channel" }),
+    });
+    const lobby = (await join.json()) as { id: string };
     // No channel-linking step -- lobby has no linked_channel_snowflake
     const res = await app.request(api(`/lobbies/${lobby.id}/members/@me/invites`), {
       method: "POST",
-      headers: botHeaders(),
+      headers: bearerHeaders("outsider_bearer"),
     });
     expect(res.status).toBe(403);
   });
@@ -535,8 +607,18 @@ describe("lobby.mdx — Channel invites (membership + linked channel)", () => {
   it(":userId/invites fails (403) when the lobby has no linked channel", async () => {
     const { app, ds } = setup();
     const target = createUser(ds, { username: "target2" });
-    const { lobby } = await createLobby(app);
-    // No channel-linking step
+    // L10: Use outsider who IS a member via secret join.
+    const join = await app.request(api("/lobbies"), {
+      method: "PUT",
+      headers: bearerHeaders("outsider_bearer"),
+      body: JSON.stringify({ secret: "userid-no-channel" }),
+    });
+    const lobby = (await join.json()) as { id: string };
+    // Add target as member, but no channel-linking step.
+    await app.request(api(`/lobbies/${lobby.id}/members/${target.snowflake}`), {
+      method: "PUT",
+      headers: botHeaders(),
+    });
     const res = await app.request(api(`/lobbies/${lobby.id}/members/${target.snowflake}/invites`), {
       method: "POST",
       headers: botHeaders(),
@@ -547,10 +629,19 @@ describe("lobby.mdx — Channel invites (membership + linked channel)", () => {
   it(":userId/invites fails (403) when the target user is not a lobby member", async () => {
     const { app, ds, textChannel } = setup();
     const target = createUser(ds, { username: "nonmember" });
-    const { lobby } = await createLobby(app);
+    // L10: Use outsider who IS a member via secret join; grant CanLinkLobby so it can link channel.
+    const join = await app.request(api("/lobbies"), {
+      method: "PUT",
+      headers: bearerHeaders("outsider_bearer"),
+      body: JSON.stringify({ secret: "target-not-member" }),
+    });
+    const lobby = (await join.json()) as { id: string };
+    const outsiderUser = ds.users.findOneBy("username", "outsider")!;
+    const memberRecord = ds.lobbyMembers.findBy("lobby_snowflake", lobby.id).find((m) => m.user_snowflake === outsiderUser.snowflake)!;
+    ds.lobbyMembers.update(memberRecord.id, { flags: CAN_LINK_LOBBY });
     await app.request(api(`/lobbies/${lobby.id}/channel-linking`), {
       method: "PATCH",
-      headers: botHeaders(),
+      headers: bearerHeaders("outsider_bearer"),
       body: JSON.stringify({ channel_id: textChannel }),
     });
     // target is NOT added as a lobby member
@@ -559,5 +650,229 @@ describe("lobby.mdx — Channel invites (membership + linked channel)", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// L1 / L2 / L3 / L4 / L8 / L10 — conformance negative tests
+// ---------------------------------------------------------------------------
+
+describe("lobby.mdx — L1: PUT /members/:userId preserves flags when omitted", () => {
+  it("L1: second PUT without flags preserves the flags set on the first PUT", async () => {
+    const { app, ds } = setup();
+    const u = createUser(ds, { username: "l1tester" });
+    const { lobby } = await createLobby(app, {});
+
+    // First PUT: set flags = CAN_LINK_LOBBY (1).
+    await app.request(api(`/lobbies/${lobby.id}/members/${u.snowflake}`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify({ flags: CAN_LINK_LOBBY }),
+    });
+
+    // Second PUT: omit flags entirely; metadata changes but flags must be preserved.
+    const res2 = await app.request(api(`/lobbies/${lobby.id}/members/${u.snowflake}`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify({ metadata: { updated: "yes" } }),
+    });
+    expect(res2.status).toBe(200);
+    const m = await json<{ flags: number }>(res2);
+    expect(m.flags).toBe(CAN_LINK_LOBBY); // flags must not be reset to 0
+  });
+});
+
+describe("lobby.mdx — L2: metadata size limit (1000 chars total)", () => {
+  it("L2: POST /lobbies with oversize metadata returns 400 with code 50035", async () => {
+    const { app } = setup();
+    // Build metadata whose keys+values sum to more than 1000 chars.
+    const bigVal = "x".repeat(1000);
+    const res = await app.request(api("/lobbies"), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ metadata: { key: bigVal } }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("L2: PATCH /lobbies/:id with oversize metadata returns 400 with code 50035", async () => {
+    const { app } = setup();
+    const { lobby } = await createLobby(app, {});
+    const bigVal = "x".repeat(1000);
+    const res = await app.request(api(`/lobbies/${lobby.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ metadata: { key: bigVal } }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("L2: PUT /lobbies/:id/members/:userId with oversize metadata returns 400 with code 50035", async () => {
+    const { app, ds } = setup();
+    const u = createUser(ds, { username: "l2meta" });
+    const { lobby } = await createLobby(app, {});
+    const bigVal = "x".repeat(1000);
+    const res = await app.request(api(`/lobbies/${lobby.id}/members/${u.snowflake}`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify({ metadata: { key: bigVal } }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+});
+
+describe("lobby.mdx — L3: idle_timeout_seconds validation (5–604800)", () => {
+  it("L3: idle_timeout_seconds below 5 returns 400 with code 50035", async () => {
+    const { app } = setup();
+    const res = await app.request(api("/lobbies"), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ idle_timeout_seconds: 4 }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("L3: idle_timeout_seconds above 604800 returns 400 with code 50035", async () => {
+    const { app } = setup();
+    const res = await app.request(api("/lobbies"), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ idle_timeout_seconds: 604801 }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("L3: idle_timeout_seconds exactly 5 is accepted", async () => {
+    const { app } = setup();
+    const { res } = await createLobby(app, { idle_timeout_seconds: 5 });
+    expect(res.status).toBe(201);
+  });
+
+  it("L3: idle_timeout_seconds exactly 604800 is accepted", async () => {
+    const { app } = setup();
+    const { res } = await createLobby(app, { idle_timeout_seconds: 604800 });
+    expect(res.status).toBe(201);
+  });
+});
+
+describe("lobby.mdx — L4: bulk update rejects unknown user ids with 404/10013", () => {
+  it("L4: unknown user id in bulk members array (not remove_member) returns 404 with code 10013", async () => {
+    const { app } = setup();
+    const { lobby } = await createLobby(app, {});
+    // L4 check is on the POST /lobbies/:id/members/bulk endpoint.
+    const res = await app.request(api(`/lobbies/${lobby.id}/members/bulk`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({
+        members: [{ id: "999999999999999001", metadata: {}, flags: 0 }],
+      }),
+    });
+    expect(res.status).toBe(404);
+    expect((await json<{ code: number }>(res)).code).toBe(10013);
+  });
+
+  it("L4: remove_member=true with an unknown user id is allowed (idempotent remove)", async () => {
+    // The spec does not require a 404 when removing a non-existent member; it should be a no-op.
+    const { app } = setup();
+    const { lobby } = await createLobby(app, {});
+    const res = await app.request(api(`/lobbies/${lobby.id}/members/bulk`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({
+        members: [{ id: "999999999999999002", remove_member: true }],
+      }),
+    });
+    // Should succeed (200) or at minimum not return a user-unknown error.
+    expect([200, 204]).toContain(res.status);
+  });
+});
+
+describe("lobby.mdx — L8: invite endpoints return only { code } (no lobby_id)", () => {
+  it("L8: @me/invites response contains code but NOT lobby_id", async () => {
+    const { app, ds, textChannel } = setup();
+    // Create lobby via PUT (outsider joins with a secret so they ARE a member with CanLinkLobby).
+    const join = await app.request(api("/lobbies"), {
+      method: "PUT",
+      headers: bearerHeaders("outsider_bearer"),
+      body: JSON.stringify({ secret: "l8-secret" }),
+    });
+    const lobby = (await join.json()) as { id: string };
+    const outsiderUser = ds.users.findOneBy("username", "outsider")!;
+    const memberRecord = ds.lobbyMembers.findBy("lobby_snowflake", lobby.id).find((m) => m.user_snowflake === outsiderUser.snowflake)!;
+    ds.lobbyMembers.update(memberRecord.id, { flags: CAN_LINK_LOBBY });
+    await app.request(api(`/lobbies/${lobby.id}/channel-linking`), {
+      method: "PATCH",
+      headers: bearerHeaders("outsider_bearer"),
+      body: JSON.stringify({ channel_id: textChannel }),
+    });
+
+    const res = await app.request(api(`/lobbies/${lobby.id}/members/@me/invites`), {
+      method: "POST",
+      headers: bearerHeaders("outsider_bearer"),
+    });
+    expect(res.status).toBe(200);
+    const body = await json<Record<string, unknown>>(res);
+    expect(typeof body.code).toBe("string");
+    expect("lobby_id" in body).toBe(false); // L8: lobby_id must NOT be present
+  });
+
+  it("L8: :userId/invites response contains code but NOT lobby_id", async () => {
+    const { app, ds, textChannel } = setup();
+    // Create lobby and add a target member.
+    const join = await app.request(api("/lobbies"), {
+      method: "PUT",
+      headers: bearerHeaders("outsider_bearer"),
+      body: JSON.stringify({ secret: "l8-user-secret" }),
+    });
+    const lobby = (await join.json()) as { id: string };
+    const outsiderUser = ds.users.findOneBy("username", "outsider")!;
+    const memberRecord = ds.lobbyMembers.findBy("lobby_snowflake", lobby.id).find((m) => m.user_snowflake === outsiderUser.snowflake)!;
+    ds.lobbyMembers.update(memberRecord.id, { flags: CAN_LINK_LOBBY });
+    await app.request(api(`/lobbies/${lobby.id}/channel-linking`), {
+      method: "PATCH",
+      headers: bearerHeaders("outsider_bearer"),
+      body: JSON.stringify({ channel_id: textChannel }),
+    });
+    const target = createUser(ds, { username: "l8target" });
+    await app.request(api(`/lobbies/${lobby.id}/members/${target.snowflake}`), {
+      method: "PUT",
+      headers: botHeaders(),
+    });
+
+    const res = await app.request(api(`/lobbies/${lobby.id}/members/${target.snowflake}/invites`), {
+      method: "POST",
+      headers: botHeaders(),
+    });
+    expect(res.status).toBe(200);
+    const body = await json<Record<string, unknown>>(res);
+    expect(typeof body.code).toBe("string");
+    expect("lobby_id" in body).toBe(false); // L8: lobby_id must NOT be present
+  });
+});
+
+describe("lobby.mdx — L10: POST /lobbies does NOT auto-add the bot as a member", () => {
+  it("L10: Create Lobby returns an empty members array (bot not auto-added)", async () => {
+    const { app } = setup();
+    const { res, lobby } = await createLobby(app, {});
+    expect(res.status).toBe(201);
+    const members = lobby.members as unknown[];
+    expect(members.length).toBe(0);
+  });
+
+  it("L10: bot is not a member of a newly created lobby — POST messages fails with 403", async () => {
+    const { app } = setup();
+    const { lobby } = await createLobby(app, {});
+    // The bot was NOT auto-added; posting a message requires membership.
+    const msgRes = await app.request(api(`/lobbies/${lobby.id}/messages`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ content: "unauthorized" }),
+    });
+    expect(msgRes.status).toBe(403);
   });
 });

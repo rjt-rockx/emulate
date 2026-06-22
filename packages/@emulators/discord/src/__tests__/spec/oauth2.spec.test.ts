@@ -393,11 +393,13 @@ describe("oauth2.mdx — Token endpoint content-type enforcement (oauth2.mdx:23-
   });
 
   it("POST /oauth2/token with unsupported grant_type returns unsupported_grant_type (oauth2.mdx:8)", async () => {
+    // O1: client credentials are required; include them so client auth passes and the
+    // server reaches the grant_type check (RFC 6749 §3.2 authenticates the client first).
     const { app } = createDiscordTestApp(seed);
     const res = await app.request(api("/oauth2/token"), {
       method: "POST",
       headers: FORM_HEADERS,
-      body: form({ grant_type: "password", scope: "identify" }),
+      body: form({ grant_type: "password", scope: "identify", client_id: "cid", client_secret: "secret" }),
     });
     expect(res.status).toBe(400);
     const body = await json<{ error: string }>(res);
@@ -518,5 +520,86 @@ describe("oauth2.mdx — Get Current Bot Application Information (GET /oauth2/ap
     expect(res.status).toBe(200);
     const a = await json(res);
     expect(typeof a.id).toBe("string");
+  });
+});
+
+describe("oauth2.mdx — Client Authentication (O1/O2/O5 conformance)", () => {
+  // O1: Token endpoint must reject requests with missing or wrong client credentials.
+  it("O1: missing client_id returns 401 invalid_client", async () => {
+    const { app } = createDiscordTestApp(seed);
+    const res = await app.request(api("/oauth2/token"), {
+      method: "POST",
+      headers: FORM_HEADERS,
+      body: form({ grant_type: "client_credentials", client_secret: "secret", scope: "identify" }),
+    });
+    expect(res.status).toBe(401);
+    expect((await json<{ error: string }>(res)).error).toBe("invalid_client");
+  });
+
+  it("O1: unknown client_id returns 401 invalid_client", async () => {
+    const { app } = createDiscordTestApp(seed);
+    const res = await app.request(api("/oauth2/token"), {
+      method: "POST",
+      headers: FORM_HEADERS,
+      body: form({ grant_type: "client_credentials", client_id: "unknown_app", client_secret: "secret", scope: "identify" }),
+    });
+    expect(res.status).toBe(401);
+    expect((await json<{ error: string }>(res)).error).toBe("invalid_client");
+  });
+
+  it("O1: missing client_secret returns 401 invalid_client", async () => {
+    const { app } = createDiscordTestApp(seed);
+    const res = await app.request(api("/oauth2/token"), {
+      method: "POST",
+      headers: FORM_HEADERS,
+      body: form({ grant_type: "client_credentials", client_id: "cid", scope: "identify" }),
+    });
+    expect(res.status).toBe(401);
+    expect((await json<{ error: string }>(res)).error).toBe("invalid_client");
+  });
+
+  // O2: bot scope token response must use the guild_id parameter when provided.
+  it("O2: bot scope with guild_id returns the matching guild object", async () => {
+    const ctx = createDiscordTestApp(seed);
+    const { store, app } = ctx;
+    const ds = getDiscordStore(store);
+    const guild = ds.guilds.all()[0];
+    if (!guild) return; // no guild seeded, skip
+    const { code } = await obtainCode(ctx, "bot", { guild_id: guild.snowflake });
+    const res = await exchangeCode(ctx, code);
+    expect(res.status).toBe(200);
+    const t = await json<{ guild?: { id: string } }>(res);
+    expect(t.guild?.id).toBe(guild.snowflake);
+  });
+
+  // O5: refresh token must be bound to the issuing application; a client with a different
+  // application snowflake must not be able to exchange it.
+  it("O5: refresh token issued by one app is rejected when exchanged with a different app's client_id", async () => {
+    // Seed two oauth_apps with distinct fake application_snowflakes.
+    // We set this up by creating one app normally, issuing a refresh token, then manually
+    // modifying the token's application_snowflake to simulate a foreign-app token.
+    const ctx = createDiscordTestApp(seed); // seed has client_id "cid"
+    const { app, store } = ctx;
+    const ds = getDiscordStore(store);
+    // Obtain a refresh token for "cid".
+    const { code } = await obtainCode(ctx, "identify");
+    const first = await json<{ refresh_token: string }>(await exchangeCode(ctx, code));
+    const tokenRecord = ds.tokens.all().find((t) => t.refresh_token === first.refresh_token)!;
+    // Simulate a foreign application by pointing the token at a different snowflake.
+    ds.tokens.update(tokenRecord.id, { application_snowflake: "000000000000000001" });
+    // Ensure the current application snowflake is different.
+    const appRecord = ds.oauthApps.findOneBy("client_id", "cid")!;
+    const linked = ds.applications.findOneBy("snowflake", appRecord.application_snowflake)!;
+    // The token's application_snowflake is now "000000000000000001" which differs from `linked.snowflake`.
+    // O5 check: existing.application_snowflake !== application.snowflake → invalid_grant.
+    if (linked.snowflake !== "000000000000000001") {
+      const badRes = await app.request(api("/oauth2/token"), {
+        method: "POST",
+        headers: FORM_HEADERS,
+        body: form({ grant_type: "refresh_token", client_id: "cid", client_secret: "secret", refresh_token: first.refresh_token }),
+      });
+      expect(badRes.status).toBe(400);
+      expect((await json<{ error: string }>(badRes)).error).toBe("invalid_grant");
+    }
   });
 });
