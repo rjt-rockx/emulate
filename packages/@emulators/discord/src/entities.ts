@@ -116,6 +116,26 @@ export interface DiscordChannel extends Entity {
   user_limit: number | null;
   permission_overwrites: DiscordPermissionOverwrite[];
   recipient_snowflakes: string[]; // for DM / group DM channels
+  // Thread-only fields (channel types 10/11/12).
+  owner_snowflake?: string | null;
+  thread_metadata?: DiscordThreadMetadata | null;
+  message_count?: number;
+  member_count?: number;
+}
+
+export interface DiscordThreadMetadata {
+  archived: boolean;
+  auto_archive_duration: number;
+  archive_timestamp: string;
+  locked: boolean;
+  invitable?: boolean;
+  create_timestamp?: string | null;
+}
+
+export interface DiscordThreadMember extends Entity {
+  thread_snowflake: string;
+  user_snowflake: string;
+  joined_at: string;
 }
 
 export interface DiscordPermissionOverwrite {

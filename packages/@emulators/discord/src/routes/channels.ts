@@ -99,11 +99,20 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     if (body.rate_limit_per_user !== undefined) patch.rate_limit_per_user = body.rate_limit_per_user;
     if (body.bitrate !== undefined) patch.bitrate = body.bitrate;
     if (body.user_limit !== undefined) patch.user_limit = body.user_limit;
+    const isThread = channel.type === 10 || channel.type === 11 || channel.type === 12;
+    if (isThread && (body.archived !== undefined || body.locked !== undefined || body.auto_archive_duration !== undefined)) {
+      patch.thread_metadata = {
+        ...(channel.thread_metadata ?? { archived: false, auto_archive_duration: 1440, archive_timestamp: new Date().toISOString(), locked: false }),
+        ...(body.archived !== undefined ? { archived: !!body.archived } : {}),
+        ...(body.locked !== undefined ? { locked: !!body.locked } : {}),
+        ...(body.auto_archive_duration !== undefined ? { auto_archive_duration: body.auto_archive_duration } : {}),
+      };
+    }
     if (Object.keys(patch).length > 0) ds.channels.update(channel.id, patch);
     const updated = ds.channels.findOneBy("snowflake", channel.snowflake)!;
     const payload = toAPIChannel(updated);
     bus.publish({
-      t: "CHANNEL_UPDATE",
+      t: isThread ? "THREAD_UPDATE" : "CHANNEL_UPDATE",
       guildId: updated.guild_snowflake,
       requiredIntents: Intents.Guilds,
       d: payload,
@@ -118,10 +127,11 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
     if (!channel) return notFound(c);
     const payload = toAPIChannel(channel);
+    const isThread = channel.type === 10 || channel.type === 11 || channel.type === 12;
     for (const m of ds.messages.findBy("channel_snowflake", channel.snowflake)) ds.messages.delete(m.id);
     ds.channels.delete(channel.id);
     bus.publish({
-      t: "CHANNEL_DELETE",
+      t: isThread ? "THREAD_DELETE" : "CHANNEL_DELETE",
       guildId: channel.guild_snowflake,
       requiredIntents: Intents.Guilds,
       d: payload,

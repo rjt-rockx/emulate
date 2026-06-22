@@ -194,6 +194,12 @@ export function toAPIChannel(c: DiscordChannel): Record<string, unknown> {
   if (c.bitrate != null) base.bitrate = c.bitrate;
   if (c.user_limit != null) base.user_limit = c.user_limit;
   if (c.recipient_snowflakes.length > 0) base.recipients = c.recipient_snowflakes;
+  if (c.type === 10 || c.type === 11 || c.type === 12) {
+    base.owner_id = c.owner_snowflake ?? null;
+    base.thread_metadata = c.thread_metadata ?? null;
+    base.message_count = c.message_count ?? 0;
+    base.member_count = c.member_count ?? 0;
+  }
   return base;
 }
 
