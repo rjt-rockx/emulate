@@ -153,7 +153,6 @@ describe("guilds routes", () => {
   // -------------------------------------------------------------------------
 
   it("PUT /guilds/:guildId/members/:userId adds the developer user as a member", async () => {
-    const id = guildId();
     const devId = developerUserId();
 
     // Developer is already seeded into the guild — addGuildMember returns null for existing.

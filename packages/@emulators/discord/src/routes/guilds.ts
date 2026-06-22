@@ -275,12 +275,13 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     } catch {
       // no-op
     }
+    const alreadyMember = ds.members.findBy("guild_snowflake", guildId).some((m) => m.user_snowflake === userId);
     const member = addGuildMember(ds, guildId, userId, {
       nick: body.nick as string | null | undefined,
       roles: body.roles as string[] | undefined,
     });
-    if (!member) {
-      // Member already existed — return 204 (Discord semantics).
+    if (!member || alreadyMember) {
+      // Member already existed — Discord returns 204 with no body.
       return new Response(null, { status: 204 });
     }
     const apiMember = toAPIMember(member, ds);
