@@ -191,8 +191,10 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
     const { auth, ds } = g;
     const caller = auth.user!;
     let body: Record<string, unknown> = {};
+    let rawBody = "";
     try {
-      body = await c.req.json();
+      rawBody = await c.req.text();
+      body = rawBody ? (JSON.parse(rawBody) as Record<string, unknown>) : {};
     } catch {
       // no-op
     }
@@ -243,8 +245,10 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
       return c.json(toAPIChannel(created, ds));
     }
 
-    // Single-recipient DM path.
-    const recipientId = typeof body.recipient_id === "string" ? body.recipient_id : "";
+    // Single-recipient DM path. discord.py sends recipient_id as a bare JSON number (User.id is an
+    // int); re-extract it from the raw text so a 64-bit snowflake isn't mangled by JS number
+    // precision. Quoted or unquoted, both yield the digit string.
+    const recipientId = rawBody.match(/"recipient_id"\s*:\s*"?(\d+)"?/)?.[1] ?? "";
     // You cannot open a DM with yourself.
     if (recipientId === caller.snowflake) {
       return discordError(c, 400, "Cannot send messages to this user", 50007);

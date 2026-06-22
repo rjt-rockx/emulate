@@ -73,6 +73,22 @@ describe("real-bot fidelity regressions", () => {
     expect(body.resource?.message?.content).toBe("pong");
   });
 
+  // discord.py (Modmail) sends recipient_id as a bare JSON number (User.id is an int); the full
+  // 64-bit snowflake must survive JS number precision, so it is re-extracted from the raw body.
+  it("opens a DM with a numeric recipient_id", async () => {
+    const { app, store } = createDiscordTestApp();
+    const ids = seededIds(store);
+    const res = await app.request(api("/users/@me/channels"), {
+      method: "POST",
+      headers: botHeaders(),
+      body: `{"recipient_id": ${ids.developer}}`, // bare number, full precision
+    });
+    expect(res.status).toBe(200);
+    const dm = await json<{ type: number; recipients: Array<{ id: string }> }>(res);
+    expect(dm.type).toBe(1);
+    expect(dm.recipients.some((r) => r.id === ids.developer)).toBe(true);
+  });
+
   // discord.py edge case: opening a DM with your own id must be rejected.
   it("rejects opening a DM with yourself", async () => {
     const { app, store } = createDiscordTestApp();
