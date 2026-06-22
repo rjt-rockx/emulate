@@ -322,6 +322,13 @@ export function toAPIGuild(g: DiscordGuild, ds: DiscordStore, opts: GuildSeriali
     base.large = g.large;
     base.unavailable = false;
     base.joined_at = g.created_at;
+    // discord.js hydrates these caches from GUILD_CREATE; always present (possibly empty).
+    base.threads = [];
+    base.voice_states = [];
+    base.presences = [];
+    base.stage_instances = [];
+    base.guild_scheduled_events = [];
+    base.soundboard_sounds = [];
   }
   return base;
 }

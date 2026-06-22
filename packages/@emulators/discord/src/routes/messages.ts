@@ -80,6 +80,8 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: messageIntents(channel.guild_snowflake),
       d: payload,
       redactedData: redactMessageContent(payload),
+      messageAuthorId: message.author_snowflake,
+      messageMentionIds: message.mention_snowflakes,
     });
     return c.json(payload, 200);
   });
@@ -115,6 +117,8 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: messageIntents(updated.guild_snowflake),
       d: payload,
       redactedData: redactMessageContent(payload),
+      messageAuthorId: updated.author_snowflake,
+      messageMentionIds: updated.mention_snowflakes,
     });
     return c.json(payload);
   });

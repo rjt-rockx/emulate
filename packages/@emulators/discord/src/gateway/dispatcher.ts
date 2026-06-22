@@ -14,11 +14,19 @@ export interface GatewayEvent {
   guildId?: string | null;
   /** Intent bitfield gating delivery. 0 = ungated. */
   requiredIntents: number;
+  /** When set, only deliver to sessions whose bot belongs to this application (e.g. INTERACTION_CREATE). */
+  applicationId?: string;
   /**
    * Optional alternate payload delivered to sessions that lack the MESSAGE_CONTENT
    * intent (used by MESSAGE_CREATE/UPDATE to strip content/embeds/components/attachments).
+   * Discord still sends full content to a bot for its own messages, DMs, and messages
+   * that mention it, so redaction is decided per-session using the fields below.
    */
   redactedData?: unknown;
+  /** Author of the message (a bot always sees content for its own messages). */
+  messageAuthorId?: string;
+  /** Users mentioned in the message (a bot always sees content when mentioned). */
+  messageMentionIds?: string[];
 }
 
 export type GatewayEventListener = (event: GatewayEvent) => void;

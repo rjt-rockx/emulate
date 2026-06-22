@@ -177,14 +177,26 @@ export class GatewayServer {
   private fanOut(event: GatewayEvent): void {
     for (const session of this.sessions) {
       if (!session.identified) continue;
+      if (event.applicationId && session.applicationSnowflake !== event.applicationId) continue;
       if (!intentsAllow(session.intents, event.requiredIntents)) continue;
       if (event.guildId != null && !session.guildIds.has(event.guildId)) continue;
-      const data =
-        event.redactedData !== undefined && !hasIntent(session.intents, Intents.MessageContent)
-          ? event.redactedData
-          : event.d;
-      this.dispatch(session, event.t, data);
+      this.dispatch(session, event.t, this.dataForSession(session, event));
     }
+  }
+
+  /**
+   * Choose the payload for a session. Message content is redacted only when the session
+   * lacks the MESSAGE_CONTENT intent AND the message is in a guild AND it is neither
+   * authored by, nor mentions, the session's bot (matching real Discord behavior).
+   */
+  private dataForSession(session: GatewaySession, event: GatewayEvent): unknown {
+    if (event.redactedData === undefined) return event.d;
+    if (hasIntent(session.intents, Intents.MessageContent)) return event.d;
+    if (event.guildId == null) return event.d; // DMs always include content
+    const bot = session.botUserSnowflake ?? "";
+    if (event.messageAuthorId && event.messageAuthorId === bot) return event.d;
+    if (event.messageMentionIds && event.messageMentionIds.includes(bot)) return event.d;
+    return event.redactedData;
   }
 
   private dispatch(session: GatewaySession, t: string, d: unknown): void {
