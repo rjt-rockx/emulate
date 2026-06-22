@@ -6,6 +6,7 @@ import {
   unknownUser,
   unknownGuild,
   unknownMember,
+  discordError,
   toAPIUser,
   toAPIChannel,
   toAPIMember,
@@ -13,6 +14,25 @@ import {
 import { createChannel } from "../factories.js";
 import { computeGuildPermissions } from "../permissions.js";
 import { Intents } from "../gateway/intents.js";
+import type { Context, AppEnv, Store } from "@emulators/core";
+import type { DiscordAuth } from "../helpers.js";
+
+/** Returns a 403 "Missing required OAuth2 scope" (50026) response. */
+function missingScopeError(c: Context<AppEnv>): Response {
+  return discordError(c, 403, "Missing required OAuth2 scope", 50026);
+}
+
+/**
+ * When `discord.strict_scopes` is enabled, verify the bearer auth holds the
+ * required scope. Bot tokens bypass scope checks entirely. Returns a 403
+ * response when the check fails, or null when the caller may proceed.
+ */
+function requireScope(c: Context<AppEnv>, store: Store, auth: DiscordAuth, scope: string): Response | null {
+  if (store.getData<boolean>("discord.strict_scopes") !== true) return null;
+  if (auth.type === "bot") return null;
+  if (auth.scopes.includes(scope)) return null;
+  return missingScopeError(c);
+}
 
 export function usersRoutes(ctx: DiscordRouteContext): void {
   const { app, store, bus } = ctx;
@@ -22,7 +42,16 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
   app.get("/api/v:version/users/@me", (c) => {
     const auth = getAuth(c, store);
     if (!auth || !auth.user) return unauthorized(c);
-    return c.json(toAPIUser(auth.user, true));
+    const scopeErr = requireScope(c, store, auth, "identify");
+    if (scopeErr) return scopeErr;
+    const userObj = toAPIUser(auth.user, true);
+    // When strict scopes are enabled, strip the email field unless the email
+    // scope is also present (bot tokens are exempt — they see all self fields).
+    const strict = store.getData<boolean>("discord.strict_scopes") === true;
+    if (strict && auth.type !== "bot" && !auth.scopes.includes("email")) {
+      delete (userObj as Record<string, unknown>).email;
+    }
+    return c.json(userObj);
   });
 
   app.patch("/api/v:version/users/@me", async (c) => {
@@ -49,6 +78,8 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
   app.get("/api/v:version/users/@me/guilds", (c) => {
     const auth = getAuth(c, store);
     if (!auth || !auth.user) return unauthorized(c);
+    const scopeErr = requireScope(c, store, auth, "guilds");
+    if (scopeErr) return scopeErr;
     const ds = getDiscordStore(store);
     const withCounts = c.req.query("with_counts") === "true";
     const before = c.req.query("before");
@@ -87,6 +118,8 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
   app.get("/api/v:version/users/@me/guilds/:guildId/member", (c) => {
     const auth = getAuth(c, store);
     if (!auth || !auth.user) return unauthorized(c);
+    const scopeErr = requireScope(c, store, auth, "guilds.members.read");
+    if (scopeErr) return scopeErr;
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
     if (!ds.guilds.findOneBy("snowflake", guildId)) return unknownGuild(c);

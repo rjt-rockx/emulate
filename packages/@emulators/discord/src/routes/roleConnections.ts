@@ -1,6 +1,25 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, invalidFormBody } from "../helpers.js";
+import { getAuth, unauthorized, notFound, invalidFormBody, discordError } from "../helpers.js";
+import type { Context, AppEnv, Store } from "@emulators/core";
+import type { DiscordAuth } from "../helpers.js";
+
+/** Returns a 403 "Missing required OAuth2 scope" (50026) response. */
+function missingScopeError(c: Context<AppEnv>): Response {
+  return discordError(c, 403, "Missing required OAuth2 scope", 50026);
+}
+
+/**
+ * When `discord.strict_scopes` is enabled, verify the bearer auth holds the
+ * required scope. Bot tokens bypass scope checks. Returns a 403 response when
+ * the check fails, or null when the caller may proceed.
+ */
+function requireScope(c: Context<AppEnv>, store: Store, auth: DiscordAuth, scope: string): Response | null {
+  if (store.getData<boolean>("discord.strict_scopes") !== true) return null;
+  if (auth.type === "bot") return null;
+  if (auth.scopes.includes(scope)) return null;
+  return missingScopeError(c);
+}
 
 // Documented Application Role Connection Metadata Type enum (1-8 inclusive).
 const MIN_METADATA_TYPE = 1;
@@ -72,6 +91,8 @@ export function roleConnectionsRoutes(ctx: DiscordRouteContext): void {
   app.get("/api/v:version/users/@me/applications/:appId/role-connection", (c) => {
     const auth = getAuth(c, store);
     if (!auth || !auth.user) return unauthorized(c);
+    const scopeErr = requireScope(c, store, auth, "role_connections.write");
+    if (scopeErr) return scopeErr;
     const ds = getDiscordStore(store);
     const appId = c.req.param("appId");
     const existing = ds.roleConnections
@@ -87,6 +108,8 @@ export function roleConnectionsRoutes(ctx: DiscordRouteContext): void {
   app.put("/api/v:version/users/@me/applications/:appId/role-connection", async (c) => {
     const auth = getAuth(c, store);
     if (!auth || !auth.user) return unauthorized(c);
+    const scopeErr = requireScope(c, store, auth, "role_connections.write");
+    if (scopeErr) return scopeErr;
     const ds = getDiscordStore(store);
     const appId = c.req.param("appId");
     const body = (await c.req.json().catch(() => ({}))) as {
