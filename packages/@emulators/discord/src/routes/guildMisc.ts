@@ -4,12 +4,17 @@ import {
   getAuth,
   unauthorized,
   toAPIUser,
+  toAPIChannel,
+  toAPIScheduledEvent,
+  toAPIApplicationCommand,
   recordAudit,
   AuditLogEvent,
   auditReason,
   requireBot,
   requireGuild,
+  requirePermission,
 } from "../helpers.js";
+import { PermissionFlags } from "../permissions.js";
 import { Intents } from "../gateway/intents.js";
 import type { DiscordGuildMember } from "../entities.js";
 
@@ -141,9 +146,13 @@ export function guildMiscRoutes(ctx: DiscordRouteContext): void {
   // referenced actor/target users hydrated and the documented entity arrays populated. Supports
   // the action_type / user_id / before / after / limit query filters.
   app.get("/api/v:version/guilds/:guildId/audit-logs", (c) => {
-    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     { const _g = requireGuild(c, ds, guildId); if (_g instanceof Response) return _g; }
+
+    // A1: Require VIEW_AUDIT_LOG permission.
+    const denied = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ViewAuditLog, { guildId });
+    if (denied) return denied;
 
     const actionTypeFilter = c.req.query("action_type");
     const userIdFilter = c.req.query("user_id");
@@ -169,7 +178,8 @@ export function guildMiscRoutes(ctx: DiscordRouteContext): void {
       target_id: e.target_snowflake,
       user_id: e.user_snowflake,
       action_type: e.action_type,
-      changes: e.changes,
+      // A2: Only include `changes` when the array is non-empty.
+      ...(e.changes && e.changes.length > 0 ? { changes: e.changes } : {}),
       ...(e.options ? { options: e.options } : {}),
       reason: e.reason ?? undefined,
     }));
@@ -193,26 +203,15 @@ export function guildMiscRoutes(ctx: DiscordRouteContext): void {
       account: integ.account,
       ...(integ.application_snowflake ? { application_id: integ.application_snowflake } : {}),
     }));
+    // A3: Use canonical toAPIChannel serializer for thread channel objects.
     const threads = ds.channels
       .findBy("guild_snowflake", guildId)
       .filter((ch) => ch.type === 10 || ch.type === 11 || ch.type === 12)
-      .map((ch) => ({
-        id: ch.snowflake,
-        type: ch.type,
-        name: ch.name,
-        parent_id: ch.parent_snowflake,
-        guild_id: guildId,
-        thread_metadata: ch.thread_metadata ?? null,
-      }));
+      .map((ch) => toAPIChannel(ch, ds));
+    // A3: Use canonical toAPIApplicationCommand serializer.
     const applicationCommands = ds.commands
       .findBy("guild_snowflake", guildId)
-      .map((cmd) => ({
-        id: cmd.snowflake,
-        application_id: cmd.application_snowflake,
-        name: cmd.name,
-        description: cmd.description,
-        type: cmd.type,
-      }));
+      .map((cmd) => toAPIApplicationCommand(cmd));
     const autoModerationRules = ds.autoModRules.findBy("guild_snowflake", guildId).map((r) => ({
       id: r.snowflake,
       guild_id: r.guild_snowflake,
@@ -226,16 +225,26 @@ export function guildMiscRoutes(ctx: DiscordRouteContext): void {
       application_commands: applicationCommands,
       audit_log_entries: auditLogEntries,
       auto_moderation_rules: autoModerationRules,
+      // A3: Use canonical toAPIScheduledEvent serializer for full guild scheduled event objects.
       guild_scheduled_events: ds.scheduledEvents
         .findBy("guild_snowflake", guildId)
-        .map((e) => ({ id: e.snowflake, name: e.name })),
+        .map((e) => toAPIScheduledEvent(e, ds)),
       integrations,
       threads,
       users,
+      // A3: Build a fuller webhook object with the required fields.
       webhooks: ds.webhooks
         .all()
         .filter((w) => w.guild_snowflake === guildId)
-        .map((w) => ({ id: w.snowflake, channel_id: w.channel_snowflake, name: w.name, type: w.type })),
+        .map((w) => ({
+          id: w.snowflake,
+          type: w.type,
+          guild_id: w.guild_snowflake,
+          channel_id: w.channel_snowflake,
+          name: w.name,
+          application_id: w.application_snowflake ?? null,
+          token: w.type === 1 ? w.token : undefined,
+        })),
     });
   });
 }

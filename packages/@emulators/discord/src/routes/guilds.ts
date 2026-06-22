@@ -234,12 +234,68 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
+
+    // G3: Require MANAGE_GUILD permission to modify the guild.
+    const denied = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageGuild, { guildId });
+    if (denied) return denied;
+
     let body: Record<string, unknown> = {};
     try {
       body = await c.req.json();
     } catch {
       // no-op
     }
+
+    // G1: Validate documented params — name length, afk_timeout choices, enum ranges.
+    const validationErrors: Record<string, string> = {};
+    const AFk_TIMEOUT_VALID = new Set([60, 300, 900, 1800, 3600]);
+    if (body.name !== undefined) {
+      const name = body.name;
+      if (typeof name !== "string" || name.length < 2 || name.length > 100) {
+        validationErrors.name = "Must be between 2 and 100 in length.";
+      }
+    }
+    if (body.afk_timeout !== undefined) {
+      const afkTimeout = body.afk_timeout;
+      if (!AFk_TIMEOUT_VALID.has(afkTimeout as number)) {
+        validationErrors.afk_timeout = "Value must be one of (60, 300, 900, 1800, 3600).";
+      }
+    }
+    if (body.verification_level !== undefined) {
+      const vl = body.verification_level;
+      if (typeof vl !== "number" || !Number.isInteger(vl) || vl < 0 || vl > 4) {
+        validationErrors.verification_level = "Value must be between 0 and 4.";
+      }
+    }
+    if (body.default_message_notifications !== undefined) {
+      const dmn = body.default_message_notifications;
+      if (typeof dmn !== "number" || !Number.isInteger(dmn) || dmn < 0 || dmn > 1) {
+        validationErrors.default_message_notifications = "Value must be 0 or 1.";
+      }
+    }
+    if (body.explicit_content_filter !== undefined) {
+      const ecf = body.explicit_content_filter;
+      if (typeof ecf !== "number" || !Number.isInteger(ecf) || ecf < 0 || ecf > 2) {
+        validationErrors.explicit_content_filter = "Value must be between 0 and 2.";
+      }
+    }
+    if (Object.keys(validationErrors).length > 0) return invalidFormBody(c, validationErrors);
+
+    // G2: Adding/removing COMMUNITY feature requires ADMINISTRATOR.
+    if (body.features !== undefined && Array.isArray(body.features)) {
+      const newFeatures = body.features as string[];
+      const oldFeatures: string[] = guild.features ?? [];
+      const addedCommunity = newFeatures.includes("COMMUNITY") && !oldFeatures.includes("COMMUNITY");
+      const removedCommunity = !newFeatures.includes("COMMUNITY") && oldFeatures.includes("COMMUNITY");
+      if ((addedCommunity || removedCommunity) && permissionsEnforced(store)) {
+        if (guild.owner_snowflake !== auth.user?.snowflake) {
+          // Check ADMINISTRATOR permission.
+          const adminDenied = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.Administrator, { guildId });
+          if (adminDenied) return adminDenied;
+        }
+      }
+    }
+
     const patch: Record<string, unknown> = {};
     if (body.name !== undefined) patch.name = body.name;
     if (body.description !== undefined) patch.description = body.description;
@@ -256,8 +312,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (body.owner_id !== undefined) patch.owner_snowflake = body.owner_id;
     // Community/discovery/boost fields backed by their own entity columns (round-tripped fully).
     if (body.features !== undefined) patch.features = body.features;
-    if (body.mfa_level !== undefined) patch.mfa_level = body.mfa_level;
-    if (body.nsfw_level !== undefined) patch.nsfw_level = body.nsfw_level;
+    // G1: mfa_level and nsfw_level are NOT documented Modify Guild params — remove them.
     if (body.banner !== undefined) patch.banner = body.banner;
     if (body.discovery_splash !== undefined) patch.discovery_splash = body.discovery_splash;
     if (body.system_channel_flags !== undefined) patch.system_channel_flags = body.system_channel_flags;
@@ -296,9 +351,14 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/guilds/:guildId", (c) => {
-    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const guildId = c.req.param("guildId");
     const guild = requireGuild(c, ds, guildId); if (guild instanceof Response) return guild;
+
+    // G3: Deleting a guild requires the caller to be the guild owner.
+    if (permissionsEnforced(store) && guild.owner_snowflake !== auth.user?.snowflake) {
+      return discordError(c, 403, "Missing Permissions", 50013);
+    }
 
     // Cascade: messages in guild channels, then channels, then roles, members, emojis, guild.
     const channels = ds.channels.findBy("guild_snowflake", guildId);

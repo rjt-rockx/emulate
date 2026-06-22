@@ -11,6 +11,7 @@ import { describe, it, expect } from "vitest";
 import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 import type { DiscordGuildMember } from "../../entities.js";
+import { addGuildMember } from "../../factories.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
   const s = seededIds(store);
@@ -70,6 +71,87 @@ describe("audit-log.mdx — Audit Log object shape", () => {
     expect(typeof entry.action_type).toBe("number");
     // changes is optional but when present should be an array.
     if ("changes" in entry) expect(Array.isArray(entry.changes)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A1: VIEW_AUDIT_LOG permission enforcement
+// ---------------------------------------------------------------------------
+
+describe("audit-log.mdx — VIEW_AUDIT_LOG permission enforcement", () => {
+  it("A1 — GET audit-logs with enforcement on and no VIEW_AUDIT_LOG returns 403 (50013)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    store.setData("discord.enforce_permissions", true);
+    const ds = getDiscordStore(store);
+    const guild = ds.guilds.findOneBy("snowflake", guildId)!;
+    const botSnowflake = ds.applications.all()[0]!.bot_user_snowflake;
+    // Make the bot a non-owner with no roles (no VIEW_AUDIT_LOG permission).
+    ds.guilds.update(guild.id, { owner_snowflake: "999999999999999996" });
+    const botMember = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === botSnowflake);
+    if (botMember) {
+      ds.members.update(botMember.id, { role_snowflakes: [] });
+    }
+    const res = await app.request(api(`/guilds/${guildId}/audit-logs`), { headers: botHeaders() });
+    expect(res.status).toBe(403);
+    expect((await json<{ code: number }>(res)).code).toBe(50013);
+    // Restore.
+    ds.guilds.update(guild.id, { owner_snowflake: botSnowflake });
+    if (botMember) {
+      ds.members.update(botMember.id, { role_snowflakes: botMember.role_snowflakes });
+    }
+  });
+
+  it("A1 — GET audit-logs with enforcement off succeeds regardless of permissions", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    // enforcement is OFF by default.
+    const res = await app.request(api(`/guilds/${guildId}/audit-logs`), { headers: botHeaders() });
+    expect(res.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A2: Empty changes array is omitted from entries
+// ---------------------------------------------------------------------------
+
+describe("audit-log.mdx — changes key omitted when empty", () => {
+  it("A2 — MEMBER_KICK entry does not include a changes key (no documented changes object)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId, developerSnowflake } = ids(store);
+    const ds = getDiscordStore(store);
+    // Ensure developer is a member.
+    const alreadyMember = ds.members.findBy("guild_snowflake", guildId).some((m: DiscordGuildMember) => m.user_snowflake === developerSnowflake);
+    if (!alreadyMember) {
+      addGuildMember(ds, guildId, developerSnowflake, {});
+    }
+    // Kick the developer — this produces a MEMBER_KICK (action_type=20) entry with no changes.
+    await app.request(api(`/guilds/${guildId}/members/${developerSnowflake}`), {
+      method: "DELETE",
+      headers: botHeaders(),
+    });
+    const res = await app.request(api(`/guilds/${guildId}/audit-logs?action_type=20`), { headers: botHeaders() });
+    const body = await json<{ audit_log_entries: Array<Record<string, unknown>> }>(res);
+    expect(body.audit_log_entries.length).toBeGreaterThan(0);
+    const entry = body.audit_log_entries[0];
+    // Discord omits the `changes` key entirely when there are no changes.
+    expect("changes" in entry).toBe(false);
+  });
+
+  it("A2 — GUILD_UPDATE entry includes the changes key when there are actual changes", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    await app.request(api(`/guilds/${guildId}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "ChangesTest" }),
+    });
+    const res = await app.request(api(`/guilds/${guildId}/audit-logs?action_type=1`), { headers: botHeaders() });
+    const body = await json<{ audit_log_entries: Array<Record<string, unknown>> }>(res);
+    expect(body.audit_log_entries.length).toBeGreaterThan(0);
+    // GUILD_UPDATE with name change should have a changes array.
+    expect("changes" in body.audit_log_entries[0]).toBe(true);
+    expect(Array.isArray(body.audit_log_entries[0].changes)).toBe(true);
   });
 });
 
@@ -537,5 +619,70 @@ describe("audit-log.mdx — Hydrated entity arrays", () => {
       expect(typeof integ.type).toBe("string");
       expect(typeof (integ.account as Record<string, unknown>).id).toBe("string");
     }
+  });
+
+  // A3: webhooks array in audit log has the required fuller shape.
+  it("A3 — webhooks array in audit log includes application_id and guild_id fields", async () => {
+    const { app, store } = createDiscordTestApp();
+    const seedIds = seededIds(store);
+    const guildId = seedIds.guild;
+    const channelId = seedIds.general;
+    const ds = getDiscordStore(store);
+    // Insert a webhook directly via the store so we can inspect the shape.
+    ds.webhooks.insert({
+      snowflake: "700000000000000001",
+      type: 1,
+      guild_snowflake: guildId,
+      channel_snowflake: channelId,
+      user_snowflake: null,
+      name: "TestHook",
+      avatar: null,
+      token: "webhook-token-abc",
+      application_snowflake: null,
+    });
+    const res = await app.request(api(`/guilds/${guildId}/audit-logs`), { headers: botHeaders() });
+    const body = await json<{ webhooks: Array<Record<string, unknown>> }>(res);
+    expect(Array.isArray(body.webhooks)).toBe(true);
+    const hook = body.webhooks.find((w) => w.id === "700000000000000001");
+    expect(hook).toBeDefined();
+    expect(hook!.guild_id).toBe(guildId);
+    expect(hook!.channel_id).toBe(channelId);
+    expect(hook!.name).toBe("TestHook");
+    expect(hook!.type).toBe(1);
+    // application_id should be present (null when not set).
+    expect("application_id" in hook!).toBe(true);
+  });
+
+  // A3: guild_scheduled_events now uses the canonical serializer with full fields.
+  it("A3 — guild_scheduled_events in audit log includes required fields (entity_type, status, scheduled_start_time)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    const ds = getDiscordStore(store);
+    // Insert a scheduled event.
+    ds.scheduledEvents.insert({
+      snowflake: "800000000000000001",
+      guild_snowflake: guildId,
+      channel_snowflake: null,
+      creator_snowflake: null,
+      name: "Test Event",
+      description: null,
+      scheduled_start_time: "2026-01-01T00:00:00.000Z",
+      scheduled_end_time: null,
+      privacy_level: 2,
+      status: 1,
+      entity_type: 3,
+      entity_snowflake: null,
+      entity_metadata: null,
+      user_count: 0,
+      image: null,
+    });
+    const res = await app.request(api(`/guilds/${guildId}/audit-logs`), { headers: botHeaders() });
+    const body = await json<{ guild_scheduled_events: Array<Record<string, unknown>> }>(res);
+    expect(Array.isArray(body.guild_scheduled_events)).toBe(true);
+    const evt = body.guild_scheduled_events.find((e) => e.id === "800000000000000001");
+    expect(evt).toBeDefined();
+    expect(typeof evt!.entity_type).toBe("number");
+    expect(typeof evt!.status).toBe("number");
+    expect(typeof evt!.scheduled_start_time).toBe("string");
   });
 });

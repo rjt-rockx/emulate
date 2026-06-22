@@ -11,6 +11,7 @@
 import { describe, it, expect } from "vitest";
 import { createDiscordTestApp, api, botHeaders, json, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
+import { addGuildMember } from "../../factories.js";
 import type { DiscordChannel, DiscordGuildMember } from "../../entities.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
@@ -331,6 +332,158 @@ describe("guild.mdx — Modify Guild", () => {
     expect(res.status).toBe(404);
     expect((await json<{ code: number }>(res)).code).toBe(10004);
   });
+
+  // G1: Validation negative tests
+  it("G1 — name shorter than 2 chars returns 400 Invalid Form Body (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    const res = await app.request(api(`/guilds/${guildId}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "X" }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("G1 — name longer than 100 chars returns 400 Invalid Form Body (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    const res = await app.request(api(`/guilds/${guildId}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "a".repeat(101) }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("G1 — afk_timeout with undocumented value (e.g. 7) returns 400 Invalid Form Body (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    const res = await app.request(api(`/guilds/${guildId}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ afk_timeout: 7 }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("G1 — verification_level out of 0-4 range returns 400 Invalid Form Body (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    const res = await app.request(api(`/guilds/${guildId}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ verification_level: 5 }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("G1 — default_message_notifications value 2 returns 400 Invalid Form Body (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    const res = await app.request(api(`/guilds/${guildId}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ default_message_notifications: 2 }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("G1 — explicit_content_filter value 3 returns 400 Invalid Form Body (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    const res = await app.request(api(`/guilds/${guildId}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ explicit_content_filter: 3 }),
+    });
+    expect(res.status).toBe(400);
+    expect((await json<{ code: number }>(res)).code).toBe(50035);
+  });
+
+  it("G1 — mfa_level in request body is NOT persisted (undocumented param)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    const ds = getDiscordStore(store);
+    const guildBefore = ds.guilds.findOneBy("snowflake", guildId)!;
+    const originalMfaLevel = guildBefore.mfa_level;
+    const res = await app.request(api(`/guilds/${guildId}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ mfa_level: 1 }),
+    });
+    expect(res.status).toBe(200);
+    const guildAfter = ds.guilds.findOneBy("snowflake", guildId)!;
+    // mfa_level must not have changed since it is not a documented Modify Guild param.
+    expect(guildAfter.mfa_level).toBe(originalMfaLevel);
+  });
+
+  // G2: COMMUNITY feature requires ADMINISTRATOR when enforced
+  it("G2 — adding COMMUNITY feature without ADMINISTRATOR returns 403 (50013) when enforced", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId, developerSnowflake } = ids(store);
+    store.setData("discord.enforce_permissions", true);
+    const ds = getDiscordStore(store);
+    // Ensure developer is a guild member with no privileged roles (no ADMINISTRATOR).
+    const alreadyMember = ds.members.findBy("guild_snowflake", guildId).some((m) => m.user_snowflake === developerSnowflake);
+    if (!alreadyMember) {
+      addGuildMember(ds, guildId, developerSnowflake, {});
+    }
+    // The seeded "developer" user is a human user (not a bot); we test via the bot token
+    // but change the guild owner so the bot user is not the owner (and has no ADMINISTRATOR role).
+    // Let's re-set the guild's owner to a different snowflake to make the bot NOT the owner.
+    const guild = ds.guilds.findOneBy("snowflake", guildId)!;
+    const originalOwner = guild.owner_snowflake;
+    // Change owner to developer so the bot token user (bot) is not the owner.
+    ds.guilds.update(guild.id, { owner_snowflake: developerSnowflake });
+    // Bot token user (the bot) now lacks ADMINISTRATOR (no admin role).
+    // Remove all roles from the bot member to ensure no permissions.
+    const botSnowflake = ds.applications.all()[0]!.bot_user_snowflake;
+    const botMember = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === botSnowflake);
+    if (botMember) {
+      ds.members.update(botMember.id, { role_snowflakes: [] });
+    }
+    const res = await app.request(api(`/guilds/${guildId}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ features: ["COMMUNITY"] }),
+    });
+    expect(res.status).toBe(403);
+    expect((await json<{ code: number }>(res)).code).toBe(50013);
+    // Restore owner.
+    ds.guilds.update(guild.id, { owner_snowflake: originalOwner });
+  });
+
+  // G3: MANAGE_GUILD required for Modify Guild
+  it("G3 — PATCH guild without MANAGE_GUILD returns 403 (50013) when enforcement is on", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    store.setData("discord.enforce_permissions", true);
+    const ds = getDiscordStore(store);
+    const guild = ds.guilds.findOneBy("snowflake", guildId)!;
+    const botSnowflake = ds.applications.all()[0]!.bot_user_snowflake;
+    // Change guild owner so the bot is NOT the owner.
+    ds.guilds.update(guild.id, { owner_snowflake: "999999999999999998" });
+    // Strip all roles from the bot member so it has no special permissions.
+    const botMember = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === botSnowflake);
+    if (botMember) {
+      ds.members.update(botMember.id, { role_snowflakes: [] });
+    }
+    const res = await app.request(api(`/guilds/${guildId}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "Should Fail" }),
+    });
+    expect(res.status).toBe(403);
+    expect((await json<{ code: number }>(res)).code).toBe(50013);
+    // Restore.
+    ds.guilds.update(guild.id, { owner_snowflake: botSnowflake });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -352,6 +505,21 @@ describe("guild.mdx — Delete Guild", () => {
     const res = await app.request(api("/guilds/999999999999999999"), { method: "DELETE", headers: botHeaders() });
     expect(res.status).toBe(404);
     expect((await json<{ code: number }>(res)).code).toBe(10004);
+  });
+
+  it("G3 — DELETE guild by non-owner returns 403 (50013) when enforcement is on", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    store.setData("discord.enforce_permissions", true);
+    const ds = getDiscordStore(store);
+    const guild = ds.guilds.findOneBy("snowflake", guildId)!;
+    // Change owner to a different snowflake so the bot is NOT the owner.
+    ds.guilds.update(guild.id, { owner_snowflake: "999999999999999997" });
+    const res = await app.request(api(`/guilds/${guildId}`), { method: "DELETE", headers: botHeaders() });
+    expect(res.status).toBe(403);
+    expect((await json<{ code: number }>(res)).code).toBe(50013);
+    // Restore.
+    ds.guilds.update(guild.id, { owner_snowflake: guild.owner_snowflake });
   });
 });
 
