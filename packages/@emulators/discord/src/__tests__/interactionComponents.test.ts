@@ -130,6 +130,39 @@ describe("interaction component flows", () => {
     expect(((await res.json()) as { code: number }).code).toBe(10062);
   });
 
+  it("context-menu command resolves target_id and resolved data", async () => {
+    const { app, store } = createDiscordTestApp();
+    const ds = getDiscordStore(store);
+    const { channel } = ctx(store);
+    const dev = ds.users.findOneBy("username", "developer")!.snowflake;
+    const appId = ds.applications.all()[0].snowflake;
+    // A USER context-menu command (type 2).
+    await app.request(api(`/applications/${appId}/commands`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "Report User", type: 2 }),
+    });
+    const t = await trigger(app, { type: 2, commandName: "Report User", channelSnowflake: channel, targetSnowflake: dev });
+    const data = t.interaction.data as { target_id: string; resolved: { users: Record<string, { id: string }> } };
+    expect(data.target_id).toBe(dev);
+    expect(data.resolved.users[dev].id).toBe(dev);
+  });
+
+  it("resolves USER option entities into resolved", async () => {
+    const { app, store } = createDiscordTestApp();
+    const ds = getDiscordStore(store);
+    const { channel } = ctx(store);
+    const dev = ds.users.findOneBy("username", "developer")!.snowflake;
+    const t = await trigger(app, {
+      type: 2,
+      commandName: "ban",
+      channelSnowflake: channel,
+      commandOptions: [{ name: "user", type: 6, value: dev }],
+    });
+    const data = t.interaction.data as { resolved: { users: Record<string, { id: string }> } };
+    expect(data.resolved.users[dev].id).toBe(dev);
+  });
+
   it("interaction payload carries context and app_permissions", async () => {
     const { app, store } = createDiscordTestApp();
     const { channel } = ctx(store);

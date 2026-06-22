@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { DiscordStore } from "../store.js";
 import type { DiscordApplication, DiscordInteraction } from "../entities.js";
-import { snowflake, toAPIUser, toAPIMember, toAPIChannel, toAPIMessage } from "../helpers.js";
+import { snowflake, toAPIUser, toAPIMember, toAPIChannel, toAPIMessage, toAPIRole } from "../helpers.js";
 import { ALL_PERMISSIONS } from "../permissions.js";
 
 /** Interaction types. */
@@ -29,6 +29,60 @@ export interface TriggerInput {
   modalComponents?: unknown[];
   /** For MessageComponent: the message the component is on. */
   messageSnowflake?: string;
+  /** For USER (type 2) / MESSAGE (type 3) context-menu commands: the targeted entity. */
+  targetSnowflake?: string;
+}
+
+/**
+ * Build the `resolved` object for an interaction: hydrate the entities referenced by a
+ * context-menu target and by USER/CHANNEL/ROLE/MENTIONABLE command options, exactly as
+ * Discord does so the receiving app does not have to re-fetch them.
+ */
+function buildResolved(
+  ds: DiscordStore,
+  guildSnowflake: string | null,
+  options: unknown[] | undefined,
+  targetSnowflake: string | undefined,
+  commandType: number,
+): Record<string, Record<string, unknown>> | undefined {
+  const resolved: Record<string, Record<string, unknown>> = { users: {}, members: {}, roles: {}, channels: {}, messages: {} };
+  const addUser = (uid: string): void => {
+    const u = ds.users.findOneBy("snowflake", uid);
+    if (!u) return;
+    resolved.users[uid] = toAPIUser(u);
+    if (guildSnowflake) {
+      const m = ds.members.findBy("guild_snowflake", guildSnowflake).find((x) => x.user_snowflake === uid);
+      if (m) resolved.members[uid] = toAPIMember(m, ds, { withUser: false });
+    }
+  };
+
+  if (targetSnowflake) {
+    if (commandType === 2) addUser(targetSnowflake);
+    else if (commandType === 3) {
+      const msg = ds.messages.findOneBy("snowflake", targetSnowflake);
+      if (msg) resolved.messages[targetSnowflake] = toAPIMessage(msg, ds);
+    }
+  }
+
+  for (const opt of (options ?? []) as Array<{ type?: number; value?: unknown }>) {
+    if (!opt || typeof opt.value !== "string") continue;
+    if (opt.type === 6) addUser(opt.value);
+    else if (opt.type === 7) {
+      const ch = ds.channels.findOneBy("snowflake", opt.value);
+      if (ch) resolved.channels[opt.value] = toAPIChannel(ch);
+    } else if (opt.type === 8) {
+      const r = ds.roles.findOneBy("snowflake", opt.value);
+      if (r) resolved.roles[opt.value] = toAPIRole(r);
+    } else if (opt.type === 9) {
+      addUser(opt.value);
+      const r = ds.roles.findOneBy("snowflake", opt.value);
+      if (r) resolved.roles[opt.value] = toAPIRole(r);
+    }
+  }
+
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [k, v] of Object.entries(resolved)) if (Object.keys(v).length > 0) out[k] = v;
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 export interface BuiltInteraction {
@@ -62,12 +116,16 @@ export function buildInteraction(ds: DiscordStore, input: TriggerInput): BuiltIn
     const command = input.commandName
       ? ds.commands.all().find((cmd) => cmd.name === input.commandName)
       : undefined;
+    const commandType = command?.type ?? 1;
     data = {
       id: command?.snowflake ?? snowflake(),
       name: input.commandName ?? command?.name ?? "command",
-      type: command?.type ?? 1,
+      type: commandType,
       options: input.commandOptions ?? [],
     };
+    if (input.targetSnowflake) data.target_id = input.targetSnowflake;
+    const resolved = buildResolved(ds, guildSnowflake, input.commandOptions, input.targetSnowflake, commandType);
+    if (resolved) data.resolved = resolved;
   } else if (input.type === InteractionType.MessageComponent) {
     data = { custom_id: input.customId ?? "", component_type: input.componentType ?? 2 };
     // Select menus carry resolved values; buttons do not.
