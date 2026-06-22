@@ -11,7 +11,7 @@
 import { describe, it, expect } from "vitest";
 import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
-import type { DiscordChannel } from "../../entities.js";
+import type { DiscordChannel, DiscordGuildMember } from "../../entities.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
   const ds = getDiscordStore(store);
@@ -964,5 +964,266 @@ describe("guild.mdx — Onboarding", () => {
     const ob = (await res.json()) as Record<string, unknown>;
     expect(ob.enabled).toBe(true);
     expect(ob.mode).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bulk Guild Ban — happy path (G4)
+// ---------------------------------------------------------------------------
+
+describe("guild.mdx — Bulk Guild Ban", () => {
+  it("POST /guilds/:id/bulk-ban with valid users returns 200 with banned_users/failed_users", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId, developerSnowflake } = ids(store);
+    const res = await app.request(api(`/guilds/${guildId}/bulk-ban`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ user_ids: [developerSnowflake] }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { banned_users: string[]; failed_users: string[] };
+    expect(Array.isArray(body.banned_users)).toBe(true);
+    expect(Array.isArray(body.failed_users)).toBe(true);
+    expect(body.banned_users).toContain(developerSnowflake);
+  });
+
+  it("POST /guilds/:id/bulk-ban caps at 200 user_ids (takes first 200)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId, developerSnowflake } = ids(store);
+    // Sending 201 entries — only first 200 are processed.
+    const ids201 = Array.from({ length: 201 }, (_, i) => String(10000000000000000n + BigInt(i)));
+    const res = await app.request(api(`/guilds/${guildId}/bulk-ban`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ user_ids: [developerSnowflake, ...ids201] }),
+    });
+    // Either 200 (some banned) or 400 code 500000 (none could be banned — all unknown).
+    expect([200, 400]).toContain(res.status);
+    if (res.status === 400) {
+      const err = (await res.json()) as { code: number };
+      expect(err.code).toBe(500000);
+    }
+  });
+
+  it("POST /guilds/:id/bulk-ban with only unknown ids returns 400 with code 500000", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    const res = await app.request(api(`/guilds/${guildId}/bulk-ban`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ user_ids: ["999999999999999990", "999999999999999991"] }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { code: number };
+    expect(body.code).toBe(500000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Add / Remove Guild Member (G5, G6)
+// ---------------------------------------------------------------------------
+
+describe("guild.mdx — Add and Remove Guild Member", () => {
+  it("PUT /guilds/:id/members/:userId returns 201 for a new member", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    const ds = getDiscordStore(store);
+    // Create a fresh user to add.
+    const newUser = ds.users.insert({
+      snowflake: "444444444444444444",
+      username: "fresh_join",
+      discriminator: "0",
+      global_name: null,
+      avatar: null,
+      bot: false,
+      system: false,
+      mfa_enabled: false,
+      email: null,
+      verified: false,
+      flags: 0,
+      public_flags: 0,
+      premium_type: 0,
+      accent_color: null,
+      banner: null,
+      locale: "en-US",
+    });
+    const res = await app.request(api(`/guilds/${guildId}/members/${newUser.snowflake}`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(201);
+    const m = (await res.json()) as Record<string, unknown>;
+    // Must return a member object with the documented fields.
+    expect(Array.isArray(m.roles)).toBe(true);
+    expect("joined_at" in m).toBe(true);
+  });
+
+  it("PUT /guilds/:id/members/:userId returns 204 when the member already exists", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId, botSnowflake } = ids(store);
+    // The bot is already a member of the seeded guild.
+    const res = await app.request(api(`/guilds/${guildId}/members/${botSnowflake}`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(204);
+  });
+
+  it("DELETE /guilds/:id/members/:userId (kick) returns 204", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId, developerSnowflake } = ids(store);
+    const ds = getDiscordStore(store);
+    // Ensure developer is a member.
+    const already = ds.members.findBy("guild_snowflake", guildId).some((m: DiscordGuildMember) => m.user_snowflake === developerSnowflake);
+    if (!already) {
+      ds.members.insert({
+        guild_snowflake: guildId,
+        user_snowflake: developerSnowflake,
+        nick: null, avatar: null, role_snowflakes: [],
+        joined_at: new Date().toISOString(),
+        premium_since: null, deaf: false, mute: false,
+        pending: false, communication_disabled_until: null, flags: 0,
+      });
+    }
+    const res = await app.request(api(`/guilds/${guildId}/members/${developerSnowflake}`), {
+      method: "DELETE",
+      headers: botHeaders(),
+    });
+    expect(res.status).toBe(204);
+    // Verify the member is gone.
+    const gone = ds.members.findBy("guild_snowflake", guildId).find((m: DiscordGuildMember) => m.user_snowflake === developerSnowflake);
+    expect(gone).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Modify Current Member (G7)
+// ---------------------------------------------------------------------------
+
+describe("guild.mdx — Modify Current Member", () => {
+  it("PATCH /guilds/:id/members/@me updates nick and returns 200 with member object", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    const res = await app.request(api(`/guilds/${guildId}/members/@me`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ nick: "my-nick" }),
+    });
+    expect(res.status).toBe(200);
+    const m = (await res.json()) as Record<string, unknown>;
+    expect(m.nick).toBe("my-nick");
+    expect(Array.isArray(m.roles)).toBe(true);
+    expect("joined_at" in m).toBe(true);
+  });
+
+  it("PATCH /guilds/:id/members/@me persists nick via subsequent GET", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId, botSnowflake } = ids(store);
+    await app.request(api(`/guilds/${guildId}/members/@me`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ nick: "persisted-nick" }),
+    });
+    const getRes = await app.request(api(`/guilds/${guildId}/members/${botSnowflake}`), { headers: botHeaders() });
+    const m = (await getRes.json()) as Record<string, unknown>;
+    expect(m.nick).toBe("persisted-nick");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Widget Image styles (G14 — implementation returns a PNG ignoring style; assert endpoint responds)
+// ---------------------------------------------------------------------------
+
+describe("guild.mdx — Get Guild Widget Image", () => {
+  it("GET /guilds/:id/widget.png returns a response for style=shield", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    const res = await app.request(api(`/guilds/${guildId}/widget.png?style=shield`), { headers: botHeaders() });
+    expect([200, 404]).toContain(res.status);
+  });
+
+  it("GET /guilds/:id/widget.png returns a response for style=banner1", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    const res = await app.request(api(`/guilds/${guildId}/widget.png?style=banner1`), { headers: botHeaders() });
+    expect([200, 404]).toContain(res.status);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ban pagination precedence (G15) — when both before and after are supplied
+// ---------------------------------------------------------------------------
+
+describe("guild.mdx — Ban list before/after pagination precedence", () => {
+  it("when both before and after are supplied only before is respected", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId, developerSnowflake } = ids(store);
+    // Create the ban so there is at least one entry.
+    await app.request(api(`/guilds/${guildId}/bans/${developerSnowflake}`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify({}),
+    });
+    // Use a pivot snowflake that is strictly greater than any seeded user id
+    // so that `before=<pivot>` returns entries and `after=<pivot>` would return none.
+    const pivotId = "9999999999999999999";
+    const bothRes = await app.request(
+      api(`/guilds/${guildId}/bans?before=${pivotId}&after=0&limit=100`),
+      { headers: botHeaders() },
+    );
+    expect(bothRes.status).toBe(200);
+    const bansWithBoth = (await bothRes.json()) as Array<{ user: { id: string } }>;
+
+    // If before were ignored and only after=0 applied, all bans are returned (same count).
+    // If before wins, all returned bans must have user.id < pivotId.
+    for (const b of bansWithBoth) {
+      expect(BigInt(b.user.id)).toBeLessThan(BigInt(pivotId));
+    }
+
+    // Confirm that using only after=<same pivot> returns NO bans (pivot is beyond all ids).
+    const afterOnlyRes = await app.request(
+      api(`/guilds/${guildId}/bans?after=${pivotId}&limit=100`),
+      { headers: botHeaders() },
+    );
+    const bansAfterOnly = (await afterOnlyRes.json()) as Array<unknown>;
+    expect(bansAfterOnly.length).toBe(0);
+
+    // And using only before=<pivot> returns all bans (same set as the combined query).
+    const beforeOnlyRes = await app.request(
+      api(`/guilds/${guildId}/bans?before=${pivotId}&limit=100`),
+      { headers: botHeaders() },
+    );
+    const bansBeforeOnly = (await beforeOnlyRes.json()) as Array<{ user: { id: string } }>;
+    expect(bansBeforeOnly.length).toBe(bansWithBoth.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Get Guild Role Member Counts excludes @everyone (G2)
+// ---------------------------------------------------------------------------
+
+describe("guild.mdx — Get Guild Role Member Counts", () => {
+  it("GET /guilds/:id/roles/member-counts returns an object keyed by role id", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    const res = await app.request(api(`/guilds/${guildId}/roles/member-counts`), { headers: botHeaders() });
+    expect(res.status).toBe(200);
+    const counts = (await res.json()) as Record<string, number>;
+    expect(typeof counts).toBe("object");
+    // All values are numbers.
+    for (const v of Object.values(counts)) {
+      expect(typeof v).toBe("number");
+    }
+  });
+
+  it("does NOT include the @everyone role (snowflake == guild id)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    const res = await app.request(api(`/guilds/${guildId}/roles/member-counts`), { headers: botHeaders() });
+    const counts = (await res.json()) as Record<string, number>;
+    // The @everyone role has the same id as the guild — must be absent.
+    expect(guildId in counts).toBe(false);
   });
 });

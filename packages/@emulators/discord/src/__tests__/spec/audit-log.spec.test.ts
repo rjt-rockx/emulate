@@ -76,41 +76,183 @@ describe("audit-log.mdx — Audit Log object shape", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Audit Log Events enum
+// Audit Log Events — real endpoint emission checks
 // ---------------------------------------------------------------------------
+// These tests verify that documented action_type values are actually emitted
+// by the corresponding endpoints AND that the changes array has the documented
+// key/new_value/old_value structure. Each test triggers an endpoint, then
+// reads the audit log filtered to that action_type and inspects the entry.
 
-describe("audit-log.mdx — Audit Log Events enum values", () => {
-  it("GUILD_UPDATE is 1", () => expect(1).toBe(1));
-  it("CHANNEL_CREATE is 10", () => expect(10).toBe(10));
-  it("CHANNEL_UPDATE is 11", () => expect(11).toBe(11));
-  it("CHANNEL_DELETE is 12", () => expect(12).toBe(12));
-  it("CHANNEL_OVERWRITE_CREATE is 13", () => expect(13).toBe(13));
-  it("CHANNEL_OVERWRITE_UPDATE is 14", () => expect(14).toBe(14));
-  it("CHANNEL_OVERWRITE_DELETE is 15", () => expect(15).toBe(15));
-  it("MEMBER_KICK is 20", () => expect(20).toBe(20));
-  it("MEMBER_PRUNE is 21", () => expect(21).toBe(21));
-  it("MEMBER_BAN_ADD is 22", () => expect(22).toBe(22));
-  it("MEMBER_BAN_REMOVE is 23", () => expect(23).toBe(23));
-  it("MEMBER_UPDATE is 24", () => expect(24).toBe(24));
-  it("MEMBER_ROLE_UPDATE is 25", () => expect(25).toBe(25));
-  it("ROLE_CREATE is 30", () => expect(30).toBe(30));
-  it("ROLE_UPDATE is 31", () => expect(31).toBe(31));
-  it("ROLE_DELETE is 32", () => expect(32).toBe(32));
-  it("INVITE_CREATE is 40", () => expect(40).toBe(40));
-  it("WEBHOOK_CREATE is 50", () => expect(50).toBe(50));
-  it("EMOJI_CREATE is 60", () => expect(60).toBe(60));
-  it("EMOJI_UPDATE is 61", () => expect(61).toBe(61));
-  it("EMOJI_DELETE is 62", () => expect(62).toBe(62));
-  it("MESSAGE_DELETE is 72", () => expect(72).toBe(72));
-  it("MESSAGE_PIN is 74", () => expect(74).toBe(74));
-  it("MESSAGE_UNPIN is 75", () => expect(75).toBe(75));
-  it("INTEGRATION_CREATE is 80", () => expect(80).toBe(80));
-  it("INTEGRATION_UPDATE is 81", () => expect(81).toBe(81));
-  it("INTEGRATION_DELETE is 82", () => expect(82).toBe(82));
-  it("STICKER_CREATE is 90", () => expect(90).toBe(90));
-  it("GUILD_SCHEDULED_EVENT_CREATE is 100", () => expect(100).toBe(100));
-  it("THREAD_CREATE is 110", () => expect(110).toBe(110));
-  it("AUTO_MODERATION_RULE_CREATE is 140", () => expect(140).toBe(140));
+describe("audit-log.mdx — Audit Log Events emitted by endpoints", () => {
+  it("GUILD_UPDATE (1) is emitted with changes keys when guild is patched", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    await app.request(api(`/guilds/${guildId}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "AuditEnumTest" }),
+    });
+    const res = await app.request(api(`/guilds/${guildId}/audit-logs?action_type=1`), { headers: botHeaders() });
+    const body = (await res.json()) as { audit_log_entries: Array<Record<string, unknown>> };
+    expect(body.audit_log_entries.length).toBeGreaterThan(0);
+    const entry = body.audit_log_entries[0];
+    expect(entry.action_type).toBe(1);
+    const changes = entry.changes as Array<{ key: string; new_value: unknown }>;
+    expect(Array.isArray(changes)).toBe(true);
+    const nameChange = changes.find((c) => c.key === "name");
+    expect(nameChange).toBeDefined();
+    expect(nameChange!.new_value).toBe("AuditEnumTest");
+  });
+
+  it("MEMBER_KICK (20) is emitted with correct target when a member is removed", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId, developerSnowflake } = ids(store);
+    const ds = getDiscordStore(store);
+    // Ensure the developer is a member before kicking.
+    const already = ds.members.findBy("guild_snowflake", guildId).some((m: DiscordGuildMember) => m.user_snowflake === developerSnowflake);
+    if (!already) {
+      ds.members.insert({
+        guild_snowflake: guildId,
+        user_snowflake: developerSnowflake,
+        nick: null, avatar: null, role_snowflakes: [],
+        joined_at: new Date().toISOString(),
+        premium_since: null, deaf: false, mute: false,
+        pending: false, communication_disabled_until: null, flags: 0,
+      });
+    }
+    await app.request(api(`/guilds/${guildId}/members/${developerSnowflake}`), {
+      method: "DELETE",
+      headers: botHeaders(),
+    });
+    const res = await app.request(api(`/guilds/${guildId}/audit-logs?action_type=20`), { headers: botHeaders() });
+    const body = (await res.json()) as { audit_log_entries: Array<Record<string, unknown>> };
+    expect(body.audit_log_entries.length).toBeGreaterThan(0);
+    const entry = body.audit_log_entries[0];
+    expect(entry.action_type).toBe(20);
+    expect(entry.target_id).toBe(developerSnowflake);
+  });
+
+  it("MEMBER_BAN_ADD (22) is emitted with documented target when a user is banned", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId, developerSnowflake } = ids(store);
+    await app.request(api(`/guilds/${guildId}/bans/${developerSnowflake}`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify({}),
+    });
+    const res = await app.request(api(`/guilds/${guildId}/audit-logs?action_type=22`), { headers: botHeaders() });
+    const body = (await res.json()) as { audit_log_entries: Array<Record<string, unknown>> };
+    expect(body.audit_log_entries.length).toBeGreaterThan(0);
+    const entry = body.audit_log_entries[0];
+    expect(entry.action_type).toBe(22);
+    expect(entry.target_id).toBe(developerSnowflake);
+  });
+
+  it("MEMBER_BAN_REMOVE (23) is emitted when a ban is removed", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId, developerSnowflake } = ids(store);
+    // Create a ban first.
+    await app.request(api(`/guilds/${guildId}/bans/${developerSnowflake}`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify({}),
+    });
+    await app.request(api(`/guilds/${guildId}/bans/${developerSnowflake}`), {
+      method: "DELETE",
+      headers: botHeaders(),
+    });
+    const res = await app.request(api(`/guilds/${guildId}/audit-logs?action_type=23`), { headers: botHeaders() });
+    const body = (await res.json()) as { audit_log_entries: Array<Record<string, unknown>> };
+    expect(body.audit_log_entries.length).toBeGreaterThan(0);
+    expect(body.audit_log_entries[0].action_type).toBe(23);
+  });
+
+  it("ROLE_CREATE (30) is emitted with name in changes when a role is created", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    await app.request(api(`/guilds/${guildId}/roles`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "AuditRole" }),
+    });
+    const res = await app.request(api(`/guilds/${guildId}/audit-logs?action_type=30`), { headers: botHeaders() });
+    const body = (await res.json()) as { audit_log_entries: Array<Record<string, unknown>> };
+    expect(body.audit_log_entries.length).toBeGreaterThan(0);
+    const entry = body.audit_log_entries[0];
+    expect(entry.action_type).toBe(30);
+    const changes = entry.changes as Array<{ key: string; new_value: unknown }>;
+    expect(Array.isArray(changes)).toBe(true);
+    const nameChange = changes.find((c) => c.key === "name");
+    expect(nameChange).toBeDefined();
+    expect(nameChange!.new_value).toBe("AuditRole");
+  });
+
+  it("EMOJI_CREATE (60) is emitted with name in changes when an emoji is created", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    await app.request(api(`/guilds/${guildId}/emojis`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "auditemoji", image: "data:image/png;base64,AAAA" }),
+    });
+    const res = await app.request(api(`/guilds/${guildId}/audit-logs?action_type=60`), { headers: botHeaders() });
+    const body = (await res.json()) as { audit_log_entries: Array<Record<string, unknown>> };
+    expect(body.audit_log_entries.length).toBeGreaterThan(0);
+    const entry = body.audit_log_entries[0];
+    expect(entry.action_type).toBe(60);
+    const changes = entry.changes as Array<{ key: string; new_value: unknown }>;
+    const nameChange = changes.find((c) => c.key === "name");
+    expect(nameChange).toBeDefined();
+    expect(nameChange!.new_value).toBe("auditemoji");
+  });
+
+  it("MEMBER_ROLE_UPDATE (25) changes have $add/$remove structure when roles change", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId, developerSnowflake } = ids(store);
+    const ds = getDiscordStore(store);
+    // Create a role to assign.
+    const roleRes = await app.request(api(`/guilds/${guildId}/roles`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "RoleForAudit" }),
+    });
+    const role = (await roleRes.json()) as { id: string };
+    // Ensure developer is a member.
+    const already = ds.members.findBy("guild_snowflake", guildId).some((m: DiscordGuildMember) => m.user_snowflake === developerSnowflake);
+    if (!already) {
+      ds.members.insert({
+        guild_snowflake: guildId,
+        user_snowflake: developerSnowflake,
+        nick: null, avatar: null, role_snowflakes: [],
+        joined_at: new Date().toISOString(),
+        premium_since: null, deaf: false, mute: false,
+        pending: false, communication_disabled_until: null, flags: 0,
+      });
+    }
+    // Assign the role.
+    await app.request(api(`/guilds/${guildId}/members/${developerSnowflake}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ roles: [role.id] }),
+    });
+    const res = await app.request(api(`/guilds/${guildId}/audit-logs?action_type=25`), { headers: botHeaders() });
+    const body = (await res.json()) as { audit_log_entries: Array<Record<string, unknown>> };
+    expect(body.audit_log_entries.length).toBeGreaterThan(0);
+    const entry = body.audit_log_entries[0];
+    expect(entry.action_type).toBe(25);
+    const changes = entry.changes as Array<{ key: string; new_value: unknown }>;
+    // Must have $add or $remove key entries per audit-log.mdx:206-208.
+    const hasAddOrRemove = changes.some((c) => c.key === "$add" || c.key === "$remove");
+    expect(hasAddOrRemove).toBe(true);
+    // Values are arrays of partial role objects with id and name.
+    const addEntry = changes.find((c) => c.key === "$add");
+    if (addEntry) {
+      const addedRoles = addEntry.new_value as Array<{ id: string; name: string }>;
+      expect(Array.isArray(addedRoles)).toBe(true);
+      expect(typeof addedRoles[0].id).toBe("string");
+      expect(typeof addedRoles[0].name).toBe("string");
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

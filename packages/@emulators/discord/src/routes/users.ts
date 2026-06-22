@@ -7,6 +7,7 @@ import {
   unknownGuild,
   unknownMember,
   discordError,
+  invalidFormBody,
   toAPIUser,
   toAPIChannel,
   toAPIMember,
@@ -63,6 +64,21 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
       body = await c.req.json();
     } catch {
       // empty body allowed
+    }
+    // Validate username when provided: 2-32 chars, no banned substrings, not a reserved word.
+    // Banned substrings per docs: @, #, :, ` (backtick), "discord".
+    // Reserved words: "everyone", "here".
+    if (typeof body.username === "string") {
+      const username = body.username;
+      const usernameErrors: Record<string, string> = {};
+      if (username.length < 2 || username.length > 32) {
+        usernameErrors.username = "Must be between 2 and 32 in length.";
+      } else if (/[@#:`]/.test(username) || username.toLowerCase().includes("discord")) {
+        usernameErrors.username = "Username contains an invalid substring.";
+      } else if (username === "everyone" || username === "here") {
+        usernameErrors.username = "Username is a reserved word.";
+      }
+      if (Object.keys(usernameErrors).length > 0) return invalidFormBody(c, usernameErrors);
     }
     const patch: Record<string, unknown> = {};
     if (typeof body.username === "string") patch.username = body.username;
@@ -162,6 +178,52 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
     } catch {
       // no-op
     }
+
+    // Group DM path: body contains access_tokens (array) and optional nicks (dict).
+    // access_tokens identifies recipients by access-token; in the emulator we treat
+    // each token as a user snowflake for simplicity (test-harness controlled).
+    if (Array.isArray(body.access_tokens)) {
+      const tokens = body.access_tokens as string[];
+      const nicks = (body.nicks ?? {}) as Record<string, string>;
+      // Collect unique recipient snowflakes from tokens (emulator: token == snowflake).
+      const recipientSnowflakes: string[] = [];
+      for (const token of tokens) {
+        const user = ds.users.findOneBy("snowflake", token);
+        if (user && !recipientSnowflakes.includes(user.snowflake)) {
+          recipientSnowflakes.push(user.snowflake);
+        }
+      }
+      // Include the caller as an owner/member.
+      const allMembers = [auth.user.snowflake, ...recipientSnowflakes.filter((s) => s !== auth.user!.snowflake)];
+
+      // Cap at 10 recipients (the API enforces a 10-GDM limit; owner counts toward the total).
+      if (allMembers.length > 10) {
+        return discordError(c, 400, "Maximum number of group DM users reached (10)", 50007);
+      }
+
+      // Reuse an existing group DM with the same member set if present.
+      const memberSet = new Set(allMembers);
+      const existing = ds.channels.all().find(
+        (ch) =>
+          ch.type === 3 &&
+          ch.recipient_snowflakes.length === allMembers.length &&
+          ch.recipient_snowflakes.every((s) => memberSet.has(s)),
+      );
+      if (existing) return c.json(toAPIChannel(existing));
+
+      const gdmName = Object.keys(nicks).length > 0 ? (Object.values(nicks)[0] ?? "") : "";
+      const gdmRaw = createChannel(ds, { name: gdmName, type: 3, guildSnowflake: null });
+      // findOneBy returns the typed record; use its numeric id to update recipient list.
+      const gdmRecord = ds.channels.findOneBy("snowflake", gdmRaw.snowflake)!;
+      ds.channels.update(gdmRecord.id, {
+        recipient_snowflakes: allMembers,
+        owner_snowflake: auth.user.snowflake,
+      });
+      const created = ds.channels.findOneBy("snowflake", gdmRaw.snowflake)!;
+      return c.json(toAPIChannel(created));
+    }
+
+    // Single-recipient DM path.
     const recipientId = typeof body.recipient_id === "string" ? body.recipient_id : "";
     const recipient = ds.users.findOneBy("snowflake", recipientId);
     if (!recipient) return unknownUser(c);

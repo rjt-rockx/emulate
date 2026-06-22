@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore, type DiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, unknownGuild, unknownChannel, unknownMessage, unknownBan, unknownInvite, invalidFormBody, toAPIUser, toAPIMessage, toAPIScheduledEvent, recordAudit, AuditLogEvent, auditReason } from "../helpers.js";
+import { getAuth, unauthorized, notFound, unknownGuild, unknownChannel, unknownMessage, unknownBan, unknownInvite, invalidFormBody, discordError, toAPIUser, toAPIMessage, toAPIScheduledEvent, recordAudit, AuditLogEvent, auditReason } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 import type { DiscordBan, DiscordInvite } from "../entities.js";
 
@@ -141,8 +141,22 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
     const auth = getAuth(c, store);
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
-    const bans = ds.bans.findBy("guild_snowflake", c.req.param("guildId")).map((b) => toAPIBan(b, ds));
-    return c.json(bans);
+    const guildId = c.req.param("guildId");
+    const before = c.req.query("before");
+    const after = c.req.query("after");
+    const limitRaw = c.req.query("limit");
+    const limit = limitRaw !== undefined ? Math.min(Math.max(Number(limitRaw) || 1000, 1), 1000) : 1000;
+    let bans = ds.bans.findBy("guild_snowflake", guildId)
+      .slice()
+      .sort((a: DiscordBan, b: DiscordBan) => (BigInt(a.user_snowflake) < BigInt(b.user_snowflake) ? -1 : 1));
+    // Per API docs: when both before and after are provided, only before is respected.
+    if (before) {
+      bans = bans.filter((b: DiscordBan) => BigInt(b.user_snowflake) < BigInt(before));
+    } else if (after) {
+      bans = bans.filter((b: DiscordBan) => BigInt(b.user_snowflake) > BigInt(after));
+    }
+    bans = bans.slice(0, limit);
+    return c.json(bans.map((b: DiscordBan) => toAPIBan(b, ds)));
   });
 
   app.get("/api/v:version/guilds/:guildId/bans/:userId", (c) => {
@@ -263,8 +277,8 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
       });
       banned.push(userId);
     }
-    // Discord returns 400 if no users could be banned.
-    if (banned.length === 0) return c.json({ banned_users: [], failed_users: failed }, 400);
+    // When no users were successfully banned the API returns a 400 with error code 500000.
+    if (banned.length === 0) return discordError(c, 400, "Failed to ban users", 500000);
     return c.json({ banned_users: banned, failed_users: failed });
   });
 

@@ -31,7 +31,7 @@ describe("audit log coverage — emoji create", () => {
     const res = await app.request(api(`/guilds/${guild}/emojis`), {
       method: "POST",
       headers: botHeaders(),
-      body: JSON.stringify({ name: "wave", animated: false }),
+      body: JSON.stringify({ name: "wave", animated: false, image: "data:image/png;base64,AAAA" }),
     });
     expect(res.status).toBe(201);
     const emoji = (await res.json()) as { id: string };

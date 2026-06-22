@@ -203,7 +203,7 @@ describe("guilds routes", () => {
     const createRes = await testApp.app.request(api(`/guilds/${id}/emojis`), {
       method: "POST",
       headers: botHeaders(),
-      body: JSON.stringify({ name: "thumbsup", animated: false }),
+      body: JSON.stringify({ name: "thumbsup", animated: false, image: "data:image/png;base64,AAAA" }),
     });
     expect(createRes.status).toBe(201);
     const created = (await createRes.json()) as Record<string, unknown>;

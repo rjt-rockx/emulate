@@ -100,6 +100,37 @@ describe("roles — full surface and parity", () => {
     expect(((await res.json()) as { code: number }).code).toBe(30005);
   });
 
+  it("PATCH round-trips the colors object (primary/secondary/tertiary colors)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const gid = guildId(store);
+    const created = await app.request(api(`/guilds/${gid}/roles`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "Gradient" }),
+    });
+    const role = (await created.json()) as { id: string };
+    const colorsPayload = { primary_color: 0xff0000, secondary_color: 0x00ff00, tertiary_color: null };
+    const res = await app.request(api(`/guilds/${gid}/roles/${role.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ colors: colorsPayload }),
+    });
+    expect(res.status).toBe(200);
+    const updated = (await res.json()) as Record<string, unknown>;
+    // The serializer emits `colors` on the role object.
+    expect(updated.colors).toBeDefined();
+    const colors = updated.colors as { primary_color: number; secondary_color: number | null; tertiary_color: number | null };
+    expect(colors.primary_color).toBe(0xff0000);
+    expect(colors.secondary_color).toBe(0x00ff00);
+    expect(colors.tertiary_color).toBeNull();
+    // Verify persistence via a follow-up GET.
+    const getRes = await app.request(api(`/guilds/${gid}/roles/${role.id}`), { headers: botHeaders() });
+    const fetched = (await getRes.json()) as Record<string, unknown>;
+    const fetchedColors = fetched.colors as { primary_color: number; secondary_color: number | null };
+    expect(fetchedColors.primary_color).toBe(0xff0000);
+    expect(fetchedColors.secondary_color).toBe(0x00ff00);
+  });
+
   it("PATCH updates unicode_emoji and flags (previously dropped)", async () => {
     const { app, store } = createDiscordTestApp();
     const gid = guildId(store);

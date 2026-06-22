@@ -177,6 +177,19 @@ describe("emoji.mdx — Create Guild Emoji validation", () => {
     expect(((await res.json()) as { code: number }).code).toBe(50035);
   });
 
+  it("absent image field returns 400 Invalid Form Body (50035) — image is required", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guildId } = ids(store);
+    // Send only the name; omit the required `image` field entirely.
+    const res = await app.request(api(`/guilds/${guildId}/emojis`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "noimgfield" }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
   it("Create Guild Emoji returns 201 with a fully-formed emoji object", async () => {
     const { app, store } = createDiscordTestApp();
     const { guildId } = ids(store);

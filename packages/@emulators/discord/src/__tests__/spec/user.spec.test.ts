@@ -194,6 +194,119 @@ describe("user.mdx — Create DM", () => {
   });
 });
 
+describe("user.mdx — Modify Current User username validation (U2)", () => {
+  it("rejects a username shorter than 2 chars with 50035", async () => {
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api("/users/@me"), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ username: "x" }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects a username longer than 32 chars with 50035", async () => {
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api("/users/@me"), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ username: "a".repeat(33) }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects a username containing '@' with 50035", async () => {
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api("/users/@me"), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ username: "bad@name" }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects a username containing 'discord' with 50035", async () => {
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api("/users/@me"), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ username: "notadiscorduser" }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects the reserved word 'everyone' with 50035", async () => {
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api("/users/@me"), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ username: "everyone" }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects the reserved word 'here' with 50035", async () => {
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api("/users/@me"), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ username: "here" }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("accepts a valid username that passes all rules", async () => {
+    const { app } = createDiscordTestApp();
+    const res = await app.request(api("/users/@me"), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ username: "valid-name-42" }),
+    });
+    expect(res.status).toBe(200);
+    const u = (await res.json()) as { username: string };
+    expect(u.username).toBe("valid-name-42");
+  });
+});
+
+describe("user.mdx — Create Group DM (U1)", () => {
+  it("returns a group DM channel (type 3) when access_tokens array is supplied", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { developer } = ids(store);
+    const res = await app.request(api("/users/@me/channels"), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ access_tokens: [developer] }),
+    });
+    expect(res.status).toBe(200);
+    const ch = (await res.json()) as { type: number };
+    expect(ch.type).toBe(3);
+  });
+
+  it("group DM creation is idempotent — same member set returns existing channel", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { developer } = ids(store);
+    const first = await app.request(api("/users/@me/channels"), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ access_tokens: [developer] }),
+    });
+    const ch1 = (await first.json()) as { id: string };
+    const second = await app.request(api("/users/@me/channels"), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ access_tokens: [developer] }),
+    });
+    const ch2 = (await second.json()) as { id: string };
+    expect(ch2.id).toBe(ch1.id);
+  });
+});
+
 describe("user.mdx — connections & role connection", () => {
   it("Get Current User Connections returns an array", async () => {
     const { app } = createDiscordTestApp();

@@ -163,6 +163,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
   });
 
   // Per-role member counts (literal — must precede /roles/:roleId).
+  // Per the API docs: "Does not include the @everyone role."
   app.get("/api/v:version/guilds/:guildId/roles/member-counts", (c) => {
     const auth = getAuth(c, store);
     if (!auth || auth.type !== "bot") return unauthorized(c);
@@ -171,6 +172,8 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (!ds.guilds.findOneBy("snowflake", guildId)) return unknownGuild(c);
     const counts: Record<string, number> = {};
     for (const role of ds.roles.findBy("guild_snowflake", guildId)) {
+      // The @everyone role has snowflake == guild snowflake — excluded per API docs.
+      if (role.snowflake === guildId) continue;
       counts[role.snowflake] = ds.members
         .findBy("guild_snowflake", guildId)
         .filter((m) => m.role_snowflakes.includes(role.snowflake)).length;
@@ -478,6 +481,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (body.icon !== undefined) patch.icon = body.icon;
     if (body.unicode_emoji !== undefined) patch.unicode_emoji = body.unicode_emoji;
     if (body.flags !== undefined) patch.flags = body.flags;
+    if (body.colors !== undefined) patch.colors = body.colors;
     const roleChanges = Object.keys(patch).map((key) => ({
       key,
       old_value: (role as unknown as Record<string, unknown>)[key],
@@ -872,7 +876,8 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     } else if (!/^[A-Za-z0-9_]+$/.test(name)) {
       emojiErrors.name = "String value did not match validation regex.";
     }
-    if (body.image !== undefined && (body.image === null || body.image === "")) {
+    // `image` is a required field: absent, null, or empty string all produce the same error.
+    if (body.image === undefined || body.image === null || body.image === "") {
       emojiErrors.image = "This field is required.";
     }
     if (Object.keys(emojiErrors).length > 0) return invalidFormBody(c, emojiErrors);

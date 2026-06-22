@@ -61,7 +61,7 @@ describe("REST mutations dispatch their gateway events", () => {
     await fetch(api(`/guilds/${guildId}/emojis`, emu.baseUrl), {
       method: "POST",
       headers: botHeaders(),
-      body: JSON.stringify({ name: "blobwave" }),
+      body: JSON.stringify({ name: "blobwave", image: "data:image/png;base64,AAAA" }),
     });
     const emojis = await waitFor("GUILD_EMOJIS_UPDATE");
     expect((emojis.d as { emojis: Array<{ name: string }> }).emojis.some((e) => e.name === "blobwave")).toBe(true);
