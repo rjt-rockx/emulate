@@ -9,6 +9,8 @@ import {
   toAPIMember,
   toAPIEmoji,
   toAPIUser,
+  recordAudit,
+  AuditLogEvent,
 } from "../helpers.js";
 import {
   createGuild,
@@ -172,6 +174,13 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: Intents.Guilds,
       d: { guild_id: guildId, role: apiRole },
     });
+    recordAudit(ds, {
+      guildSnowflake: guildId,
+      actionType: AuditLogEvent.RoleCreate,
+      actorSnowflake: auth.user?.snowflake ?? null,
+      targetSnowflake: role.snowflake,
+      changes: [{ key: "name", new_value: role.name }],
+    });
     return c.json(apiRole, 200);
   });
 
@@ -199,6 +208,11 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (body.mentionable !== undefined) patch.mentionable = body.mentionable;
     if (body.position !== undefined) patch.position = body.position;
     if (body.icon !== undefined) patch.icon = body.icon;
+    const roleChanges = Object.keys(patch).map((key) => ({
+      key,
+      old_value: (role as unknown as Record<string, unknown>)[key],
+      new_value: patch[key],
+    }));
     if (Object.keys(patch).length > 0) ds.roles.update(role.id, patch);
     const updated = ds.roles.findOneBy("snowflake", roleId)!;
     const apiRole = toAPIRole(updated);
@@ -208,6 +222,15 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: Intents.Guilds,
       d: { guild_id: guildId, role: apiRole },
     });
+    if (roleChanges.length > 0) {
+      recordAudit(ds, {
+        guildSnowflake: guildId,
+        actionType: AuditLogEvent.RoleUpdate,
+        actorSnowflake: auth.user?.snowflake ?? null,
+        targetSnowflake: roleId,
+        changes: roleChanges,
+      });
+    }
     return c.json(apiRole);
   });
 
@@ -227,6 +250,13 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       guildId,
       requiredIntents: Intents.Guilds,
       d: { guild_id: guildId, role_id: roleId },
+    });
+    recordAudit(ds, {
+      guildSnowflake: guildId,
+      actionType: AuditLogEvent.RoleDelete,
+      actorSnowflake: auth.user?.snowflake ?? null,
+      targetSnowflake: roleId,
+      changes: [{ key: "name", old_value: role.name }],
     });
     return new Response(null, { status: 204 });
   });
@@ -315,6 +345,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (body.roles !== undefined) patch.role_snowflakes = body.roles;
     if (body.deaf !== undefined) patch.deaf = body.deaf;
     if (body.mute !== undefined) patch.mute = body.mute;
+    const previousRoles = member.role_snowflakes;
     if (Object.keys(patch).length > 0) ds.members.update(member.id, patch);
     const updated = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId)!;
     const apiMember = toAPIMember(updated, ds);
@@ -324,6 +355,23 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: Intents.GuildMembers,
       d: { ...apiMember, guild_id: guildId },
     });
+    if (body.roles !== undefined) {
+      const nextRoles = updated.role_snowflakes;
+      const added = nextRoles.filter((r) => !previousRoles.includes(r));
+      const removed = previousRoles.filter((r) => !nextRoles.includes(r));
+      const roleChanges: unknown[] = [];
+      if (added.length > 0) roleChanges.push({ key: "$add", new_value: added.map((id) => ({ id })) });
+      if (removed.length > 0) roleChanges.push({ key: "$remove", new_value: removed.map((id) => ({ id })) });
+      if (roleChanges.length > 0) {
+        recordAudit(ds, {
+          guildSnowflake: guildId,
+          actionType: AuditLogEvent.MemberRoleUpdate,
+          actorSnowflake: auth.user?.snowflake ?? null,
+          targetSnowflake: userId,
+          changes: roleChanges,
+        });
+      }
+    }
     return c.json(apiMember);
   });
 
@@ -348,6 +396,12 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       guildId,
       requiredIntents: Intents.GuildMembers,
       d: { guild_id: guildId, user: user ? toAPIUser(user) : { id: userId } },
+    });
+    recordAudit(ds, {
+      guildSnowflake: guildId,
+      actionType: AuditLogEvent.MemberKick,
+      actorSnowflake: auth.user?.snowflake ?? null,
+      targetSnowflake: userId,
     });
     return new Response(null, { status: 204 });
   });

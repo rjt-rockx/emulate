@@ -45,22 +45,56 @@ export function guildMiscRoutes(ctx: DiscordRouteContext): void {
     return c.json({ code: null, uses: 0 });
   });
 
-  // Audit log: returns the referenced entities from the store with an (as-yet) empty entry
-  // list. Entries are not tracked retroactively; the endpoint is valid and stateful in its
-  // referenced data.
+  // Audit log: returns entries recorded retroactively by mutation routes (bans, kicks,
+  // role/channel create-update-delete, member role updates), newest first, with the referenced
+  // actor/target users hydrated. Supports the action_type / user_id / before / after / limit
+  // query filters Discord clients send.
   app.get("/api/v:version/guilds/:guildId/audit-logs", (c) => {
     const auth = getAuth(c, store);
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
     if (!ds.guilds.findOneBy("snowflake", guildId)) return notFound(c);
-    const memberIds = new Set(ds.members.findBy("guild_snowflake", guildId).map((m) => m.user_snowflake));
+
+    const actionTypeFilter = c.req.query("action_type");
+    const userIdFilter = c.req.query("user_id");
+    const beforeFilter = c.req.query("before");
+    const afterFilter = c.req.query("after");
+    const limitRaw = Number(c.req.query("limit"));
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 100) : 50;
+
+    let entries = ds.auditLog
+      .findBy("guild_snowflake", guildId)
+      .slice()
+      .sort((a, b) => (BigInt(a.snowflake) < BigInt(b.snowflake) ? 1 : -1));
+    if (actionTypeFilter !== undefined) entries = entries.filter((e) => e.action_type === Number(actionTypeFilter));
+    if (userIdFilter !== undefined) entries = entries.filter((e) => e.user_snowflake === userIdFilter);
+    if (beforeFilter !== undefined) entries = entries.filter((e) => BigInt(e.snowflake) < BigInt(beforeFilter));
+    if (afterFilter !== undefined) entries = entries.filter((e) => BigInt(e.snowflake) > BigInt(afterFilter));
+    entries = entries.slice(0, limit);
+
+    const auditLogEntries = entries.map((e) => ({
+      id: e.snowflake,
+      target_id: e.target_snowflake,
+      user_id: e.user_snowflake,
+      action_type: e.action_type,
+      changes: e.changes,
+      reason: e.reason ?? undefined,
+    }));
+
+    // Hydrate every user referenced as an actor or target, plus guild members.
+    const referencedIds = new Set<string>(ds.members.findBy("guild_snowflake", guildId).map((m) => m.user_snowflake));
+    for (const e of entries) {
+      if (e.user_snowflake) referencedIds.add(e.user_snowflake);
+      if (e.target_snowflake) referencedIds.add(e.target_snowflake);
+    }
     const users = ds.users
       .all()
-      .filter((u) => memberIds.has(u.snowflake))
+      .filter((u) => referencedIds.has(u.snowflake))
       .map((u) => toAPIUser(u));
+
     return c.json({
-      audit_log_entries: [],
+      audit_log_entries: auditLogEntries,
       users,
       integrations: [],
       webhooks: ds.webhooks

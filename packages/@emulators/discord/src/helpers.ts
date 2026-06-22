@@ -110,6 +110,48 @@ export function resolveBotUser(ds: DiscordStore, auth: DiscordAuth | null): Disc
 }
 
 // ---------------------------------------------------------------------------
+// Audit log
+// ---------------------------------------------------------------------------
+
+export const AuditLogEvent = {
+  ChannelCreate: 10,
+  ChannelUpdate: 11,
+  ChannelDelete: 12,
+  MemberKick: 20,
+  MemberBanAdd: 22,
+  MemberBanRemove: 23,
+  MemberRoleUpdate: 25,
+  RoleCreate: 30,
+  RoleUpdate: 31,
+  RoleDelete: 32,
+  WebhookCreate: 50,
+  WebhookDelete: 52,
+} as const;
+
+export function recordAudit(
+  ds: DiscordStore,
+  input: {
+    guildSnowflake: string | null;
+    actionType: number;
+    actorSnowflake?: string | null;
+    targetSnowflake?: string | null;
+    changes?: unknown[];
+    reason?: string | null;
+  },
+): void {
+  if (!input.guildSnowflake) return;
+  ds.auditLog.insert({
+    snowflake: snowflake(),
+    guild_snowflake: input.guildSnowflake,
+    user_snowflake: input.actorSnowflake ?? null,
+    target_snowflake: input.targetSnowflake ?? null,
+    action_type: input.actionType,
+    changes: input.changes ?? [],
+    reason: input.reason ?? null,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Serializers (store entity -> Discord wire object)
 // ---------------------------------------------------------------------------
 

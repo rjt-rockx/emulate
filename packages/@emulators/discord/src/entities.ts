@@ -281,6 +281,16 @@ export interface DiscordInteraction extends Entity {
   expires_at: string;
 }
 
+export interface DiscordAuditLogEntry extends Entity {
+  snowflake: string;
+  guild_snowflake: string;
+  user_snowflake: string | null; // the actor
+  target_snowflake: string | null;
+  action_type: number;
+  changes: unknown[];
+  reason: string | null;
+}
+
 export interface DiscordBan extends Entity {
   guild_snowflake: string;
   user_snowflake: string;

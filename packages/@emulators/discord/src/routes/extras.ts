@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore, type DiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, toAPIUser, toAPIMessage } from "../helpers.js";
+import { getAuth, unauthorized, notFound, toAPIUser, toAPIMessage, recordAudit, AuditLogEvent } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 import type { DiscordBan, DiscordInvite } from "../entities.js";
 
@@ -116,6 +116,13 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: Intents.GuildModeration,
       d: { guild_id: guildId, user: toAPIUser(user) },
     });
+    recordAudit(ds, {
+      guildSnowflake: guildId,
+      actionType: AuditLogEvent.MemberBanAdd,
+      actorSnowflake: auth.user?.snowflake ?? null,
+      targetSnowflake: userId,
+      reason: body.reason ?? null,
+    });
     return new Response(null, { status: 204 });
   });
 
@@ -134,6 +141,12 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
       guildId,
       requiredIntents: Intents.GuildModeration,
       d: { guild_id: guildId, user: user ? toAPIUser(user) : { id: userId } },
+    });
+    recordAudit(ds, {
+      guildSnowflake: guildId,
+      actionType: AuditLogEvent.MemberBanRemove,
+      actorSnowflake: auth.user?.snowflake ?? null,
+      targetSnowflake: userId,
     });
     return new Response(null, { status: 204 });
   });

@@ -1,6 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, toAPIChannel } from "../helpers.js";
+import { getAuth, unauthorized, notFound, toAPIChannel, recordAudit, AuditLogEvent } from "../helpers.js";
 import { createChannel } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 
@@ -45,6 +45,13 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     });
     const payload = toAPIChannel(channel);
     bus.publish({ t: "CHANNEL_CREATE", guildId, requiredIntents: Intents.Guilds, d: payload });
+    recordAudit(ds, {
+      guildSnowflake: guildId,
+      actionType: AuditLogEvent.ChannelCreate,
+      actorSnowflake: auth.user?.snowflake ?? null,
+      targetSnowflake: channel.snowflake,
+      changes: [{ key: "name", new_value: channel.name }],
+    });
     return c.json(payload, 201);
   });
 
@@ -108,6 +115,13 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
         ...(body.auto_archive_duration !== undefined ? { auto_archive_duration: body.auto_archive_duration } : {}),
       };
     }
+    const channelChanges = Object.keys(patch)
+      .filter((key) => key !== "thread_metadata")
+      .map((key) => ({
+        key,
+        old_value: (channel as unknown as Record<string, unknown>)[key],
+        new_value: patch[key],
+      }));
     if (Object.keys(patch).length > 0) ds.channels.update(channel.id, patch);
     const updated = ds.channels.findOneBy("snowflake", channel.snowflake)!;
     const payload = toAPIChannel(updated);
@@ -117,6 +131,15 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: Intents.Guilds,
       d: payload,
     });
+    if (!isThread && channelChanges.length > 0) {
+      recordAudit(ds, {
+        guildSnowflake: updated.guild_snowflake,
+        actionType: AuditLogEvent.ChannelUpdate,
+        actorSnowflake: auth.user?.snowflake ?? null,
+        targetSnowflake: updated.snowflake,
+        changes: channelChanges,
+      });
+    }
     return c.json(payload);
   });
 
@@ -136,6 +159,15 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: Intents.Guilds,
       d: payload,
     });
+    if (!isThread) {
+      recordAudit(ds, {
+        guildSnowflake: channel.guild_snowflake,
+        actionType: AuditLogEvent.ChannelDelete,
+        actorSnowflake: auth.user?.snowflake ?? null,
+        targetSnowflake: channel.snowflake,
+        changes: [{ key: "name", old_value: channel.name }],
+      });
+    }
     return c.json(payload);
   });
 

@@ -1,7 +1,7 @@
 import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore, type DiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, snowflake, toAPIUser, toAPIMessage, redactMessageContent } from "../helpers.js";
+import { getAuth, unauthorized, notFound, snowflake, toAPIUser, toAPIMessage, redactMessageContent, recordAudit, AuditLogEvent } from "../helpers.js";
 import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import { getOriginalResponse, setOriginalResponse } from "../interactions/dispatch.js";
@@ -44,6 +44,13 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
       avatar: body.avatar ?? null,
       token: `whk_${snowflake()}_${Math.random().toString(36).slice(2)}`,
       application_snowflake: auth.application?.snowflake ?? null,
+    });
+    recordAudit(ds, {
+      guildSnowflake: channel.guild_snowflake,
+      actionType: AuditLogEvent.WebhookCreate,
+      actorSnowflake: auth.user?.snowflake ?? null,
+      targetSnowflake: webhook.snowflake,
+      changes: [{ key: "name", new_value: webhook.name }],
     });
     return c.json(toAPIWebhook(webhook, ds, baseUrl), 200);
   });
@@ -104,19 +111,26 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
   });
   app.patch("/api/v:version/webhooks/:webhookId/:token", (c) => modify(c, true));
 
-  const remove = (c: Context<AppEnv>, requireToken: boolean) => {
+  const remove = (c: Context<AppEnv>, requireToken: boolean, actorSnowflake?: string | null) => {
     const ds = getDiscordStore(store);
     const webhook = ds.webhooks.findOneBy("snowflake", c.req.param("webhookId"));
     if (!webhook) return notFound(c);
     if (requireToken && webhook.token !== c.req.param("token")) return notFound(c);
     ds.webhooks.delete(webhook.id);
+    recordAudit(ds, {
+      guildSnowflake: webhook.guild_snowflake,
+      actionType: AuditLogEvent.WebhookDelete,
+      actorSnowflake: actorSnowflake ?? null,
+      targetSnowflake: webhook.snowflake,
+      changes: [{ key: "name", old_value: webhook.name }],
+    });
     return new Response(null, { status: 204 });
   };
 
   app.delete("/api/v:version/webhooks/:webhookId", (c) => {
     const auth = getAuth(c, store);
     if (!auth || auth.type !== "bot") return unauthorized(c);
-    return remove(c, false);
+    return remove(c, false, auth.user?.snowflake ?? null);
   });
   app.delete("/api/v:version/webhooks/:webhookId/:token", (c) => remove(c, true));
 
