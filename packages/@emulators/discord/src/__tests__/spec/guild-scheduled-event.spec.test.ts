@@ -332,6 +332,95 @@ describe("guild-scheduled-event.mdx — Modify", () => {
     expect(res.status).toBe(404);
     expect(((await res.json()) as { code: number }).code).toBe(10070);
   });
+
+  it("Modify entity_type to EXTERNAL requires entity_metadata.location (50035 when absent)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild, voiceChannel } = ctx(store);
+    // Start as VOICE so we have a valid event to patch.
+    const { json: e } = await createEvent(app, guild, voiceBody(voiceChannel));
+    const res = await app.request(api(`/guilds/${guild}/scheduled-events/${e.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      // Switch to EXTERNAL without providing entity_metadata or scheduled_end_time.
+      body: JSON.stringify({ entity_type: 3 }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("Modify entity_type to EXTERNAL requires scheduled_end_time (50035 when absent)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild, voiceChannel } = ctx(store);
+    const { json: e } = await createEvent(app, guild, voiceBody(voiceChannel));
+    const res = await app.request(api(`/guilds/${guild}/scheduled-events/${e.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      // Provide location but no scheduled_end_time (event has none).
+      body: JSON.stringify({ entity_type: 3, entity_metadata: { location: "Somewhere" } }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("Modify entity_type to EXTERNAL succeeds with location + scheduled_end_time", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild, voiceChannel } = ctx(store);
+    const { json: e } = await createEvent(app, guild, voiceBody(voiceChannel));
+    const res = await app.request(api(`/guilds/${guild}/scheduled-events/${e.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ entity_type: 3, entity_metadata: { location: "Arena" }, scheduled_end_time: END }),
+    });
+    expect(res.status).toBe(200);
+    const patched = (await res.json()) as Record<string, unknown>;
+    expect(patched.entity_type).toBe(3);
+    expect(patched.channel_id).toBeNull();
+    expect((patched.entity_metadata as Record<string, unknown>).location).toBe("Arena");
+  });
+
+  it("Modify entity_type to STAGE_INSTANCE requires channel_id (50035 when absent)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ctx(store);
+    // Start as EXTERNAL, then switch to STAGE_INSTANCE without channel_id.
+    const { json: e } = await createEvent(app, guild, externalBody());
+    const res = await app.request(api(`/guilds/${guild}/scheduled-events/${e.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ entity_type: 1 }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("Modify entity_type to VOICE requires channel_id (50035 when absent)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ctx(store);
+    const { json: e } = await createEvent(app, guild, externalBody());
+    const res = await app.request(api(`/guilds/${guild}/scheduled-events/${e.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ entity_type: 2 }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("Modify entity_type to VOICE with channel_id forces entity_metadata to null", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild, voiceChannel } = ctx(store);
+    // Start as EXTERNAL (has entity_metadata).
+    const { json: e } = await createEvent(app, guild, externalBody());
+    const res = await app.request(api(`/guilds/${guild}/scheduled-events/${e.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ entity_type: 2, channel_id: voiceChannel }),
+    });
+    expect(res.status).toBe(200);
+    const patched = (await res.json()) as Record<string, unknown>;
+    expect(patched.entity_type).toBe(2);
+    expect(patched.entity_metadata).toBeNull();
+    expect(patched.channel_id).toBe(voiceChannel);
+  });
 });
 
 describe("guild-scheduled-event.mdx — Delete", () => {

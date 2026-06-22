@@ -325,3 +325,53 @@ describe("soundboard.mdx — Send Soundboard Sound", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("soundboard.mdx — GUILD_SOUNDBOARD_SOUNDS_UPDATE bulk event", () => {
+  it("fires GUILD_SOUNDBOARD_SOUNDS_UPDATE with the full sound list after Create", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const events = captureEvents(store);
+    const { sound: created } = await createSound(app, guild, { name: "beep", sound: SOUND_DATA, volume: 1 });
+    const bulk = events.find((e) => e.t === "GUILD_SOUNDBOARD_SOUNDS_UPDATE");
+    expect(bulk).toBeDefined();
+    const d = bulk!.d as Record<string, unknown>;
+    expect(d.guild_id).toBe(guild);
+    expect(Array.isArray(d.soundboard_sounds)).toBe(true);
+    const sounds = d.soundboard_sounds as Array<Record<string, unknown>>;
+    expect(sounds.some((s) => s.sound_id === created.sound_id)).toBe(true);
+  });
+
+  it("fires GUILD_SOUNDBOARD_SOUNDS_UPDATE after Modify", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const { sound: created } = await createSound(app, guild);
+    const events = captureEvents(store);
+    await app.request(api(`/guilds/${guild}/soundboard-sounds/${created.sound_id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "boop" }),
+    });
+    const bulk = events.find((e) => e.t === "GUILD_SOUNDBOARD_SOUNDS_UPDATE");
+    expect(bulk).toBeDefined();
+    const d = bulk!.d as Record<string, unknown>;
+    expect(d.guild_id).toBe(guild);
+    const sounds = d.soundboard_sounds as Array<Record<string, unknown>>;
+    expect(sounds.some((s) => s.name === "boop")).toBe(true);
+  });
+
+  it("fires GUILD_SOUNDBOARD_SOUNDS_UPDATE after Delete (sound absent from list)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const { sound: created } = await createSound(app, guild, { name: "todelete", sound: SOUND_DATA, volume: 1 });
+    const events = captureEvents(store);
+    await app.request(api(`/guilds/${guild}/soundboard-sounds/${created.sound_id}`), {
+      method: "DELETE",
+      headers: botHeaders(),
+    });
+    const bulk = events.find((e) => e.t === "GUILD_SOUNDBOARD_SOUNDS_UPDATE");
+    expect(bulk).toBeDefined();
+    const d = bulk!.d as Record<string, unknown>;
+    const sounds = d.soundboard_sounds as Array<Record<string, unknown>>;
+    expect(sounds.some((s) => s.sound_id === created.sound_id)).toBe(false);
+  });
+});

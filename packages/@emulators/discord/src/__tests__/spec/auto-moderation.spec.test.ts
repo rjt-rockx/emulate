@@ -224,6 +224,26 @@ describe("auto-moderation.mdx — Action Types & metadata", () => {
     expect(status).toBe(400);
     expect(json.code).toBe(50035);
   });
+
+  it("TIMEOUT action is rejected on trigger types other than KEYWORD and MENTION_SPAM (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { guild } = ids(store);
+    const timeoutAction = [{ type: 3, metadata: { duration_seconds: 60 } }];
+    // SPAM (3) rejects TIMEOUT.
+    const spam = await createRule(app, guild, { name: "spam-t", event_type: 1, trigger_type: 3, actions: timeoutAction });
+    expect(spam.status).toBe(400);
+    expect(spam.json.code).toBe(50035);
+    // KEYWORD_PRESET (4) rejects TIMEOUT.
+    const preset = await createRule(app, guild, { name: "preset-t", event_type: 1, trigger_type: 4, trigger_metadata: { presets: [1] }, actions: timeoutAction });
+    expect(preset.status).toBe(400);
+    expect(preset.json.code).toBe(50035);
+    // KEYWORD (1) accepts TIMEOUT.
+    const kw = await createRule(app, guild, { name: "kw-t", event_type: 1, trigger_type: 1, trigger_metadata: { keyword_filter: ["bad"] }, actions: timeoutAction });
+    expect(kw.status).toBe(201);
+    // MENTION_SPAM (5) accepts TIMEOUT.
+    const ms = await createRule(app, guild, { name: "ms-t", event_type: 1, trigger_type: 5, trigger_metadata: { mention_total_limit: 5 }, actions: timeoutAction });
+    expect(ms.status).toBe(201);
+  });
 });
 
 describe("auto-moderation.mdx — Trigger Metadata limits", () => {

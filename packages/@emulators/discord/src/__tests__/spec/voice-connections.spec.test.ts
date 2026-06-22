@@ -234,6 +234,23 @@ describe("voice-connections.mdx — Heartbeating", () => {
     // Below V8: { op: 6, d: <nonce> } — the previously sent nonce is echoed back.
     expect(ack.d).toBe(1501184119561);
   });
+
+  it("replies to Opcode 3 Heartbeat with v8 ACK shape { d: { t: <nonce> } } for v8 connections", async () => {
+    emu = await startDiscordTestEmulator();
+    const { ws, next } = await connectVoice(`${emu.gatewayUrl}voice?v=8`);
+    sockets.push(ws);
+    await next(); // Hello
+    ws.send(JSON.stringify({ op: VoiceOpcodes.Identify, d: { server_id: "1", user_id: "2", session_id: "s", token: "t" } }));
+    await next(); // Ready
+
+    const nonce = 1501184119999;
+    ws.send(JSON.stringify({ op: VoiceOpcodes.Heartbeat, d: nonce }));
+    const ack = await next();
+    expect(ack.op).toBe(VoiceOpcodes.HeartbeatAck);
+    // V8+: { op: 6, d: { t: <nonce> } }
+    expect(typeof ack.d).toBe("object");
+    expect((ack.d as { t: number }).t).toBe(nonce);
+  });
 });
 
 describe("voice-connections.mdx — Speaking", () => {

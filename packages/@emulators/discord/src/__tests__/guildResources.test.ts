@@ -10,11 +10,16 @@ describe("discord stickers", () => {
   it("creates, lists, updates, and deletes a guild sticker", async () => {
     const { app, store } = createDiscordTestApp();
     const gid = guildId(store);
+    const stickerForm = new FormData();
+    stickerForm.set("name", "blob");
+    stickerForm.set("tags", "blobs");
+    stickerForm.set("description", "a blob");
+    stickerForm.set("file", new File(["png-bytes"], "sticker.png", { type: "image/png" }));
     const created = (await (
       await app.request(api(`/guilds/${gid}/stickers`), {
         method: "POST",
-        headers: { Authorization: "Bot test_bot_token", "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ name: "blob", tags: "blobs", description: "a blob" }).toString(),
+        headers: { Authorization: "Bot test_bot_token" },
+        body: stickerForm,
       })
     ).json()) as { id: string; name: string };
     expect(created.name).toBe("blob");

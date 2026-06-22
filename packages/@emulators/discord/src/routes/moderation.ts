@@ -109,7 +109,10 @@ function validateAutoModRuleBody(
             errors[`actions.${i}.metadata.channel_id`] = "This field is required.";
           }
         } else if (type === 3) {
-          // TIMEOUT requires duration_seconds (<= 2419200).
+          // TIMEOUT requires duration_seconds (<= 2419200) and is only allowed on KEYWORD (1) and MENTION_SPAM (5).
+          if (triggerType !== 1 && triggerType !== 5) {
+            errors[`actions.${i}.type`] = "TIMEOUT action can only be used with KEYWORD and MENTION_SPAM trigger types.";
+          }
           if (!metadata || typeof metadata.duration_seconds !== "number") {
             errors[`actions.${i}.metadata.duration_seconds`] = "This field is required.";
           } else if (metadata.duration_seconds > TIMEOUT_MAX_DURATION) {
@@ -212,7 +215,7 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
       channel_snowflake: channel.snowflake,
       topic: body.topic,
       privacy_level: privacyLevel,
-      discoverable_disabled: true,
+      discoverable_disabled: typeof body.discoverable_disabled === "boolean" ? body.discoverable_disabled : false,
       guild_scheduled_event_snowflake: scheduledEvent,
     });
     const payload = toAPIStageInstance(stage);

@@ -70,6 +70,20 @@ describe("stage-instance.mdx — Stage Instance object", () => {
     const got = await app.request(api(`/stage-instances/${channel}`), { headers: botHeaders() });
     expect(((await got.json()) as { guild_scheduled_event_id: string }).guild_scheduled_event_id).toBe("947656305244532806");
   });
+
+  it("discoverable_disabled defaults to false (per the doc example) when not provided", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const { json } = await createStage(app, { channel_id: channel, topic: "Default disabled" });
+    expect(json.discoverable_disabled).toBe(false);
+  });
+
+  it("discoverable_disabled reflects the input value when provided", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const { json } = await createStage(app, { channel_id: channel, topic: "Explicit true", discoverable_disabled: true });
+    expect(json.discoverable_disabled).toBe(true);
+  });
 });
 
 describe("stage-instance.mdx — Privacy Levels", () => {

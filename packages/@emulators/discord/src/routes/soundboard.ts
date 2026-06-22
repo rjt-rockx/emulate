@@ -66,6 +66,18 @@ function validateVolume(volume: unknown): string | null {
   return null;
 }
 
+function dispatchSoundsUpdate(bus: DiscordRouteContext["bus"], ds: DiscordStore, guildId: string): void {
+  bus.publish({
+    t: "GUILD_SOUNDBOARD_SOUNDS_UPDATE",
+    guildId,
+    requiredIntents: Intents.GuildExpressions,
+    d: {
+      guild_id: guildId,
+      soundboard_sounds: ds.soundboardSounds.findBy("guild_snowflake", guildId).map((s) => toAPISound(s, ds)),
+    },
+  });
+}
+
 export function soundboardRoutes(ctx: DiscordRouteContext): void {
   const { app, store, bus } = ctx;
 
@@ -123,6 +135,7 @@ export function soundboardRoutes(ctx: DiscordRouteContext): void {
     });
     const payload = toAPISound(sound, ds);
     bus.publish({ t: "GUILD_SOUNDBOARD_SOUND_CREATE", guildId, requiredIntents: Intents.GuildExpressions, d: payload });
+    dispatchSoundsUpdate(bus, ds, guildId);
     recordAudit(ds, bus, {
       guildSnowflake: guildId,
       actionType: AuditLogEvent.SoundboardSoundCreate,
@@ -170,6 +183,7 @@ export function soundboardRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: Intents.GuildExpressions,
       d: payload,
     });
+    dispatchSoundsUpdate(bus, ds, sound.guild_snowflake);
     if (soundChanges.length > 0) {
       recordAudit(ds, bus, {
         guildSnowflake: sound.guild_snowflake,
@@ -198,6 +212,7 @@ export function soundboardRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: Intents.GuildExpressions,
       d: { sound_id: soundId, guild_id: guildId },
     });
+    dispatchSoundsUpdate(bus, ds, guildId);
     recordAudit(ds, bus, {
       guildSnowflake: guildId,
       actionType: AuditLogEvent.SoundboardSoundDelete,

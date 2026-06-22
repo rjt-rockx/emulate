@@ -309,12 +309,20 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
     if (description.length !== 0 && (description.length < 2 || description.length > 100)) {
       return invalidFormBody(c, { description: "Must be empty or between 2 and 100 in length." });
     }
-    // file: must be a PNG/APNG/GIF/Lottie file no larger than 512 KiB. When a file is provided
-    // the format_type is inferred from it (gif=4, lottie/json=3, apng=2, else png=1); when absent
-    // it defaults to PNG (1).
+    // tags: required, max 200 characters (comma-separated autocomplete strings per the doc).
+    const tags = typeof body.tags === "string" ? body.tags : "";
+    if (tags.length > 200) {
+      return invalidFormBody(c, { tags: "Must be 200 or fewer in length." });
+    }
+
+    // file: required; must be a PNG/APNG/GIF/Lottie file no larger than 512 KiB. The format_type
+    // is inferred from the file (gif=4, lottie/json=3, apng=2, else png=1).
     const fileField = body.file;
+    if (!(fileField instanceof File)) {
+      return invalidFormBody(c, { file: "This field is required." });
+    }
     let formatType = 1;
-    if (fileField instanceof File) {
+    {
       const inferred = inferStickerFormat(fileField);
       if (!inferred.valid) {
         return invalidFormBody(c, { file: "Must be a PNG, APNG, GIF, or Lottie JSON file." });
@@ -330,7 +338,7 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
       guild_snowflake: guildId,
       name,
       description: description.length === 0 ? "" : description,
-      tags: typeof body.tags === "string" ? body.tags : "",
+      tags,
       type: 2,
       format_type: formatType,
       available: true,
@@ -501,6 +509,30 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
     const patch: Record<string, unknown> = {};
     const targetEntityType = typeof body.entity_type === "number" ? body.entity_type : event.entity_type;
 
+    // When entity_type changes on PATCH, re-run the entity matrix validation using a merged view
+    // that combines request-body values with existing event values so partial patches are accepted.
+    if (typeof body.entity_type === "number" && body.entity_type !== event.entity_type) {
+      const mergedForValidation: Record<string, unknown> = {
+        channel_id: "channel_id" in body ? body.channel_id : event.channel_snowflake,
+        entity_metadata: "entity_metadata" in body ? body.entity_metadata : event.entity_metadata,
+        scheduled_end_time: "scheduled_end_time" in body ? body.scheduled_end_time : event.scheduled_end_time,
+      };
+      const matrixError = validateEntityMatrix(c, body.entity_type, mergedForValidation);
+      if (matrixError) return matrixError;
+
+      // Apply side-effects for the new entity type.
+      if (body.entity_type === ENTITY_EXTERNAL) {
+        patch.channel_snowflake = null;
+        const meta = "entity_metadata" in body ? body.entity_metadata : event.entity_metadata;
+        patch.entity_metadata = isExternalLocation(meta) ? { location: (meta as { location: string }).location } : null;
+      } else {
+        // STAGE or VOICE: channel_id from request or existing
+        const channelId = typeof body.channel_id === "string" ? body.channel_id : event.channel_snowflake;
+        patch.channel_snowflake = channelId;
+        patch.entity_metadata = null;
+      }
+    }
+
     // Status transition validation.
     if (typeof body.status === "number" && body.status !== event.status) {
       const allowed = LEGAL_TRANSITIONS[event.status] ?? [];
@@ -516,16 +548,19 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
     if (typeof body.scheduled_end_time === "string") patch.scheduled_end_time = body.scheduled_end_time;
     if (typeof body.privacy_level === "number") patch.privacy_level = body.privacy_level;
     if (typeof body.entity_type === "number") patch.entity_type = body.entity_type;
-    if (typeof body.channel_id === "string") patch.channel_snowflake = body.channel_id;
-    else if (body.channel_id === null) patch.channel_snowflake = null;
+    // channel_id / entity_metadata are only directly patched when entity_type is NOT changing (handled above).
+    if (typeof body.entity_type !== "number" || body.entity_type === event.entity_type) {
+      if (typeof body.channel_id === "string") patch.channel_snowflake = body.channel_id;
+      else if (body.channel_id === null) patch.channel_snowflake = null;
+      // entity_metadata is silently discarded for non-EXTERNAL events when no type change.
+      if (body.entity_metadata !== undefined) {
+        patch.entity_metadata = targetEntityType === ENTITY_EXTERNAL && isExternalLocation(body.entity_metadata)
+          ? { location: body.entity_metadata.location }
+          : null;
+      }
+    }
     if (typeof body.image === "string") patch.image = body.image;
     if (body.recurrence_rule !== undefined) patch.recurrence_rule = body.recurrence_rule;
-    // entity_metadata is silently discarded for non-EXTERNAL events.
-    if (body.entity_metadata !== undefined) {
-      patch.entity_metadata = targetEntityType === ENTITY_EXTERNAL && isExternalLocation(body.entity_metadata)
-        ? { location: body.entity_metadata.location }
-        : null;
-    }
 
     const eventChanges = Object.keys(patch).map((key) => ({
       key,

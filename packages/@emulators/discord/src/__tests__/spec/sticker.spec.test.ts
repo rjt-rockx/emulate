@@ -133,6 +133,28 @@ describe("sticker.mdx — Create Guild Sticker validation", () => {
     expect(res.status).toBe(400);
     expect(json.code).toBe(50035);
   });
+
+  it("rejects tags longer than 200 characters (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const guild = guildId(store);
+    const { res, json } = await createSticker(app, guild, { name: "longtags", tags: "x".repeat(201) });
+    expect(res.status).toBe(400);
+    expect(json.code).toBe(50035);
+  });
+
+  it("requires a file field (50035 when absent)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const guild = guildId(store);
+    // Send JSON body (no file field) to test the requirement.
+    const res = await app.request(api(`/guilds/${guild}/stickers`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "nofile", tags: "tag" }),
+    });
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(res.status).toBe(400);
+    expect(json.code).toBe(50035);
+  });
 });
 
 describe("sticker.mdx — List/Get/Modify/Delete Guild Sticker", () => {

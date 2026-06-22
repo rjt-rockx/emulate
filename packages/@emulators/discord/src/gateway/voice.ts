@@ -48,6 +48,7 @@ interface VoiceParticipant {
   guildId: string;
   userId: string;
   ws: WebSocket;
+  gatewayVersion: number;
   /** Learned from the participant's first RTP packet, used to relay audio to it. */
   udpRemote?: { address: string; port: number };
 }
@@ -72,13 +73,16 @@ export class VoiceGatewayServer {
   }
 
   handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
-    this.wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws));
+    const url = req.url ?? "";
+    const vMatch = /[?&]v=(\d+)/.exec(url);
+    const gatewayVersion = vMatch ? parseInt(vMatch[1], 10) : 4;
+    this.wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws, gatewayVersion));
   }
 
-  private onConnection(ws: WebSocket): void {
+  private onConnection(ws: WebSocket, gatewayVersion: number): void {
     this.sockets.add(ws);
     const ssrc = Math.floor(Math.random() * 0xffffffff) >>> 0;
-    const participant: VoiceParticipant = { ssrc, guildId: "", userId: "", ws };
+    const participant: VoiceParticipant = { ssrc, guildId: "", userId: "", ws, gatewayVersion };
     this.participants.set(ssrc, participant);
     this.send(ws, { op: VoiceOpcodes.Hello, d: { heartbeat_interval: VOICE_HEARTBEAT_INTERVAL } });
     ws.on("message", (raw) => this.onMessage(ws, raw, participant));
@@ -183,8 +187,12 @@ export class VoiceGatewayServer {
         break;
       }
       case VoiceOpcodes.Heartbeat:
-        // v4 echoes the heartbeat nonce back in the ack.
-        this.send(ws, { op: VoiceOpcodes.HeartbeatAck, d: payload.d ?? null });
+        // v8+ wraps the nonce: { d: { t: <nonce> } }. v4 echoes it directly.
+        if (participant.gatewayVersion >= 8) {
+          this.send(ws, { op: VoiceOpcodes.HeartbeatAck, d: { t: payload.d ?? null } });
+        } else {
+          this.send(ws, { op: VoiceOpcodes.HeartbeatAck, d: payload.d ?? null });
+        }
         break;
       case VoiceOpcodes.Speaking: {
         const d = (payload.d ?? {}) as { speaking?: number; user_id?: string };
