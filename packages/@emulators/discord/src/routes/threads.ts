@@ -1,6 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore, type DiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, snowflake, toAPIChannel } from "../helpers.js";
+import { getAuth, unauthorized, notFound, snowflake, toAPIChannel, recordAudit, AuditLogEvent } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 import type { DiscordChannel } from "../entities.js";
 
@@ -87,6 +87,15 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
     addThreadMember(ds, thread.snowflake, auth.user.snowflake);
     const payload = toAPIChannel(ds.channels.findOneBy("snowflake", thread.snowflake)!);
     bus.publish({ t: "THREAD_CREATE", guildId: thread.guild_snowflake, requiredIntents: Intents.Guilds, d: payload });
+    if (thread.guild_snowflake) {
+      recordAudit(ds, bus, {
+        guildSnowflake: thread.guild_snowflake,
+        actionType: AuditLogEvent.ThreadCreate,
+        actorSnowflake: auth.user.snowflake,
+        targetSnowflake: thread.snowflake,
+        changes: [{ key: "name", new_value: thread.name }],
+      });
+    }
     return c.json(payload, 201);
   };
 

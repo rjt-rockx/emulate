@@ -1,6 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, unknownChannel, unknownMessage, discordError, toAPIMessage, redactMessageContent, isEphemeral, parseMessageBody, requirePermission } from "../helpers.js";
+import { getAuth, unauthorized, unknownChannel, unknownMessage, discordError, toAPIMessage, redactMessageContent, isEphemeral, parseMessageBody, requirePermission, recordAudit, AuditLogEvent, auditReason } from "../helpers.js";
 import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import { PermissionFlags } from "../permissions.js";
@@ -192,6 +192,15 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: messageIntents(message.guild_snowflake),
       d: { id: message.snowflake, channel_id: channelId, guild_id: message.guild_snowflake ?? undefined },
     });
+    if (message.guild_snowflake) {
+      recordAudit(ds, bus, {
+        guildSnowflake: message.guild_snowflake,
+        actionType: AuditLogEvent.MessageDelete,
+        actorSnowflake: auth.user?.snowflake ?? null,
+        targetSnowflake: message.author_snowflake,
+        reason: auditReason(c),
+      });
+    }
     return new Response(null, { status: 204 });
   });
 
@@ -210,12 +219,23 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
       const message = ds.messages.findOneBy("snowflake", id);
       if (message && message.channel_snowflake === channelId) ds.messages.delete(message.id);
     }
+    const channel = ds.channels.findOneBy("snowflake", channelId);
+    const guildSnowflake = channel?.guild_snowflake ?? null;
     bus.publish({
       t: "MESSAGE_DELETE_BULK",
-      guildId: ds.channels.findOneBy("snowflake", channelId)?.guild_snowflake ?? null,
+      guildId: guildSnowflake,
       requiredIntents: Intents.GuildMessages,
       d: { ids: body.messages ?? [], channel_id: channelId },
     });
+    if (guildSnowflake) {
+      recordAudit(ds, bus, {
+        guildSnowflake,
+        actionType: AuditLogEvent.MessageBulkDelete,
+        actorSnowflake: auth.user?.snowflake ?? null,
+        targetSnowflake: channelId,
+        reason: auditReason(c),
+      });
+    }
     return new Response(null, { status: 204 });
   });
 }

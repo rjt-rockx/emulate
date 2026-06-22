@@ -50,7 +50,8 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const channelId = c.req.param("channelId");
-    const message = ds.messages.findOneBy("snowflake", c.req.param("messageId"));
+    const messageId = c.req.param("messageId");
+    const message = ds.messages.findOneBy("snowflake", messageId);
     if (!message || message.channel_snowflake !== channelId) return unknownMessage(c);
     ds.messages.update(message.id, { pinned });
     bus.publish({
@@ -59,6 +60,15 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: Intents.Guilds,
       d: { guild_id: message.guild_snowflake ?? undefined, channel_id: channelId, last_pin_timestamp: new Date().toISOString() },
     });
+    if (message.guild_snowflake) {
+      recordAudit(ds, bus, {
+        guildSnowflake: message.guild_snowflake,
+        actionType: pinned ? AuditLogEvent.MessagePin : AuditLogEvent.MessageUnpin,
+        actorSnowflake: auth.user?.snowflake ?? null,
+        targetSnowflake: message.author_snowflake,
+        reason: auditReason(c),
+      });
+    }
     return new Response(null, { status: 204 });
   };
 
@@ -235,6 +245,16 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
         uses: 0,
       },
     });
+    if (channel.guild_snowflake) {
+      recordAudit(ds, bus, {
+        guildSnowflake: channel.guild_snowflake,
+        actionType: AuditLogEvent.InviteCreate,
+        actorSnowflake: auth.user?.snowflake ?? null,
+        targetSnowflake: null,
+        changes: [{ key: "code", new_value: invite.code }],
+        reason: auditReason(c),
+      });
+    }
     return c.json(toAPIInvite(invite, ds), 200);
   });
 
@@ -273,6 +293,16 @@ export function extrasRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: Intents.GuildInvites,
       d: { channel_id: invite.channel_snowflake, guild_id: invite.guild_snowflake ?? undefined, code: invite.code },
     });
+    if (invite.guild_snowflake) {
+      recordAudit(ds, bus, {
+        guildSnowflake: invite.guild_snowflake,
+        actionType: AuditLogEvent.InviteDelete,
+        actorSnowflake: auth.user?.snowflake ?? null,
+        targetSnowflake: null,
+        changes: [{ key: "code", old_value: invite.code }],
+        reason: auditReason(c),
+      });
+    }
     return c.json(payload);
   });
 }

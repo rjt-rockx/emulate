@@ -216,6 +216,19 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: Intents.Guilds,
       d: payload,
     });
+    const guildChanges = Object.keys(patch).map((key) => ({
+      key,
+      old_value: (guild as unknown as Record<string, unknown>)[key],
+      new_value: patch[key],
+    }));
+    recordAudit(ds, bus, {
+      guildSnowflake: guildId,
+      actionType: AuditLogEvent.GuildUpdate,
+      actorSnowflake: auth.user?.snowflake ?? null,
+      targetSnowflake: guildId,
+      changes: guildChanges,
+      reason: auditReason(c),
+    });
     return c.json(payload);
   });
 
@@ -521,6 +534,28 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: Intents.GuildMembers,
       d: { ...apiMember, guild_id: guildId },
     });
+    // MemberUpdate for non-role field changes (nick, deaf, mute, timeout).
+    const memberChanges: unknown[] = [];
+    const nonRoleFields = ["nick", "deaf", "mute", "communication_disabled_until"] as const;
+    for (const field of nonRoleFields) {
+      if (body[field] !== undefined) {
+        memberChanges.push({
+          key: field,
+          old_value: (member as unknown as Record<string, unknown>)[field],
+          new_value: body[field],
+        });
+      }
+    }
+    if (memberChanges.length > 0) {
+      recordAudit(ds, bus, {
+        guildSnowflake: guildId,
+        actionType: AuditLogEvent.MemberUpdate,
+        actorSnowflake: auth.user?.snowflake ?? null,
+        targetSnowflake: userId,
+        changes: memberChanges,
+        reason: auditReason(c),
+      });
+    }
     if (body.roles !== undefined) {
       const nextRoles = updated.role_snowflakes;
       const added = nextRoles.filter((r) => !previousRoles.includes(r));
@@ -685,6 +720,14 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       roles: (body.roles as string[] | undefined) ?? [],
     });
     emitEmojisUpdate(guildId);
+    recordAudit(ds, bus, {
+      guildSnowflake: guildId,
+      actionType: AuditLogEvent.EmojiCreate,
+      actorSnowflake: auth.user?.snowflake ?? null,
+      targetSnowflake: emoji.snowflake,
+      changes: [{ key: "name", new_value: emoji.name }],
+      reason: auditReason(c),
+    });
     return c.json(toAPIEmoji(emoji, ds), 201);
   });
 
@@ -707,9 +750,24 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const patch: Record<string, unknown> = {};
     if (body.name !== undefined) patch.name = body.name;
     if (body.roles !== undefined) patch.role_snowflakes = body.roles;
+    const emojiChanges = Object.keys(patch).map((key) => ({
+      key,
+      old_value: (emoji as unknown as Record<string, unknown>)[key],
+      new_value: patch[key],
+    }));
     if (Object.keys(patch).length > 0) ds.emojis.update(emoji.id, patch);
     const updated = ds.emojis.findOneBy("snowflake", emojiId)!;
     emitEmojisUpdate(guildId);
+    if (emojiChanges.length > 0) {
+      recordAudit(ds, bus, {
+        guildSnowflake: guildId,
+        actionType: AuditLogEvent.EmojiUpdate,
+        actorSnowflake: auth.user?.snowflake ?? null,
+        targetSnowflake: emojiId,
+        changes: emojiChanges,
+        reason: auditReason(c),
+      });
+    }
     return c.json(toAPIEmoji(updated, ds));
   });
 
@@ -725,6 +783,14 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (!emoji || emoji.guild_snowflake !== guildId) return unknownEmoji(c);
     ds.emojis.delete(emoji.id);
     emitEmojisUpdate(guildId);
+    recordAudit(ds, bus, {
+      guildSnowflake: guildId,
+      actionType: AuditLogEvent.EmojiDelete,
+      actorSnowflake: auth.user?.snowflake ?? null,
+      targetSnowflake: emojiId,
+      changes: [{ key: "name", old_value: emoji.name }],
+      reason: auditReason(c),
+    });
     return new Response(null, { status: 204 });
   });
 }

@@ -1,6 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, snowflake } from "../helpers.js";
+import { getAuth, unauthorized, notFound, snowflake, recordAudit, AuditLogEvent, auditReason } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 import type { DiscordStageInstance, DiscordAutoModRule } from "../entities.js";
 
@@ -53,6 +53,14 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
     });
     const payload = toAPIStage(stage);
     bus.publish({ t: "STAGE_INSTANCE_CREATE", guildId: stage.guild_snowflake, requiredIntents: Intents.Guilds, d: payload });
+    recordAudit(ds, bus, {
+      guildSnowflake: stage.guild_snowflake,
+      actionType: AuditLogEvent.StageInstanceCreate,
+      actorSnowflake: auth.user?.snowflake ?? null,
+      targetSnowflake: stage.snowflake,
+      changes: [{ key: "topic", new_value: stage.topic }],
+      reason: auditReason(c),
+    });
     return c.json(payload, 201);
   });
 
@@ -72,9 +80,23 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
     const stage = ds.stageInstances.findOneBy("channel_snowflake", c.req.param("channelId"));
     if (!stage) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    if (typeof body.topic === "string") ds.stageInstances.update(stage.id, { topic: body.topic });
+    const stageChanges: unknown[] = [];
+    if (typeof body.topic === "string") {
+      stageChanges.push({ key: "topic", old_value: stage.topic, new_value: body.topic });
+      ds.stageInstances.update(stage.id, { topic: body.topic });
+    }
     const payload = toAPIStage(ds.stageInstances.findOneBy("snowflake", stage.snowflake)!);
     bus.publish({ t: "STAGE_INSTANCE_UPDATE", guildId: stage.guild_snowflake, requiredIntents: Intents.Guilds, d: payload });
+    if (stageChanges.length > 0) {
+      recordAudit(ds, bus, {
+        guildSnowflake: stage.guild_snowflake,
+        actionType: AuditLogEvent.StageInstanceUpdate,
+        actorSnowflake: auth.user?.snowflake ?? null,
+        targetSnowflake: stage.snowflake,
+        changes: stageChanges,
+        reason: auditReason(c),
+      });
+    }
     return c.json(payload);
   });
 
@@ -87,6 +109,14 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
     const payload = toAPIStage(stage);
     ds.stageInstances.delete(stage.id);
     bus.publish({ t: "STAGE_INSTANCE_DELETE", guildId: stage.guild_snowflake, requiredIntents: Intents.Guilds, d: payload });
+    recordAudit(ds, bus, {
+      guildSnowflake: stage.guild_snowflake,
+      actionType: AuditLogEvent.StageInstanceDelete,
+      actorSnowflake: auth.user?.snowflake ?? null,
+      targetSnowflake: stage.snowflake,
+      changes: [{ key: "topic", old_value: stage.topic }],
+      reason: auditReason(c),
+    });
     return new Response(null, { status: 204 });
   });
 
@@ -129,6 +159,14 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
     });
     const payload = toAPIAutoMod(rule);
     bus.publish({ t: "AUTO_MODERATION_RULE_CREATE", guildId, requiredIntents: Intents.AutoModerationConfiguration, d: payload });
+    recordAudit(ds, bus, {
+      guildSnowflake: guildId,
+      actionType: AuditLogEvent.AutoModerationRuleCreate,
+      actorSnowflake: auth.user?.snowflake ?? null,
+      targetSnowflake: rule.snowflake,
+      changes: [{ key: "name", new_value: rule.name }],
+      reason: auditReason(c),
+    });
     return c.json(payload, 201);
   });
 
@@ -144,9 +182,24 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
     if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
     if (body.actions !== undefined) patch.actions = body.actions as unknown[];
     if (body.trigger_metadata !== undefined) patch.trigger_metadata = body.trigger_metadata as Record<string, unknown>;
+    const autoModChanges = (Object.keys(patch) as Array<keyof DiscordAutoModRule>).map((key) => ({
+      key,
+      old_value: rule[key],
+      new_value: patch[key],
+    }));
     ds.autoModRules.update(rule.id, patch);
     const payload = toAPIAutoMod(ds.autoModRules.findOneBy("snowflake", rule.snowflake)!);
     bus.publish({ t: "AUTO_MODERATION_RULE_UPDATE", guildId: rule.guild_snowflake, requiredIntents: Intents.AutoModerationConfiguration, d: payload });
+    if (autoModChanges.length > 0) {
+      recordAudit(ds, bus, {
+        guildSnowflake: rule.guild_snowflake,
+        actionType: AuditLogEvent.AutoModerationRuleUpdate,
+        actorSnowflake: auth.user?.snowflake ?? null,
+        targetSnowflake: rule.snowflake,
+        changes: autoModChanges,
+        reason: auditReason(c),
+      });
+    }
     return c.json(payload);
   });
 
@@ -159,6 +212,14 @@ export function moderationRoutes(ctx: DiscordRouteContext): void {
     const payload = toAPIAutoMod(rule);
     ds.autoModRules.delete(rule.id);
     bus.publish({ t: "AUTO_MODERATION_RULE_DELETE", guildId: rule.guild_snowflake, requiredIntents: Intents.AutoModerationConfiguration, d: payload });
+    recordAudit(ds, bus, {
+      guildSnowflake: rule.guild_snowflake,
+      actionType: AuditLogEvent.AutoModerationRuleDelete,
+      actorSnowflake: auth.user?.snowflake ?? null,
+      targetSnowflake: rule.snowflake,
+      changes: [{ key: "name", old_value: rule.name }],
+      reason: auditReason(c),
+    });
     return new Response(null, { status: 204 });
   });
 }

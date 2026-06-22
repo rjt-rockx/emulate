@@ -40,7 +40,7 @@ describe("permission enforcement (opt-in)", () => {
   });
 
   it("when enabled, a guild owner (the bot) bypasses checks", async () => {
-    const { app, store } = createDiscordTestApp({ enforce_permissions: true });
+    const { app } = createDiscordTestApp({ enforce_permissions: true });
     // The bot creates a guild -> it is the owner -> Administrator short-circuit.
     const created = await app.request(api("/guilds"), {
       method: "POST",
