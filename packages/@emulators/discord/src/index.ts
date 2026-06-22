@@ -133,40 +133,10 @@ export const discordPlugin: ServicePlugin = {
 
 export default discordPlugin;
 
+// Public surface mirrors the sibling emulators: the plugin, its store accessor, entities, and the
+// seed contract. Everything else (gateway/permissions/serializer internals) is imported directly by
+// this package's own tests, not re-exported.
 export { type DiscordRouteContext } from "./context.js";
-export { seedFromConfig, seedDefaults, type DiscordSeedConfig } from "./seed.js";
 export { getDiscordStore, type DiscordStore } from "./store.js";
+export { seedFromConfig, seedDefaults, type DiscordSeedConfig } from "./seed.js";
 export * from "./entities.js";
-export { Intents } from "./gateway/intents.js";
-export { GatewayOpcodes, GatewayCloseCodes } from "./gateway/opcodes.js";
-export { type GatewayEvent } from "./gateway/dispatcher.js";
-export { verifyInteraction, signInteraction, generateEd25519KeyPair } from "./interactions/ed25519.js";
-export { computePermissions, hasPermission, PermissionFlags, ALL_PERMISSIONS } from "./permissions.js";
-export {
-  snowflake,
-  gatewayUrlFromBaseUrl,
-  getAuth,
-  toAPIUser,
-  toAPIGuild,
-  toAPIChannel,
-  toAPIMessage,
-  toAPIRole,
-  toAPIMember,
-  toAPIEmoji,
-  MessageFlags,
-  isEphemeral,
-  AuditLogEvent,
-  recordAudit,
-} from "./helpers.js";
-export { packETF, unpackETF } from "./gateway/etf.js";
-export { setRateLimitConfig, getRateLimiter, DEFAULT_RATE_LIMIT, type RateLimitConfig } from "./rateLimiter.js";
-export {
-  EventWebhookStatus,
-  WebhookType,
-  WebhookEventType,
-  dispatchEventWebhook,
-  sendPing,
-  type WebhookEventPayload,
-  type WebhookPingPayload,
-  type WebhookEventTypeValue,
-} from "./eventWebhooks.js";

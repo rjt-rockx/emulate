@@ -304,23 +304,6 @@ export function getGuildMember(ds: DiscordStore, guildSnowflake: string, userSno
   return ds.members.findBy("guild_snowflake", guildSnowflake).find((m) => m.user_snowflake === userSnowflake);
 }
 
-/** True when the user is a member of the guild. */
-export function hasGuildMember(ds: DiscordStore, guildSnowflake: string, userSnowflake: string): boolean {
-  return !!getGuildMember(ds, guildSnowflake, userSnowflake);
-}
-
-/** Build an audit `changes[]` array from the keys present in a patch (old -> new). */
-export function diffChanges(
-  before: Record<string, unknown>,
-  patch: Record<string, unknown>,
-  rename: Record<string, string> = {},
-): Array<{ key: string; old_value: unknown; new_value: unknown }> {
-  return Object.keys(patch).map((key) => ({
-    key: rename[key] ?? key,
-    old_value: before[key],
-    new_value: patch[key],
-  }));
-}
 
 export interface Pagination {
   limit: number;

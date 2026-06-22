@@ -55,8 +55,6 @@ export const WebhookEventType = {
   GAME_DIRECT_MESSAGE_DELETE: "GAME_DIRECT_MESSAGE_DELETE",
 } as const;
 
-export type WebhookEventTypeValue = (typeof WebhookEventType)[keyof typeof WebhookEventType];
-
 /** Outer webhook payload (type 1 — Event). */
 export interface WebhookEventPayload {
   version: 1;

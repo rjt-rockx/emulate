@@ -9,9 +9,9 @@ import { WebSocketServer, type WebSocket, type RawData } from "ws";
  * implements a full voice connection: the WebSocket control plane (Identify -> Ready -> Select
  * Protocol -> Session Description -> Heartbeat) AND the UDP media plane — IP discovery (the
  * 74-byte request/response handshake) and reception of the RTP-encapsulated, encrypted Opus
- * packets a bot streams. The one thing that does not happen is relaying that audio to other
- * participants, because in the emulator there are none; a bot can otherwise establish a complete
- * voice connection and send audio that the server receives.
+ * packets a bot streams, which are relayed to the other identified participants in the same guild.
+ * Audio is not decrypted or transcoded — the encrypted RTP payload is forwarded opaquely; a bot can
+ * establish a complete voice connection, send audio, and receive the other participants' packets.
  */
 export const VoiceOpcodes = {
   Identify: 0,
@@ -65,7 +65,7 @@ export class VoiceGatewayServer {
 
   constructor() {
     this.udp.on("message", (msg, rinfo) => this.onUdpMessage(msg, rinfo));
-    this.udp.on("error", () => {});
+    this.udp.on("error", () => {}); // ignore transient UDP errors; the control plane drives the connection
     this.udp.bind(0, "127.0.0.1", () => {
       this.udpPort = this.udp.address().port;
     });
