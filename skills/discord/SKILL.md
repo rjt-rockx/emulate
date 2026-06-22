@@ -8,13 +8,35 @@ allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 
 Fully stateful Discord API emulation: a REST API under `/api/v10` plus a real Gateway
 WebSocket on the same port, so real clients like discord.js and discord.py connect and run
-against it. Covers users, guilds (roles, members, emojis), channels, messages, reactions,
-OAuth2, application commands, and interactions (slash commands and message components) over
-both the Gateway (`INTERACTION_CREATE`) and the HTTP interactions endpoint (Ed25519 signed),
-plus channel webhooks. REST mutations dispatch the matching Gateway events to connected bots,
-filtered by intents and guild membership; message content is gated by the `MESSAGE_CONTENT`
-intent exactly as real Discord does. The Gateway supports `zlib-stream` transport compression
-(discord.py's default).
+against it. Every documented REST endpoint is implemented and behaviorally tested.
+
+REST mutations dispatch the matching Gateway events to connected bots, filtered by intents and
+guild membership; message content is gated by the `MESSAGE_CONTENT` intent exactly as real
+Discord does.
+
+Coverage:
+- Users, guilds (roles, members — including single-role add/remove, search, nick — emojis,
+  preview, widget, welcome screen, onboarding, integrations, vanity URL, prune, audit log).
+- Channels (permission overwrites, typing, pins via the current `/messages/pins` API),
+  messages (edit, delete, bulk delete, crosspost, reactions, polls), threads (create, active
+  and archived listings, members), invites, bans (and bulk-ban).
+- OAuth2 (authorize UI, code + client-credentials token exchange, `@me`, connections).
+- Gateway WebSocket: `HELLO`/`IDENTIFY`/`HEARTBEAT`/`READY`, `RESUME` with a replay buffer,
+  `REQUEST_GUILD_MEMBERS`, JSON **and ETF** encodings, `zlib-stream` compression, and voice
+  signaling (`VOICE_STATE_UPDATE` + `VOICE_SERVER_UPDATE` from op 4).
+- Interactions over both the Gateway (`INTERACTION_CREATE`) and the Ed25519-signed HTTP
+  endpoint: slash commands, buttons, select menus, modals, autocomplete, ephemeral replies,
+  followups, and application-command permissions.
+- Application commands + permissions, application emojis, webhooks (incl. GitHub/Slack compat),
+  stage instances, scheduled events, auto-moderation, stickers + sticker-packs, soundboard,
+  guild templates, role connections, voice states, monetization (entitlements/SKUs/
+  subscriptions), Social SDK lobbies, and an inspector.
+- Real per-route + global **rate limiting** with Discord-shaped `X-RateLimit-*` headers and
+  429/`Retry-After` responses (generous by default; tunable via `setRateLimitConfig`).
+
+Not emulated: real-time **voice audio transport** (the voice WebSocket/UDP/RTP media plane).
+The voice signaling/state plane is fully emulated, so bots that track voice presence, move or
+mute members, and manage stage speakers work; streaming actual audio does not.
 
 ## Start
 

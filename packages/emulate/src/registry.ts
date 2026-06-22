@@ -574,7 +574,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   discord: {
     label: "Discord REST + Gateway API emulator",
     endpoints:
-      "users, guilds, channels, messages, roles, members, reactions, emojis, OAuth2, gateway (websocket), interactions (gateway + signed HTTP), application commands, webhooks, inspector",
+      "users, guilds, channels, messages, roles, members (roles, search, nick), reactions, emojis, application emojis, threads (active + archived), permission overwrites, pins, invites, bans (+ bulk), webhooks (+ GitHub/Slack), OAuth2, gateway WebSocket (JSON + ETF, zlib-stream, resume), interactions (gateway + signed HTTP; buttons, selects, modals, autocomplete), application commands (+ permissions), voice states, stage instances, scheduled events, auto-moderation, stickers, soundboard, polls, monetization (entitlements/SKUs/subscriptions), integrations, lobbies, audit log, rate limiting, inspector",
     async load() {
       const mod = await import("@emulators/discord");
       return { plugin: mod.discordPlugin, seedFromConfig: mod.seedFromConfig };
