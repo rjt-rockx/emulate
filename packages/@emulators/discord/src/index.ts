@@ -42,6 +42,7 @@ import { commandPermissionsRoutes } from "./routes/commandPermissions.js";
 import { lobbiesRoutes } from "./routes/lobbies.js";
 import { voiceRoutes } from "./routes/voice.js";
 import { miscRoutes } from "./routes/misc.js";
+import { eventWebhookRoutes } from "./eventWebhooks.js";
 
 export const discordPlugin: ServicePlugin = {
   name: "discord",
@@ -110,6 +111,7 @@ export const discordPlugin: ServicePlugin = {
     lobbiesRoutes(ctx);
     voiceRoutes(ctx);
     miscRoutes(ctx);
+    eventWebhookRoutes(ctx);
     inspectorRoutes(ctx);
   },
 
@@ -156,3 +158,13 @@ export {
 } from "./helpers.js";
 export { packETF, unpackETF } from "./gateway/etf.js";
 export { setRateLimitConfig, getRateLimiter, DEFAULT_RATE_LIMIT, type RateLimitConfig } from "./rateLimiter.js";
+export {
+  EventWebhookStatus,
+  WebhookType,
+  WebhookEventType,
+  dispatchEventWebhook,
+  sendPing,
+  type WebhookEventPayload,
+  type WebhookPingPayload,
+  type WebhookEventTypeValue,
+} from "./eventWebhooks.js";
