@@ -112,6 +112,35 @@ describe("interaction component flows", () => {
     expect(cb.status).toBe(204);
   });
 
+  it("rejects a second callback with 40060 (already acknowledged)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ctx(store);
+    const t = await trigger(app, { type: 3, customId: "x", componentType: 2, channelSnowflake: channel });
+    const first = await callback(app, t.id, t.token, { type: 4, data: { content: "hi" } });
+    expect(first.status).toBe(204);
+    const second = await callback(app, t.id, t.token, { type: 4, data: { content: "again" } });
+    expect(second.status).toBe(400);
+    expect(((await second.json()) as { code: number }).code).toBe(40060);
+  });
+
+  it("rejects an unknown interaction id with 10062", async () => {
+    const { app } = createDiscordTestApp();
+    const res = await callback(app, "999999999999999999", "bogus_token", { type: 4, data: { content: "hi" } });
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { code: number }).code).toBe(10062);
+  });
+
+  it("interaction payload carries context and app_permissions", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ctx(store);
+    const t = await trigger(app, { type: 2, commandName: "ping", channelSnowflake: channel });
+    const payload = t.interaction as { context: number; app_permissions: string; authorizing_integration_owners: Record<string, string> };
+    expect(payload.context).toBe(0);
+    expect(typeof payload.app_permissions).toBe("string");
+    expect(payload.app_permissions).not.toBe("0");
+    expect(payload.authorizing_integration_owners["0"]).toBeTruthy();
+  });
+
   it("modal can be opened as a response to a command (type 9)", async () => {
     const { app, store } = createDiscordTestApp();
     const ds = getDiscordStore(store);

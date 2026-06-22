@@ -1,6 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, toAPIMessage, redactMessageContent } from "../helpers.js";
+import { getAuth, unauthorized, notFound, discordError, toAPIMessage, redactMessageContent } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 import { buildInteraction, type TriggerInput } from "../interactions/trigger.js";
 import { routeInteraction, applyInteractionResponse, getOriginalResponse } from "../interactions/dispatch.js";
@@ -12,7 +12,14 @@ export function interactionsRoutes(ctx: DiscordRouteContext): void {
   app.post("/api/v:version/interactions/:interactionId/:token/callback", async (c) => {
     const ds = getDiscordStore(store);
     const interaction = ds.interactions.findOneBy("snowflake", c.req.param("interactionId"));
-    if (!interaction || interaction.token !== c.req.param("token")) return notFound(c);
+    // Unknown id/token, or a token whose 15-minute window has elapsed -> 10062.
+    if (!interaction || interaction.token !== c.req.param("token") || new Date(interaction.expires_at).getTime() < Date.now()) {
+      return discordError(c, 404, "Unknown interaction", 10062);
+    }
+    // The initial response may be sent exactly once; a second ack -> 40060.
+    if (interaction.callback_used) {
+      return discordError(c, 400, "Interaction has already been acknowledged.", 40060);
+    }
     const response = (await c.req.json().catch(() => ({ type: 1 }))) as { type: number; data?: Record<string, unknown> };
     applyInteractionResponse(ds, bus, store, interaction, response);
     if (c.req.query("with_response") === "true") {

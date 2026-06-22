@@ -174,7 +174,8 @@ describe("discord HTTP interactions endpoint (Ed25519)", () => {
 
     expect(verified).toBe(true);
     expect(received).toBe(1);
-    expect(body.delivered).toBe("both");
+    // An app with an interactions endpoint receives the HTTP delivery ONLY (not the Gateway).
+    expect(body.delivered).toBe("http");
     expect(body.response?.data.content).toBe("from http endpoint");
     // the app's response created a message in the channel
     const after = ds.messages.findBy("channel_snowflake", channelId);

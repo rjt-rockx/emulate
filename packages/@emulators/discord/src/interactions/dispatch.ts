@@ -15,6 +15,8 @@ export const InteractionResponseType = {
   UpdateMessage: 7,
   ApplicationCommandAutocompleteResult: 8,
   Modal: 9,
+  PremiumRequired: 10,
+  LaunchActivity: 12,
 } as const;
 
 interface InteractionResponse {
@@ -136,15 +138,9 @@ export async function routeInteraction(
   bus: DiscordEventBus,
   application: DiscordApplication,
   payload: Record<string, unknown>,
-): Promise<{ httpResponse?: InteractionResponse | null; delivered: "gateway" | "http" | "both" }> {
-  bus.publish({
-    t: "INTERACTION_CREATE",
-    d: payload,
-    guildId: (payload.guild_id as string | undefined) ?? null,
-    requiredIntents: 0,
-    applicationId: application.snowflake,
-  });
-
+): Promise<{ httpResponse?: InteractionResponse | null; delivered: "gateway" | "http" }> {
+  // Discord delivers an interaction EITHER over the configured HTTP endpoint OR the Gateway,
+  // never both. An app with an interactions_endpoint_url receives the signed HTTP POST only.
   if (application.interactions_endpoint_url) {
     const body = JSON.stringify(payload);
     const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -160,10 +156,18 @@ export async function routeInteraction(
         body,
       });
       const httpResponse = (await res.json().catch(() => null)) as InteractionResponse | null;
-      return { httpResponse, delivered: "both" };
+      return { httpResponse, delivered: "http" };
     } catch {
-      return { delivered: "gateway" };
+      return { delivered: "http" };
     }
   }
+
+  bus.publish({
+    t: "INTERACTION_CREATE",
+    d: payload,
+    guildId: (payload.guild_id as string | undefined) ?? null,
+    requiredIntents: 0,
+    applicationId: application.snowflake,
+  });
   return { delivered: "gateway" };
 }

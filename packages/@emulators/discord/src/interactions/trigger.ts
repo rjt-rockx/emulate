@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { DiscordStore } from "../store.js";
 import type { DiscordApplication, DiscordInteraction } from "../entities.js";
 import { snowflake, toAPIUser, toAPIMember, toAPIChannel, toAPIMessage } from "../helpers.js";
+import { ALL_PERMISSIONS } from "../permissions.js";
 
 /** Interaction types. */
 export const InteractionType = {
@@ -105,8 +106,14 @@ export function buildInteraction(ds: DiscordStore, input: TriggerInput): BuiltIn
     guild_id: guildSnowflake ?? undefined,
     data,
     locale: "en-US",
-    app_permissions: "0",
+    app_permissions: ALL_PERMISSIONS.toString(),
     entitlements: [],
+    // GUILD context (0) when in a guild, otherwise a bot DM (1).
+    context: guildSnowflake ? 0 : 1,
+    // Guild install (integration type "0") owner is the guild; user install ("1") is the user.
+    authorizing_integration_owners: guildSnowflake ? { "0": guildSnowflake } : { "1": user.snowflake },
+    attachment_size_limit: 26_214_400,
+    ...(guildSnowflake ? { guild_locale: "en-US" } : {}),
     ...(guildSnowflake
       ? { member: member ? { ...toAPIMember(member, ds), user: toAPIUser(user) } : { user: toAPIUser(user) } }
       : { user: toAPIUser(user) }),
