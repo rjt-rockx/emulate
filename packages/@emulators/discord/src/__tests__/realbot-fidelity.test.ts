@@ -122,10 +122,16 @@ describe("real-bot fidelity regressions", () => {
       headers: botHeaders(),
       body: JSON.stringify({ type: 2, commandName: "clear", channelSnowflake: ids.general, guildSnowflake: ids.guild, userSnowflake: ids.developer }),
     });
-    const { interaction } = await json<{ interaction: { member?: { permissions?: string } } }>(res);
+    const { interaction } = await json<{
+      interaction: { member?: { permissions?: string }; guild?: { id: string; locale?: string; features?: unknown[] } };
+    }>(res);
     expect(interaction.member?.permissions).toBeTruthy();
     const MANAGE_MESSAGES = 1n << 13n;
     expect(BigInt(interaction.member!.permissions!) & MANAGE_MESSAGES).not.toBe(0n);
+    // JDA resolves the interaction guild from a partial `guild` object ({ id, locale, features });
+    // without it, guild slash commands are dropped with an "unexpected channel type" throw.
+    expect(interaction.guild?.id).toBe(ids.guild);
+    expect(Array.isArray(interaction.guild?.features)).toBe(true);
   });
 
   // Music/voice bots gate commands on the invoker being in a voice channel. The control plane places
@@ -154,5 +160,36 @@ describe("real-bot fidelity regressions", () => {
     expect(evt).toBeDefined();
     expect((evt!.d as { channel_id: string }).channel_id).toBe(ids.voice);
     unsubscribe();
+  });
+
+  // discord.js / @discordjs/rest percent-encode `@original` to `%40original`. Both must edit the
+  // original interaction response — this is the editReply/deleteReply path nearly every bot uses
+  // after a deferred reply (Discord Tickets and ModBot both broke on it).
+  it("edits the original interaction response via both @original and %40original", async () => {
+    const { app, store } = createDiscordTestApp();
+    const ids = seededIds(store);
+    // Trigger an interaction and create its original response (so @original resolves).
+    const trig = await json<{ id: string; token: string }>(
+      await app.request(`${TEST_BASE_URL}/__emulate/interactions`, {
+        method: "POST",
+        headers: botHeaders(),
+        body: JSON.stringify({ type: 2, commandName: "ping", channelSnowflake: ids.general, guildSnowflake: ids.guild, userSnowflake: ids.developer }),
+      }),
+    );
+    await app.request(api(`/interactions/${trig.id}/${trig.token}/callback`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ type: 4, data: { content: "original" } }),
+    });
+
+    for (const seg of ["@original", "%40original"]) {
+      const res = await app.request(api(`/webhooks/${ids.app}/${trig.token}/messages/${seg}`), {
+        method: "PATCH",
+        headers: botHeaders(),
+        body: JSON.stringify({ content: `edited via ${seg}` }),
+      });
+      expect(res.status, `PATCH ${seg}`).toBe(200);
+      expect((await json<{ content: string }>(res)).content).toBe(`edited via ${seg}`);
+    }
   });
 });

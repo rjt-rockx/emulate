@@ -61,6 +61,17 @@ Findings so far:
   own "must be in a voice channel" guard. Enhancement added in response: `POST /__emulate/voice-state`
   control plane (place a user in voice + dispatch VOICE_STATE_UPDATE) so voice-gated music-bot
   commands can be driven. (Real-time audio transport remains out of scope — signaling/state only.)
+- **JDA 5.6.1 (high)** — confirmed ETF + zlib-stream both reach READY byte-compatibly (strong
+  fidelity). One bug: `INTERACTION_CREATE` omitted the top-level partial `guild` object, so JDA fell
+  back to a channel-type switch that rejects TEXT and threw — dropping every guild slash command.
+  Real Discord sends a partial guild (`id`, `locale`, `features`). Fixed in `buildInteraction`.
+- **Discord Tickets v4.0.50 (discord.js) + ModBot v3.6.2 (discord.js), BLOCKER, independently
+  confirmed** — `@discordjs/rest` percent-encodes `@original` to `%40original`; the emulator
+  registered the webhook-message routes with a literal `@original` only, so the encoded request fell
+  through to `:messageId` and 404'd. This breaks `editReply`/`deleteReply` after ANY deferred reply —
+  nearly universal. Real Discord decodes the path. Fixed: the `:messageId` handlers recognize the
+  decoded `@original` and delegate. Both bots otherwise booted fully (Tickets: 19 commands +
+  channel/message/pin ticket flow; ModBot: 29 commands + ban/kick/timeout/audit-log all correct).
 
 ## Backlog (from the curated lists)
 

@@ -121,14 +121,17 @@ export function interactionsRoutes(ctx: DiscordRouteContext): void {
     return messageSnowflake ? ds.messages.findOneBy("snowflake", messageSnowflake) : undefined;
   };
 
-  app.get("/api/v:version/webhooks/:appId/:token/messages/@original", (c) => {
+  // The original interaction response is addressed as `@original`. @discordjs/rest percent-encodes
+  // the segment to `%40original`, which Hono decodes back to `@original` in `:messageId` — so the
+  // generic handlers below recognize that decoded value and delegate here (real Discord decodes the
+  // path identically). `:messageId` for a real snowflake never collides since snowflakes are digits.
+  const originalGet = (c: Parameters<Parameters<typeof app.get>[1]>[0]) => {
     const ds = getDiscordStore(store);
     const message = resolveOriginal(c.req.param("token"));
     if (!message) return notFound(c);
     return c.json(toAPIMessage(message, ds));
-  });
-
-  app.patch("/api/v:version/webhooks/:appId/:token/messages/@original", async (c) => {
+  };
+  const originalPatch = async (c: Parameters<Parameters<typeof app.patch>[1]>[0]) => {
     const ds = getDiscordStore(store);
     const message = resolveOriginal(c.req.param("token"));
     if (!message) return notFound(c);
@@ -149,20 +152,24 @@ export function interactionsRoutes(ctx: DiscordRouteContext): void {
       messageAuthorId: updated.author_snowflake,
     });
     return c.json(payload);
-  });
-
-  app.delete("/api/v:version/webhooks/:appId/:token/messages/@original", (c) => {
+  };
+  const originalDelete = (c: Parameters<Parameters<typeof app.delete>[1]>[0]) => {
     const ds = getDiscordStore(store);
     const message = resolveOriginal(c.req.param("token"));
     if (!message) return notFound(c);
     ds.messages.delete(message.id);
     return new Response(null, { status: 204 });
-  });
+  };
+
+  app.get("/api/v:version/webhooks/:appId/:token/messages/@original", originalGet);
+  app.patch("/api/v:version/webhooks/:appId/:token/messages/@original", originalPatch);
+  app.delete("/api/v:version/webhooks/:appId/:token/messages/@original", originalDelete);
 
   // Note: POST /webhooks/:id/:token (interaction followup OR webhook execute) is handled in
   // webhooks.ts, which disambiguates by whether the token is an interaction or webhook token.
 
   app.get("/api/v:version/webhooks/:appId/:token/messages/:messageId", (c) => {
+    if (c.req.param("messageId") === "@original") return originalGet(c);
     const ds = getDiscordStore(store);
     const message = ds.messages.findOneBy("snowflake", c.req.param("messageId"));
     if (!message) return notFound(c);
@@ -170,6 +177,7 @@ export function interactionsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.patch("/api/v:version/webhooks/:appId/:token/messages/:messageId", async (c) => {
+    if (c.req.param("messageId") === "@original") return originalPatch(c);
     const ds = getDiscordStore(store);
     const message = ds.messages.findOneBy("snowflake", c.req.param("messageId"));
     if (!message) return notFound(c);
@@ -183,6 +191,7 @@ export function interactionsRoutes(ctx: DiscordRouteContext): void {
   });
 
   app.delete("/api/v:version/webhooks/:appId/:token/messages/:messageId", (c) => {
+    if (c.req.param("messageId") === "@original") return originalDelete(c);
     const ds = getDiscordStore(store);
     const message = ds.messages.findOneBy("snowflake", c.req.param("messageId"));
     if (!message) return notFound(c);

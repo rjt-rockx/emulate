@@ -102,6 +102,7 @@ export function buildInteraction(ds: DiscordStore, input: TriggerInput): BuiltIn
     ? ds.channels.findOneBy("snowflake", input.channelSnowflake)
     : ds.channels.all().find((c) => c.type === 0);
   const guildSnowflake = input.guildSnowflake ?? channel?.guild_snowflake ?? null;
+  const guild = guildSnowflake ? ds.guilds.findOneBy("snowflake", guildSnowflake) : null;
   const user =
     (input.userSnowflake && ds.users.findOneBy("snowflake", input.userSnowflake)) ||
     ds.users.all().find((u) => !u.bot) ||
@@ -168,6 +169,12 @@ export function buildInteraction(ds: DiscordStore, input: TriggerInput): BuiltIn
     channel_id: channel?.snowflake,
     channel: channel ? toAPIChannel(channel) : undefined,
     guild_id: guildSnowflake ?? undefined,
+    // Partial guild ({ id, locale, features }) — real Discord includes it on guild interactions, and
+    // JDA resolves the guild from it (falling back to a channel-type switch that rejects TEXT, and
+    // throwing, when it is absent).
+    ...(guildSnowflake && guild
+      ? { guild: { id: guildSnowflake, locale: guild.preferred_locale ?? "en-US", features: guild.features ?? [] } }
+      : {}),
     data,
     locale: "en-US",
     app_permissions: ALL_PERMISSIONS.toString(),
