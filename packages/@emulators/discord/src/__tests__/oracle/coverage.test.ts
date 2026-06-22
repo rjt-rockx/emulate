@@ -65,16 +65,39 @@ describe("OpenAPI GET coverage sweep", () => {
     };
     map.overwrite_id = map.role_id;
 
+    // Resources whose param NAME collides with a differently-typed resource (e.g. an application
+    // emoji vs a guild emoji both use {emoji_id}). Seeded separately and applied per-op below.
+    const stageChannelId = await postId(`/guilds/${ids.guild}/channels`, { name: "cov-stage", type: 13 });
+    await postId(`/stage-instances`, { topic: "cov stage", channel_id: stageChannelId });
+    const appEmojiId = await postId(`/applications/${ids.app}/emojis`, { name: "cov_app_emoji", image: PNG });
+    const guildCommandId = await postId(`/applications/${ids.app}/guilds/${ids.guild}/commands`, {
+      name: "cov-gcmd",
+      description: "d",
+      type: 1,
+    });
+    // Per-op path-param overrides: the same param name resolves to a different resource depending
+    // on the parent path (thread vs channel, application vs guild emoji/command, stage channel).
+    const PATH_PARAM_OVERRIDES: Record<string, Record<string, string | undefined>> = {
+      "/channels/{channel_id}/thread-members": { channel_id: map.thread_id },
+      "/channels/{channel_id}/thread-members/{user_id}": { channel_id: map.thread_id, user_id: ids.bot },
+      "/applications/{application_id}/emojis/{emoji_id}": { emoji_id: appEmojiId },
+      "/applications/{application_id}/guilds/{guild_id}/commands/{command_id}": { command_id: guildCommandId },
+      "/applications/{application_id}/guilds/{guild_id}/commands/{command_id}/permissions": { command_id: guildCommandId },
+      "/stage-instances/{channel_id}": { channel_id: stageChannelId },
+    };
+
     const gets = specOperations().filter((o) => o.method === "GET");
     const results: Array<{ path: string; concrete: string; status: number; validated: boolean; errors: string[] }> = [];
     let unmappable = 0;
     for (const op of gets) {
+      const ov = PATH_PARAM_OVERRIDES[op.path] ?? {};
+      const resolve = (p: string): string | undefined => ov[p] ?? map[p];
       const params = [...op.path.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
-      if (!params.every((p) => map[p])) {
+      if (!params.every((p) => resolve(p))) {
         unmappable++;
         continue;
       }
-      const concrete = op.path.replace(/\{(\w+)\}/g, (_, p) => map[p]!);
+      const concrete = op.path.replace(/\{(\w+)\}/g, (_, p) => resolve(p)!);
       const res = await app.request(api(concrete), { headers: botHeaders() });
       const body = await res.json().catch(() => null);
       const r = checkResponse("GET", concrete, res.status, body);
