@@ -355,4 +355,9 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
   };
   app.get("/api/oauth2/userinfo", userinfoHandler);
   app.get("/api/v:version/oauth2/userinfo", userinfoHandler);
+
+  // JWKS for verifying OIDC id tokens (public; empty set in the emulator).
+  const keysHandler = (c: Context<AppEnv>): Response => c.json({ keys: [] });
+  app.get("/api/oauth2/keys", keysHandler);
+  app.get("/api/v:version/oauth2/keys", keysHandler);
 }

@@ -2,6 +2,7 @@ import type { DiscordRouteContext } from "../context.js";
 
 import {
   requireBot,
+  requireUser,
   notFound,
   snowflake,
   unknownSku,
@@ -94,6 +95,18 @@ function parseBool(value: string | undefined, defaultValue: boolean): boolean {
 
 export function monetizationRoutes(ctx: DiscordRouteContext): void {
   const { app, store, bus } = ctx;
+
+  // 0. GET /users/@me/applications/:appId/entitlements (the current user's entitlements for an app)
+  app.get("/api/v:version/users/@me/applications/:appId/entitlements", (c) => {
+    const g = requireUser(c, store);
+    if (g instanceof Response) return g;
+    const { auth, ds } = g;
+    const appId = c.req.param("appId");
+    const results = ds.entitlements
+      .findBy("application_snowflake", appId)
+      .filter((e) => e.user_snowflake === auth.user!.snowflake && !e.deleted);
+    return c.json(results.map((e) => toAPIEntitlement(e)));
+  });
 
   // 1. GET /applications/:appId/skus
   app.get("/api/v:version/applications/:appId/skus", (c) => {

@@ -91,6 +91,14 @@ export function guildSettingsRoutes(ctx: DiscordRouteContext): void {
     return c.json({ guild_id: guild.snowflake, enabled: false, new_member_actions: [], resource_channels: [] });
   });
 
+  // Guild join requests (GuildJoinRequestsListResponse); none tracked in the emulator.
+  app.get("/api/v:version/guilds/:guildId/requests", (c) => {
+    const guild = requireGuild(c);
+    if (!getAuth(c, store)) return unauthorized(c);
+    if (!guild) return notFound(c);
+    return c.json({ guild_join_requests: [] });
+  });
+
   app.put("/api/v:version/guilds/:guildId/onboarding", async (c) => {
     const guild = requireGuild(c);
     if (!getAuth(c, store)) return unauthorized(c);
