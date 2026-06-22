@@ -3,7 +3,7 @@ import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket, type RawData } from "ws";
 import { type Store } from "@emulators/core";
 import { getDiscordStore } from "../store.js";
-import { snowflake, toAPIUser, toAPIGuild, gatewayUrlFromBaseUrl } from "../helpers.js";
+import { snowflake, toAPIUser, toAPIGuild, toAPIMember, gatewayUrlFromBaseUrl } from "../helpers.js";
 import { GatewayOpcodes, GatewayCloseCodes, HEARTBEAT_INTERVAL, type GatewayPayload } from "./opcodes.js";
 import { Intents, hasIntent, intentsAllow } from "./intents.js";
 import { type DiscordEventBus, type GatewayEvent } from "./dispatcher.js";
@@ -99,10 +99,12 @@ export class GatewayServer {
         // No replay buffer in P1: force a fresh identify.
         this.send(session, { op: GatewayOpcodes.InvalidSession, d: false });
         break;
+      case GatewayOpcodes.RequestGuildMembers:
+        this.handleRequestGuildMembers(session, payload.d);
+        break;
       case GatewayOpcodes.PresenceUpdate:
       case GatewayOpcodes.VoiceStateUpdate:
-      case GatewayOpcodes.RequestGuildMembers:
-        // Accepted but not acted upon in P1.
+        // Accepted but not acted upon.
         break;
       default:
         // Unknown opcodes are ignored (lenient).
@@ -174,6 +176,26 @@ export class GatewayServer {
       const guild = ds.guilds.findOneBy("snowflake", guildId);
       if (guild) this.dispatch(session, "GUILD_CREATE", toAPIGuild(guild, ds, { full: true }));
     }
+  }
+
+  private handleRequestGuildMembers(session: GatewaySession, data: unknown): void {
+    if (!session.identified) return;
+    const d = (data ?? {}) as { guild_id?: string; user_ids?: string[] | string; nonce?: string; limit?: number };
+    const guildId = typeof d.guild_id === "string" ? d.guild_id : "";
+    if (!guildId || !session.guildIds.has(guildId)) return;
+    const ds = getDiscordStore(this.store);
+    let members = ds.members.findBy("guild_snowflake", guildId);
+    if (d.user_ids) {
+      const ids = new Set(Array.isArray(d.user_ids) ? d.user_ids : [d.user_ids]);
+      members = members.filter((m) => ids.has(m.user_snowflake));
+    }
+    this.dispatch(session, "GUILD_MEMBERS_CHUNK", {
+      guild_id: guildId,
+      members: members.map((m) => toAPIMember(m, ds)),
+      chunk_index: 0,
+      chunk_count: 1,
+      ...(d.nonce ? { nonce: d.nonce } : {}),
+    });
   }
 
   // -------------------------------------------------------------------------

@@ -142,6 +142,19 @@ describe("discord gateway fan-out from REST mutations", () => {
     expect((event.d as { content: string }).content).toBe("");
   });
 
+  it("responds to REQUEST_GUILD_MEMBERS with a GUILD_MEMBERS_CHUNK", async () => {
+    emu = await startDiscordTestEmulator();
+    const { ws, q } = await identify(emu, Intents.Guilds | Intents.GuildMembers);
+    sockets.push(ws);
+    const guildId = getDiscordStore(emu.store).guilds.findOneBy("name", "Emulate Server")!.snowflake;
+    ws.send(JSON.stringify({ op: GatewayOpcodes.RequestGuildMembers, d: { guild_id: guildId, nonce: "n1" } }));
+    const chunk = await q.waitFor("GUILD_MEMBERS_CHUNK");
+    const d = chunk.d as { guild_id: string; members: unknown[]; nonce: string };
+    expect(d.guild_id).toBe(guildId);
+    expect(d.members.length).toBeGreaterThan(0);
+    expect(d.nonce).toBe("n1");
+  });
+
   it("includes content for the bot's own message even without MessageContent", async () => {
     emu = await startDiscordTestEmulator();
     const { ws, q } = await identify(emu, Intents.Guilds | Intents.GuildMessages); // no MessageContent
