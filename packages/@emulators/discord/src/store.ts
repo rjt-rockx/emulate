@@ -16,6 +16,8 @@ import type {
   DiscordInteraction,
   DiscordBan,
   DiscordInvite,
+  DiscordSticker,
+  DiscordScheduledEvent,
   DiscordGatewaySession,
 } from "./entities.js";
 
@@ -36,6 +38,8 @@ export interface DiscordStore {
   interactions: Collection<DiscordInteraction>;
   bans: Collection<DiscordBan>;
   invites: Collection<DiscordInvite>;
+  stickers: Collection<DiscordSticker>;
+  scheduledEvents: Collection<DiscordScheduledEvent>;
   gatewaySessions: Collection<DiscordGatewaySession>;
 }
 
@@ -68,6 +72,8 @@ export function getDiscordStore(store: Store): DiscordStore {
     ]),
     bans: store.collection<DiscordBan>("discord.bans", ["guild_snowflake", "user_snowflake"]),
     invites: store.collection<DiscordInvite>("discord.invites", ["code", "guild_snowflake", "channel_snowflake"]),
+    stickers: store.collection<DiscordSticker>("discord.stickers", ["snowflake", "guild_snowflake"]),
+    scheduledEvents: store.collection<DiscordScheduledEvent>("discord.scheduled_events", ["snowflake", "guild_snowflake"]),
     gatewaySessions: store.collection<DiscordGatewaySession>("discord.gateway_sessions", ["session_id"]),
   };
 }

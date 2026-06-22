@@ -24,6 +24,7 @@ import { applicationCommandsRoutes } from "./routes/applicationCommands.js";
 import { interactionsRoutes } from "./routes/interactions.js";
 import { webhooksRoutes } from "./routes/webhooks.js";
 import { extrasRoutes } from "./routes/extras.js";
+import { guildResourcesRoutes } from "./routes/guildResources.js";
 import { inspectorRoutes } from "./routes/inspector.js";
 
 export const discordPlugin: ServicePlugin = {
@@ -53,6 +54,7 @@ export const discordPlugin: ServicePlugin = {
     interactionsRoutes(ctx);
     webhooksRoutes(ctx);
     extrasRoutes(ctx);
+    guildResourcesRoutes(ctx);
     inspectorRoutes(ctx);
   },
 

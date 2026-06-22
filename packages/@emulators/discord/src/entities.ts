@@ -248,6 +248,33 @@ export interface DiscordInvite extends Entity {
   expires_at: string | null;
 }
 
+export interface DiscordSticker extends Entity {
+  snowflake: string;
+  guild_snowflake: string;
+  name: string;
+  description: string | null;
+  tags: string;
+  type: number; // 1 = standard, 2 = guild
+  format_type: number; // 1 PNG, 2 APNG, 3 LOTTIE, 4 GIF
+  available: boolean;
+  creator_snowflake: string | null;
+}
+
+export interface DiscordScheduledEvent extends Entity {
+  snowflake: string;
+  guild_snowflake: string;
+  channel_snowflake: string | null;
+  creator_snowflake: string | null;
+  name: string;
+  description: string | null;
+  scheduled_start_time: string;
+  scheduled_end_time: string | null;
+  privacy_level: number; // 2 = guild only
+  status: number; // 1 scheduled, 2 active, 3 completed, 4 canceled
+  entity_type: number; // 1 stage, 2 voice, 3 external
+  user_count: number;
+}
+
 /** Lightweight mirror of a live gateway connection, for the inspector. */
 export interface DiscordGatewaySession extends Entity {
   session_id: string;
