@@ -925,11 +925,11 @@ export function toAPIGuild(g: DiscordGuild, ds: DiscordStore, opts: GuildSeriali
     preferred_locale: g.preferred_locale,
     description: g.description,
     // Documented fields emitted with stable defaults (read fidelity); the ones backed by
-    // optional entity columns reflect stored state.
-    icon_hash: null,
+    // optional entity columns reflect stored state. `owner` (whether the *caller* owns the guild)
+    // and `icon_hash` (template-only) are context-specific and intentionally NOT emitted on the
+    // full guild object — the user-guilds list sets `owner` itself, templates set `icon_hash`.
     discovery_splash: g.discovery_splash ?? null,
     banner: g.banner ?? null,
-    owner: false,
     region: null,
     widget_enabled: g.widget_enabled ?? false,
     widget_channel_id: g.widget_channel_snowflake ?? null,

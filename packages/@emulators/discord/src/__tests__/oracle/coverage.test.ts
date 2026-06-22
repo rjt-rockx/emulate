@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { writeFileSync } from "node:fs";
 import { createDiscordTestApp, api, botHeaders, seededIds } from "../helpers.js";
-import { checkResponse, specOperations } from "./specValidator.js";
+import { checkResponse, specOperations, findOverEmission } from "./specValidator.js";
 
 /**
  * Systematic GET coverage sweep: enumerate EVERY GET operation in the official spec, fill its path
@@ -17,6 +17,18 @@ const KNOWN: Array<{ path: RegExp; error: string }> = [
   { path: /\/role-connection$/, error: "/platform_name must be string" },
 ];
 const isKnown = (p: string, e: string) => KNOWN.some((k) => k.path.test(p.split("?")[0]) && e.includes(k.error));
+
+/**
+ * Over-emitted keys that are real-but-context-specific and accepted (the OpenAPI spec scopes them
+ * more narrowly than reality / discord-api-types). Each is a valid optional field per
+ * discord-api-types, so emitting it does not violate the typed contract:
+ *  - message `guild_id`: optional on APIMessage; gateway MESSAGE_* events carry it (gateway shares
+ *    the REST serializer), and discord-api-types types it as an optional message field.
+ *  - application command `default_permission`: a documented (deprecated) command field still present
+ *    on APIApplicationCommand; the OpenAPI spec dropped it but the docs/types retain it.
+ */
+const OVER_EMISSION_KNOWN = new Set(["guild_id", "default_permission"]);
+const normalizeKey = (k: string): string => k.replace(/^.*?(\w+)$/, "$1");
 
 const PNG = "data:image/png;base64,iVBORw0KGgo=";
 
@@ -88,6 +100,7 @@ describe("OpenAPI GET coverage sweep", () => {
 
     const gets = specOperations().filter((o) => o.method === "GET");
     const results: Array<{ path: string; concrete: string; status: number; validated: boolean; errors: string[] }> = [];
+    const overEmission = new Map<string, string[]>();
     let unmappable = 0;
     for (const op of gets) {
       const ov = PATH_PARAM_OVERRIDES[op.path] ?? {};
@@ -103,6 +116,10 @@ describe("OpenAPI GET coverage sweep", () => {
       const r = checkResponse("GET", concrete, res.status, body);
       const errors = r.errors.filter((e) => !isKnown(concrete, e));
       results.push({ path: op.path, concrete, status: res.status, validated: r.validated, errors });
+      if (res.status >= 200 && res.status < 300) {
+        const extras = findOverEmission("GET", concrete, res.status, body).filter((k) => !OVER_EMISSION_KNOWN.has(normalizeKey(k)));
+        if (extras.length) overEmission.set(op.path, extras);
+      }
     }
 
     const ok2xx = results.filter((r) => r.status >= 200 && r.status < 300);
@@ -120,7 +137,14 @@ describe("OpenAPI GET coverage sweep", () => {
     for (const gp of gaps) lines.push(`GAP        GET ${gp.path} [${gp.status}]`);
     writeFileSync("/tmp/conformance-coverage-report.txt", lines.join("\n") + "\n");
 
+    // Over-emission report (keys we emit that the spec never declares). Written for review; the
+    // assertion below enforces zero modulo OVER_EMISSION_KNOWN (spec gaps, documented divergences).
+    const oeLines = [`OVER-EMISSION endpoints=${overEmission.size}`];
+    for (const [p, keys] of overEmission) oeLines.push(`${p}\n    ${keys.join("\n    ")}`);
+    writeFileSync("/tmp/conformance-overemission.txt", oeLines.join("\n") + "\n");
+
     expect(validated.length).toBeGreaterThanOrEqual(15);
     expect(failing, `Unexpected spec divergences:\n${lines.join("\n")}`).toHaveLength(0);
+    expect(overEmission.size, `Unexpected over-emission (keys absent from the spec):\n${oeLines.join("\n")}`).toBe(0);
   });
 });

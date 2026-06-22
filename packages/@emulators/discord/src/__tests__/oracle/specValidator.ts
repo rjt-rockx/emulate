@@ -183,6 +183,94 @@ export function generateRequestBody(specPath: string, method: string, idFor?: Id
   return genFromSchema(schema, 0, undefined, idFor);
 }
 
+// ---------------------------------------------------------------------------
+// Over-emission audit
+//
+// The OpenAPI oracle catches MISSING/wrong fields, but not OVER-emission: Discord's response
+// objects omit `additionalProperties:false`, so ajv permits any extra key. Yet Discord's schemas
+// DO enumerate every real field, so an emitted key absent from a schema's declared `properties`
+// is almost always a fidelity bug (a field real Discord never returns). This audit flags those,
+// while respecting explicit `additionalProperties` (genuine map types like `metadata`/`nicks`).
+// ---------------------------------------------------------------------------
+
+interface ObjectShape {
+  props: Record<string, JsonSchema>;
+  /** True when the schema explicitly permits arbitrary keys (a map type) — don't flag extras. */
+  open: boolean;
+}
+
+/** Merge an object schema (through allOf/oneOf/anyOf/$ref) into its declared property set. */
+function objectShape(raw: JsonSchema, depth: number): ObjectShape {
+  if (depth > 8) return { props: {}, open: true };
+  const schema = deref(raw);
+  const props: Record<string, JsonSchema> = {};
+  let open = false;
+  const merge = (s: JsonSchema): void => {
+    const sh = objectShape(s, depth + 1);
+    Object.assign(props, sh.props);
+    open = open || sh.open;
+  };
+  for (const part of (schema.allOf as JsonSchema[]) ?? []) merge(part);
+  for (const branch of (schema.oneOf as JsonSchema[]) ?? []) merge(branch);
+  for (const branch of (schema.anyOf as JsonSchema[]) ?? []) merge(branch);
+  if (schema.properties) Object.assign(props, schema.properties as Record<string, JsonSchema>);
+  const ap = schema.additionalProperties;
+  if (ap === true || (ap != null && typeof ap === "object")) open = true;
+  return { props, open };
+}
+
+/** Pick, among oneOf/anyOf branches, the property schema that declares `key` (for recursion). */
+function propSchemaFor(raw: JsonSchema, key: string, depth: number): JsonSchema | undefined {
+  return objectShape(raw, depth).props[key];
+}
+
+function walkUnknown(raw: JsonSchema, instance: unknown, path: string, out: string[], depth: number): void {
+  if (instance == null || depth > 8) return;
+  const schema = deref(raw);
+  if (Array.isArray(instance)) {
+    const items = schema.items as JsonSchema | undefined;
+    if (items) instance.forEach((it, i) => walkUnknown(items, it, `${path}[${i}]`, out, depth + 1));
+    return;
+  }
+  if (typeof instance !== "object") return;
+  const { props, open } = objectShape(schema, 0);
+  // Only audit objects the spec actually describes with named properties.
+  if (Object.keys(props).length === 0) return;
+  for (const [k, v] of Object.entries(instance as Record<string, unknown>)) {
+    const child = k in props ? props[k] : propSchemaFor(schema, k, 0);
+    if (child) walkUnknown(child, v, path ? `${path}.${k}` : k, out, depth + 1);
+    else if (!open) out.push(path ? `${path}.${k}` : k);
+  }
+}
+
+/** Resolve the raw JSON response schema for an operation+status, or null when none is declared. */
+function responseSchema(specPath: string, method: string, status: number): JsonSchema | null {
+  const op = spec.paths[specPath]?.[method.toLowerCase()];
+  if (!op) return null;
+  const statusKey = String(status);
+  const classKey = `${statusKey[0]}XX`;
+  const respKey = op.responses[statusKey] ? statusKey : op.responses[classKey] ? classKey : op.responses.default ? "default" : null;
+  if (!respKey) return null;
+  const resp = op.responses[respKey];
+  const basePointer = resp.$ref ? resp.$ref.replace(/^#/, "") : `/paths/${ptr(specPath)}/${method.toLowerCase()}/responses/${ptr(respKey)}`;
+  const schema = resolvePointer(`${basePointer}/content/${ptr("application/json")}/schema`);
+  return schema === undefined ? null : (schema as JsonSchema);
+}
+
+/**
+ * Flag response keys the emulator emits that the spec's schema never declares (over-emission).
+ * Array indices in the returned paths are normalized to `[]` and de-duplicated.
+ */
+export function findOverEmission(method: string, path: string, status: number, body: unknown): string[] {
+  const specPath = matchSpecPath(path);
+  if (!specPath) return [];
+  const schema = responseSchema(specPath, method, status);
+  if (!schema) return [];
+  const out: string[] = [];
+  walkUnknown(schema, body, "", out, 0);
+  return [...new Set(out.map((p) => p.replace(/\[\d+\]/g, "[]")))];
+}
+
 /** Spec operations (method + path) the spec defines, for coverage reporting. */
 export function specOperations(): Array<{ method: string; path: string }> {
   const ops: Array<{ method: string; path: string }> = [];
