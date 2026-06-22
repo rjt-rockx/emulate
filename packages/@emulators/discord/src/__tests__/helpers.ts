@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { discordPlugin } from "../index.js";
 import { seedFromConfig, type DiscordSeedConfig } from "../seed.js";
 import { gatewayUrlFromBaseUrl } from "../helpers.js";
+import { getDiscordStore } from "../store.js";
 
 export const TEST_BASE_URL = "http://localhost:4099";
 export const BOT_TOKEN = "test_bot_token";
@@ -25,6 +26,37 @@ export interface DiscordTestApp {
   store: Store;
   webhooks: WebhookDispatcher;
   baseUrl: string;
+}
+
+/** The snowflakes of the entities the default seed creates — so specs stop re-deriving them. */
+export interface SeededIds {
+  app: string;
+  bot: string;
+  guild: string;
+  general: string;
+  random: string;
+  voice: string;
+  developer: string;
+}
+
+/** Resolve the default-seed entity ids (Emulate App/bot, Emulate Server, general/random/General). */
+export function seededIds(store: Store): SeededIds {
+  const ds = getDiscordStore(store);
+  const app = ds.applications.all()[0]!;
+  return {
+    app: app.snowflake,
+    bot: app.bot_user_snowflake,
+    guild: ds.guilds.findOneBy("name", "Emulate Server")!.snowflake,
+    general: ds.channels.findOneBy("name", "general")!.snowflake,
+    random: ds.channels.findOneBy("name", "random")!.snowflake,
+    voice: ds.channels.findOneBy("name", "General")!.snowflake,
+    developer: ds.users.findOneBy("username", "developer")!.snowflake,
+  };
+}
+
+/** Typed `res.json()` — trims the `(await res.json()) as T` cast repeated across specs. */
+export async function json<T = Record<string, unknown>>(res: Response): Promise<T> {
+  return (await res.json()) as T;
 }
 
 /** In-process app + store (no real listening). Use for REST route tests. */
