@@ -71,6 +71,7 @@ export { Intents } from "./gateway/intents.js";
 export { GatewayOpcodes, GatewayCloseCodes } from "./gateway/opcodes.js";
 export { type GatewayEvent } from "./gateway/dispatcher.js";
 export { verifyInteraction, signInteraction, generateEd25519KeyPair } from "./interactions/ed25519.js";
+export { computePermissions, hasPermission, PermissionFlags, ALL_PERMISSIONS } from "./permissions.js";
 export {
   snowflake,
   gatewayUrlFromBaseUrl,
