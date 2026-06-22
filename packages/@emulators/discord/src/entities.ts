@@ -81,6 +81,10 @@ export interface DiscordGuild extends Entity {
   member_snowflakes: string[];
   large: boolean;
   unavailable: boolean;
+  widget_enabled?: boolean;
+  widget_channel_snowflake?: string | null;
+  welcome_screen?: { description: string | null; welcome_channels: unknown[] } | null;
+  onboarding?: { prompts: unknown[]; default_channel_ids: string[]; enabled: boolean; mode: number } | null;
 }
 
 export interface DiscordRole extends Entity {
