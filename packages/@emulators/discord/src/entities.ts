@@ -90,6 +90,8 @@ export interface DiscordGuild extends Entity {
   premium_progress_bar_enabled?: boolean;
   vanity_url_code?: string | null;
   vanity_uses?: number;
+  /** Security incident actions (invites_disabled_until / dms_disabled_until / ...). */
+  incidents_data?: Record<string, unknown> | null;
   widget_enabled?: boolean;
   widget_channel_snowflake?: string | null;
   welcome_screen?: { description: string | null; welcome_channels: unknown[] } | null;
@@ -112,6 +114,8 @@ export interface DiscordRole extends Entity {
   flags?: number;
   /** Role tags (bot_id, integration_id, premium_subscriber, ...) for managed roles. */
   tags?: Record<string, unknown> | null;
+  /** Holographic/gradient role colors (primary + optional secondary/tertiary). */
+  colors?: { primary_color: number; secondary_color: number | null; tertiary_color: number | null } | null;
 }
 
 export interface DiscordGuildMember extends Entity {

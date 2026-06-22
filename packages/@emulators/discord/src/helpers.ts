@@ -453,6 +453,8 @@ export function toAPIRole(r: DiscordRole): Record<string, unknown> {
     managed: r.managed,
     mentionable: r.mentionable,
     flags: r.flags ?? 0,
+    // Role colors object: primary mirrors `color`; secondary/tertiary enable gradients.
+    colors: r.colors ?? { primary_color: r.color, secondary_color: null, tertiary_color: null },
   };
   if (r.tags) role.tags = r.tags;
   return role;
@@ -758,6 +760,7 @@ export function toAPIGuild(g: DiscordGuild, ds: DiscordStore, opts: GuildSeriali
     vanity_url_code: g.vanity_url_code ?? null,
     application_id: null,
     premium_progress_bar_enabled: g.premium_progress_bar_enabled ?? false,
+    incidents_data: g.incidents_data ?? null,
     stickers: ds.stickers.findBy("guild_snowflake", g.snowflake).map((s) => ({
       id: s.snowflake,
       name: s.name,
