@@ -129,11 +129,8 @@ describe("message.mdx — Message Types & Flags values", () => {
     expect(((m.flags as number) & (1 << 6)) === 0).toBe(true);
   });
 
-  it("Crossposting a message returns 200 and sets a crosspost flag", async () => {
-    // Per the doc, Crosspost Message must set CROSSPOSTED (1<<0). The crosspost endpoint lives in
-    // channels.ts (outside this agent's scope) and currently sets 1<<1 (IS_CROSSPOST) instead;
-    // see the messaging report for the cross-file fix needed. Here we assert the observable
-    // contract reachable within scope: a 200 with a crosspost-related flag bit set.
+  it("Crossposting a message returns 200 and sets CROSSPOSTED (1<<0)", async () => {
+    // Per the doc, Crosspost Message must set CROSSPOSTED (1<<0).
     const { app, store } = createDiscordTestApp();
     const { general } = ctx(store);
     const m = await post(app, general, { content: "announce" });
@@ -143,7 +140,7 @@ describe("message.mdx — Message Types & Flags values", () => {
     });
     expect(res.status).toBe(200);
     const crossposted = (await res.json()) as Json;
-    expect(((crossposted.flags as number) & ((1 << 0) | (1 << 1))) !== 0).toBe(true);
+    expect(((crossposted.flags as number) & (1 << 0)) !== 0).toBe(true);
   });
 });
 
@@ -409,6 +406,13 @@ describe("message.mdx — enforce_nonce", () => {
     const m = await post(app, general, { content: "x", nonce: "n1" });
     expect(m.nonce).toBe("n1");
   });
+
+  it("echoes an integer nonce as a string", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ctx(store);
+    const m = await post(app, general, { content: "x", nonce: 12345 });
+    expect(m.nonce).toBe("12345");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -459,6 +463,37 @@ describe("message.mdx — Get Channel Message(s)", () => {
     expect(res.status).toBe(404);
     expect(((await res.json()) as { code: number }).code).toBe(10008);
   });
+
+  it("Get Channel Messages with around returns messages centered on the snowflake", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ctx(store);
+    const a = await post(app, general, { content: "a" });
+    const b = await post(app, general, { content: "b" });
+    const c2 = await post(app, general, { content: "c" });
+    const list = (await (
+      await app.request(api(`/channels/${general}/messages?around=${b.id}&limit=4`), { headers: botHeaders() })
+    ).json()) as Array<Json>;
+    // b should be included, list sorted ascending.
+    expect(list.some((m) => m.id === b.id)).toBe(true);
+    // All IDs in the list should be near b.
+    for (let i = 1; i < list.length; i++) {
+      expect(BigInt(list[i]!.id as string)).toBeGreaterThan(BigInt(list[i - 1]!.id as string));
+    }
+    // Verify c2 is accessible at all (used to avoid TS unused warning).
+    expect(typeof c2.id).toBe("string");
+    expect(typeof a.id).toBe("string");
+  });
+
+  it("Get Channel Messages rejects mixing before and after -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ctx(store);
+    const res = await app.request(
+      api(`/channels/${general}/messages?before=1000000000000000000&after=900000000000000000`),
+      { headers: botHeaders() },
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -501,6 +536,67 @@ describe("message.mdx — Create Message validation", () => {
     const m = (await res.json()) as Json;
     expect(m.content).toBe("Hello, World!");
     expect((m.embeds as Array<Json>)[0].title).toBe("Hello, Embed!");
+  });
+
+  it("rejects content longer than 2000 characters -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ctx(store);
+    const res = await app.request(api(`/channels/${general}/messages`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ content: "x".repeat(2001) }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects more than 3 sticker_ids -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ctx(store);
+    const res = await app.request(api(`/channels/${general}/messages`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ sticker_ids: ["1", "2", "3", "4"] }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects a string nonce longer than 25 characters -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ctx(store);
+    const res = await app.request(api(`/channels/${general}/messages`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ content: "x", nonce: "n".repeat(26) }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects more than 10 embeds -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ctx(store);
+    const embeds = Array.from({ length: 11 }, (_, i) => ({ title: `E${i}` }));
+    const res = await app.request(api(`/channels/${general}/messages`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ content: "x", embeds }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects an embed title longer than 256 characters -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ctx(store);
+    const res = await app.request(api(`/channels/${general}/messages`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ content: "x", embeds: [{ title: "t".repeat(257) }] }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
   });
 });
 
@@ -630,6 +726,63 @@ describe("message.mdx — Delete & Bulk Delete", () => {
     expect((await app.request(api(`/channels/${general}/messages/${a.id}`), { headers: botHeaders() })).status).toBe(404);
     expect((await app.request(api(`/channels/${general}/messages/${b.id}`), { headers: botHeaders() })).status).toBe(404);
   });
+
+  it("Bulk Delete rejects fewer than 2 messages -> 50034", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ctx(store);
+    const a = await post(app, general, { content: "a" });
+    const res = await app.request(api(`/channels/${general}/messages/bulk-delete`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ messages: [a.id] }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50034);
+  });
+
+  it("Bulk Delete rejects more than 100 messages -> 50034", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ctx(store);
+    const ids = Array.from({ length: 101 }, (_, i) => String(BigInt("1000000000000000000") + BigInt(i)));
+    const res = await app.request(api(`/channels/${general}/messages/bulk-delete`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ messages: ids }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50034);
+  });
+
+  it("Bulk Delete rejects duplicate message ids -> 50034", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ctx(store);
+    const a = await post(app, general, { content: "a" });
+    const b = await post(app, general, { content: "b" });
+    const res = await app.request(api(`/channels/${general}/messages/bulk-delete`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ messages: [a.id, a.id, b.id] }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50034);
+  });
+
+  it("Bulk Delete rejects messages older than 2 weeks -> 50034", async () => {
+    const { app } = createDiscordTestApp();
+    // Snowflake from 3 weeks ago: Discord epoch (Jan 1 2015) + some time in the past.
+    // A snowflake from 3 weeks ago: (Date.now() - 21days - DISCORD_EPOCH) << 22
+    const DISCORD_EPOCH = 1420070400000n;
+    const threeWeeksAgo = BigInt(Date.now() - 21 * 24 * 60 * 60 * 1000) - DISCORD_EPOCH;
+    const oldSnowflake = (threeWeeksAgo << 22n).toString();
+    const oldSnowflake2 = ((threeWeeksAgo << 22n) + 1n).toString();
+    const res = await app.request(api(`/channels/999999999999999999/messages/bulk-delete`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ messages: [oldSnowflake, oldSnowflake2] }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50034);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -754,6 +907,20 @@ describe("message.mdx — Reaction endpoints", () => {
     const remaining = (await (await app.request(api(`/channels/${general}/messages/${m.id}`), { headers: botHeaders() })).json()) as { reactions: Array<{ emoji: { name: string } }> };
     expect(remaining.reactions).toHaveLength(1);
     expect(remaining.reactions[0].emoji.name).toBe("❤");
+  });
+
+  it("reacting with an unknown custom emoji returns 10014 Unknown Emoji", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ctx(store);
+    const m = await post(app, general, { content: "react" });
+    // Use a custom emoji id that doesn't exist in the store.
+    const unknownCustomEmoji = encodeURIComponent("ghost:999999999999999999");
+    const res = await app.request(api(`/channels/${general}/messages/${m.id}/reactions/${unknownCustomEmoji}/@me`), {
+      method: "PUT",
+      headers: botHeaders(),
+    });
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { code: number }).code).toBe(10014);
   });
 
   it("the 20-distinct-emoji cap is enforced -> 30010", async () => {

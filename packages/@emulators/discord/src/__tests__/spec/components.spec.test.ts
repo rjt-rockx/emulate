@@ -151,6 +151,73 @@ describe("components.mdx — custom_id limits (1-100 characters)", () => {
     const msg = (await res.json()) as { components: Array<{ components: Array<{ custom_id: string }> }> };
     expect(msg.components[0]!.components[0]!.custom_id.length).toBe(100);
   });
+
+  it("rejects a custom_id longer than 100 characters -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await sendMessage(app, channel, {
+      content: "test",
+      components: [
+        { type: 1, components: [{ type: 2, style: 1, label: "X", custom_id: "x".repeat(101) }] },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+});
+
+describe("components.mdx — Button validation", () => {
+  it("rejects a button label longer than 80 characters -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await sendMessage(app, channel, {
+      content: "test",
+      components: [
+        { type: 1, components: [{ type: 2, style: 1, label: "L".repeat(81), custom_id: "btn" }] },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects a link button url longer than 512 characters -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await sendMessage(app, channel, {
+      content: "test",
+      components: [
+        { type: 1, components: [{ type: 2, style: 5, label: "Visit", url: "https://example.com/" + "a".repeat(493) }] },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects a non-link button without custom_id -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await sendMessage(app, channel, {
+      content: "test",
+      components: [
+        { type: 1, components: [{ type: 2, style: 1, label: "Click" }] },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects a link button without url -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await sendMessage(app, channel, {
+      content: "test",
+      components: [
+        { type: 1, components: [{ type: 2, style: 5, label: "Visit", custom_id: "btn" }] },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
 });
 
 describe("components.mdx — Action Row constraints", () => {

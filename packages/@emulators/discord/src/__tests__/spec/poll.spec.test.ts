@@ -161,6 +161,21 @@ describe("poll.mdx — Poll Create Request", () => {
     const res = await postPoll(app, general, { question: { text: "x".repeat(300) }, answers });
     expect(res.status).toBe(200);
   });
+
+  it("rejects a poll duration greater than 32 days (768 hours) -> 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ctx(store);
+    const res = await postPoll(app, general, { ...BASIC_POLL, duration: 769 });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("accepts a poll duration at the boundary (768 hours)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ctx(store);
+    const res = await postPoll(app, general, { ...BASIC_POLL, duration: 768 });
+    expect(res.status).toBe(200);
+  });
 });
 
 // ---------------------------------------------------------------------------

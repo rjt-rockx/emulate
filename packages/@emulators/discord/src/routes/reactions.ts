@@ -2,7 +2,7 @@ import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
 import type { DiscordStore } from "../store.js";
-import { getAuth, unauthorized, unknownMessage, discordError, toAPIUser, toAPIMember } from "../helpers.js";
+import { getAuth, unauthorized, unknownMessage, unknownEmoji, discordError, toAPIUser, toAPIMember } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 
 interface ParsedEmoji {
@@ -60,9 +60,12 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
     const already = existingReactions.some(
       (r) => r.user_snowflake === auth.user!.snowflake && r.emoji_name === emoji.name && r.emoji_snowflake === emoji.id,
     );
+    // For a custom emoji that is not already on the message, verify it exists in the emoji store.
+    const emojiAlreadyOnMessage = distinctEmoji.has(reactionKey(emoji.name, emoji.id));
+    if (emoji.id !== null && !emojiAlreadyOnMessage && !ds.emojis.findOneBy("snowflake", emoji.id)) return unknownEmoji(c);
     // A message may carry at most 20 distinct emoji. Adding a NEW distinct emoji past that cap is
     // rejected; reacting with an emoji already present on the message is always allowed.
-    if (!already && !distinctEmoji.has(reactionKey(emoji.name, emoji.id)) && distinctEmoji.size >= MAX_DISTINCT_EMOJI) {
+    if (!already && !emojiAlreadyOnMessage && distinctEmoji.size >= MAX_DISTINCT_EMOJI) {
       return discordError(c, 400, "Maximum number of reactions reached (20)", 30010);
     }
     if (!already) {
@@ -106,6 +109,7 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
     const message = resolveMessage(channelId, messageId);
     if (!message) return unknownMessage(c);
     const emoji = parseEmoji(c.req.param("emoji"), ds);
+    if (emoji.id !== null && !ds.emojis.findOneBy("snowflake", emoji.id)) return unknownEmoji(c);
     const row = ds.reactions
       .findBy("message_snowflake", messageId)
       .find((r) => r.user_snowflake === userSnowflake && r.emoji_name === emoji.name && r.emoji_snowflake === emoji.id);
@@ -147,6 +151,7 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
     const messageId = c.req.param("messageId");
     if (!resolveMessage(c.req.param("channelId"), messageId)) return unknownMessage(c);
     const emoji = parseEmoji(c.req.param("emoji"), ds);
+    if (emoji.id !== null && !ds.emojis.findOneBy("snowflake", emoji.id)) return unknownEmoji(c);
     const limit = Math.min(Number(c.req.query("limit") ?? 25) || 25, 100);
     const type = Number(c.req.query("type") ?? 0) || 0; // 0 NORMAL, 1 BURST
     const after = c.req.query("after");
@@ -173,6 +178,7 @@ export function reactionsRoutes(ctx: DiscordRouteContext): void {
     const message = resolveMessage(channelId, messageId);
     if (!message) return unknownMessage(c);
     const emoji = parseEmoji(c.req.param("emoji"), ds);
+    if (emoji.id !== null && !ds.emojis.findOneBy("snowflake", emoji.id)) return unknownEmoji(c);
     for (const r of ds.reactions
       .findBy("message_snowflake", messageId)
       .filter((row) => row.emoji_name === emoji.name && row.emoji_snowflake === emoji.id)) {
