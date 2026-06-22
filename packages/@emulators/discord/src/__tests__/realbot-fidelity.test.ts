@@ -110,4 +110,21 @@ describe("real-bot fidelity regressions", () => {
     expect((dispatched!.d as { author: { id: string }; guild_id?: string }).author.id).toBe(ids.developer);
     unsubscribe();
   });
+
+  // discord.py: app_commands.checks.has_permissions reads ONLY interaction.member.permissions; real
+  // Discord always resolves it. Without it, every permission-gated command is rejected (even for the
+  // guild owner). The seeded `developer` is the guild owner, so permissions must be the full bitset.
+  it("interaction member carries resolved permissions (discord.py has_permissions)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const ids = seededIds(store);
+    const res = await app.request(`${TEST_BASE_URL}/__emulate/interactions`, {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ type: 2, commandName: "clear", channelSnowflake: ids.general, guildSnowflake: ids.guild, userSnowflake: ids.developer }),
+    });
+    const { interaction } = await json<{ interaction: { member?: { permissions?: string } } }>(res);
+    expect(interaction.member?.permissions).toBeTruthy();
+    const MANAGE_MESSAGES = 1n << 13n;
+    expect(BigInt(interaction.member!.permissions!) & MANAGE_MESSAGES).not.toBe(0n);
+  });
 });

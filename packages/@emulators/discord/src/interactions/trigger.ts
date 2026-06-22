@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { DiscordStore } from "../store.js";
 import type { DiscordApplication, DiscordInteraction } from "../entities.js";
 import { snowflake, toAPIUser, toAPIMember, toAPIChannel, toAPIMessage, toAPIRole } from "../helpers.js";
-import { ALL_PERMISSIONS } from "../permissions.js";
+import { ALL_PERMISSIONS, computePermissions, computeGuildPermissions } from "../permissions.js";
 
 /** Interaction types. */
 export const InteractionType = {
@@ -151,6 +151,12 @@ export function buildInteraction(ds: DiscordStore, input: TriggerInput): BuiltIn
   const member = guildSnowflake
     ? ds.members.findBy("guild_snowflake", guildSnowflake).find((m) => m.user_snowflake === user.snowflake)
     : undefined;
+  // Real Discord resolves the invoking member's permissions on every guild interaction (channel-level
+  // when a channel is in context). discord.py's `has_permissions` checks read ONLY this field — without
+  // it, every permission-gated command is rejected, even for the guild owner.
+  const memberPermissions = guildSnowflake
+    ? (channel ? computePermissions(ds, user.snowflake, channel.snowflake) : computeGuildPermissions(ds, user.snowflake, guildSnowflake)).toString()
+    : undefined;
   const message = input.messageSnowflake ? ds.messages.findOneBy("snowflake", input.messageSnowflake) : undefined;
 
   const payload: Record<string, unknown> = {
@@ -173,7 +179,7 @@ export function buildInteraction(ds: DiscordStore, input: TriggerInput): BuiltIn
     attachment_size_limit: 26_214_400,
     ...(guildSnowflake ? { guild_locale: "en-US" } : {}),
     ...(guildSnowflake
-      ? { member: member ? { ...toAPIMember(member, ds), user: toAPIUser(user) } : { user: toAPIUser(user) } }
+      ? { member: member ? { ...toAPIMember(member, ds), user: toAPIUser(user), permissions: memberPermissions } : { user: toAPIUser(user) } }
       : { user: toAPIUser(user) }),
     ...(message ? { message: toAPIMessage(message, ds) } : {}),
   };

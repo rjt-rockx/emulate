@@ -41,6 +41,19 @@ Findings so far:
   registration. Real Discord always sends it (`[]` for bots). Fixed: READY now includes
   `private_channels: []`. (Note: Eris also can't target a plaintext `http://host:port` REST endpoint
   without monkeypatching `https.request` — an Eris-config artifact, not an emulator bug.)
+- **discord.py feature bot — Milo, ~80 commands (high)** — everything worked (tree sync of 55
+  commands, embeds, reactions, multipart file uploads, edit/delete, bulk-delete, component
+  round-trip, on_message/on_message_delete) EXCEPT permission-gated commands: the `INTERACTION_CREATE`
+  member omitted the resolved `permissions` field, which discord.py's `has_permissions` reads
+  exclusively — so every moderation/automod command was rejected even for the guild owner. Real
+  Discord always resolves it. Fixed: `buildInteraction` now sets `member.permissions` (channel-level).
+- **discordrb 3.8 (medium, cross-library robustness)** — the emulator emitted the gateway HELLO
+  synchronously inside the `ws` connection callback, so on loopback the kernel coalesced the HTTP 101
+  and HELLO into one TCP segment; discordrb routes its entire first read into the handshake parser and
+  discarded HELLO, hanging forever. (Root cause is a discordrb bug, but real Discord sends HELLO in a
+  separate segment.) Fixed: HELLO is now deferred one tick so the 101 flushes first. discordrb
+  otherwise connected, registered a guild command, and round-tripped messages/interactions, with
+  correct intent-based content redaction.
 
 ## Backlog (from the curated lists)
 

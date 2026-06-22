@@ -153,11 +153,15 @@ export class GatewayServer {
     // context for the connection). Other schemes (e.g. zstd-stream) fall back to plain.
     if (compress === "zlib-stream") session.compressor = new ZlibCompressor();
 
-    this.send(session, { op: GatewayOpcodes.Hello, d: { heartbeat_interval: heartbeatInterval } });
-
     ws.on("message", (raw) => this.onMessage(session, raw));
     ws.on("close", () => this.removeSession(session, true));
     ws.on("error", () => this.removeSession(session, true));
+
+    // Defer HELLO by one event-loop tick so the HTTP 101 upgrade response flushes to the socket
+    // first and HELLO lands in a SEPARATE TCP segment — as on real Discord (gateway behind TLS/LB).
+    // Libraries that route their entire first read into the handshake parser (e.g. discordrb)
+    // otherwise discard a HELLO that the kernel coalesces into the 101 segment, and hang forever.
+    setImmediate(() => this.send(session, { op: GatewayOpcodes.Hello, d: { heartbeat_interval: heartbeatInterval } }));
   }
 
   /**
