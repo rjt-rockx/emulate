@@ -32,6 +32,7 @@ import { templatesRoutes } from "./routes/templates.js";
 import { pollsRoutes } from "./routes/polls.js";
 import { roleConnectionsRoutes } from "./routes/roleConnections.js";
 import { guildSettingsRoutes } from "./routes/guildSettings.js";
+import { soundboardRoutes } from "./routes/soundboard.js";
 import { inspectorRoutes } from "./routes/inspector.js";
 
 export const discordPlugin: ServicePlugin = {
@@ -69,6 +70,7 @@ export const discordPlugin: ServicePlugin = {
     pollsRoutes(ctx);
     roleConnectionsRoutes(ctx);
     guildSettingsRoutes(ctx);
+    soundboardRoutes(ctx);
     inspectorRoutes(ctx);
   },
 

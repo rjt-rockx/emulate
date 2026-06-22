@@ -349,6 +349,17 @@ export interface DiscordAutoModRule extends Entity {
   exempt_channels: string[];
 }
 
+export interface DiscordSoundboardSound extends Entity {
+  snowflake: string;
+  guild_snowflake: string;
+  name: string;
+  volume: number;
+  emoji_name: string | null;
+  emoji_snowflake: string | null;
+  available: boolean;
+  creator_snowflake: string | null;
+}
+
 export interface DiscordGuildTemplate extends Entity {
   code: string;
   source_guild_snowflake: string;
