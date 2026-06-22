@@ -101,6 +101,16 @@ export class GatewayServer {
       return;
     }
 
+    // Opcodes other than IDENTIFY/RESUME/HEARTBEAT require an established session.
+    const preAuthAllowed =
+      payload.op === GatewayOpcodes.Identify ||
+      payload.op === GatewayOpcodes.Resume ||
+      payload.op === GatewayOpcodes.Heartbeat;
+    if (!session.identified && !preAuthAllowed) {
+      this.closeSession(session, GatewayCloseCodes.NotAuthenticated, "Not authenticated");
+      return;
+    }
+
     switch (payload.op) {
       case GatewayOpcodes.Identify:
         this.handleIdentify(session, payload.d);
@@ -122,7 +132,8 @@ export class GatewayServer {
         // Accepted but not acted upon.
         break;
       default:
-        // Unknown opcodes are ignored (lenient).
+        // An opcode the Gateway never receives from clients -> 4001.
+        this.closeSession(session, GatewayCloseCodes.UnknownOpcode, "Unknown opcode");
         break;
     }
   }
@@ -234,6 +245,11 @@ export class GatewayServer {
     const state = this.resumable.get(sessionId);
     if (!state || state.token !== token) {
       this.send(session, { op: GatewayOpcodes.InvalidSession, d: false });
+      return;
+    }
+    // A seq beyond anything we ever dispatched is invalid -> 4007.
+    if (clientSeq > state.seq) {
+      this.closeSession(session, GatewayCloseCodes.InvalidSeq, "Invalid seq");
       return;
     }
 

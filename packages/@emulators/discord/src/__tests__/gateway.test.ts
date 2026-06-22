@@ -123,4 +123,24 @@ describe("discord gateway", () => {
     ws.send(JSON.stringify({ op: GatewayOpcodes.Identify, d: { token: "nope", intents: 0 } }));
     expect(await closed).toBe(4004);
   });
+
+  it("closes with 4003 when a non-handshake opcode arrives before IDENTIFY", async () => {
+    emu = await startDiscordTestEmulator();
+    const { ws, q } = await connect(`${emu.gatewayUrl}?v=10&encoding=json`);
+    await q.next(); // hello
+    const closed = new Promise<number>((resolve) => ws.once("close", (code) => resolve(code)));
+    ws.send(JSON.stringify({ op: GatewayOpcodes.RequestGuildMembers, d: { guild_id: "1" } }));
+    expect(await closed).toBe(4003);
+  });
+
+  it("closes with 4001 on an unknown opcode after identify", async () => {
+    emu = await startDiscordTestEmulator();
+    const { ws, q } = await connect(`${emu.gatewayUrl}?v=10&encoding=json`);
+    await q.next(); // hello
+    ws.send(JSON.stringify({ op: GatewayOpcodes.Identify, d: { token: "test_bot_token", intents: 0 } }));
+    await q.waitFor("READY");
+    const closed = new Promise<number>((resolve) => ws.once("close", (code) => resolve(code)));
+    ws.send(JSON.stringify({ op: 99, d: {} }));
+    expect(await closed).toBe(4001);
+  });
 });
