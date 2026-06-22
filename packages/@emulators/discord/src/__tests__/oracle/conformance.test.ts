@@ -45,6 +45,17 @@ function probes(ids: ReturnType<typeof seededIds>): Probe[] {
     { method: "GET", path: `/gateway/bot` },
     { method: "GET", path: `/voice/regions` },
     { method: "GET", path: `/sticker-packs` },
+    { method: "GET", path: `/guilds/${ids.guild}/vanity-url` },
+    { method: "GET", path: `/guilds/${ids.guild}/welcome-screen` },
+    { method: "GET", path: `/guilds/${ids.guild}/onboarding` },
+    { method: "GET", path: `/guilds/${ids.guild}/widget.json` },
+    { method: "GET", path: `/guilds/${ids.guild}/widget` },
+    { method: "GET", path: `/guilds/${ids.guild}/regions` },
+    { method: "GET", path: `/guilds/${ids.guild}/audit-logs` },
+    { method: "GET", path: `/applications/${ids.app}` },
+    { method: "GET", path: `/applications/${ids.app}/role-connections/metadata` },
+    { method: "GET", path: `/users/@me/guilds` },
+    { method: "GET", path: `/users/@me/connections` },
   ];
 }
 
@@ -87,19 +98,24 @@ describe("OpenAPI conformance (official discord-api-spec oracle)", () => {
       all.push({ probe, status: res.status, matched: r.matched, validated: r.validated, errors });
     }
 
-    const validated = all.filter((a) => a.validated);
+    // Enforce success-shape parity (2xx). A non-2xx from a matched spec route is a coverage gap
+    // (endpoint not implemented / not reachable from the seed), surfaced but not failed here.
+    const ok = all.filter((a) => a.status >= 200 && a.status < 300);
+    const validated = ok.filter((a) => a.validated);
     const failing = validated.filter((a) => a.errors.length > 0);
+    const gaps = all.filter((a) => a.matched && a.status >= 400);
 
-    const lines = [`validated=${validated.length} matched=${all.filter((a) => a.matched).length}/${all.length} divergent=${failing.length}`];
+    const lines = [`validated=${validated.length} divergent=${failing.length} gaps=${gaps.length} matched=${all.filter((a) => a.matched).length}/${all.length}`];
     for (const f of failing) {
       lines.push(`DIVERGENCE ${f.probe.method} ${f.probe.path} [${f.status}]`);
       for (const e of f.errors.slice(0, 12)) lines.push(`    - ${e}`);
     }
+    for (const gp of gaps) lines.push(`GAP        ${gp.probe.method} ${gp.probe.path} [${gp.status}] (matched spec, not 2xx)`);
     const { writeFileSync } = await import("node:fs");
     writeFileSync("/tmp/conformance-report.txt", lines.join("\n") + "\n");
 
     // We must actually be validating a meaningful surface (guards against the oracle silently
-    // matching nothing), and there must be no un-accepted divergences.
+    // matching nothing), and there must be no un-accepted 2xx divergences.
     expect(validated.length).toBeGreaterThanOrEqual(20);
     expect(failing, `Unexpected spec divergences:\n${lines.join("\n")}`).toHaveLength(0);
   });

@@ -206,6 +206,16 @@ export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
     return c.json(toAPIApplication(appRecord, ds, store));
   });
 
+  // GET /api/v:version/applications/:appId (get application by id)
+  app.get("/api/v:version/applications/:appId", (c) => {
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const { ds } = g;
+    const appRecord = ds.applications.findOneBy("snowflake", c.req.param("appId"));
+    if (!appRecord) return discordError(c, 404, "Unknown Application", 10002);
+    return c.json(toAPIApplication(appRecord, ds, store));
+  });
+
   // PATCH /api/v:version/applications/@me
   app.patch("/api/v:version/applications/@me", async (c) => {
     const g = requireBot(c, store);
