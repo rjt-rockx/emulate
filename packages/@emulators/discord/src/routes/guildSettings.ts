@@ -1,6 +1,27 @@
 import type { DiscordRouteContext } from "../context.js";
-import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound } from "../helpers.js";
+import { getDiscordStore, type DiscordStore } from "../store.js";
+import { getAuth, unauthorized, notFound, invalidFormBody, toAPIUser } from "../helpers.js";
+import type { DiscordGuildJoinRequest } from "../entities.js";
+
+/** Serialize a guild join request to GuildJoinRequestResponse. */
+function toAPIGuildJoinRequest(r: DiscordGuildJoinRequest, ds: DiscordStore): Record<string, unknown> {
+  const user = ds.users.findOneBy("snowflake", r.user_snowflake);
+  const actionedBy = r.actioned_by_user_snowflake ? ds.users.findOneBy("snowflake", r.actioned_by_user_snowflake) : null;
+  return {
+    id: r.snowflake,
+    created_at: r.created_at,
+    reviewed_at: r.reviewed_at,
+    application_status: r.application_status,
+    rejection_reason: r.rejection_reason,
+    guild_id: r.guild_snowflake,
+    user_id: r.user_snowflake,
+    user: user ? toAPIUser(user) : null,
+    form_responses: null,
+    actioned_by_user: actionedBy ? toAPIUser(actionedBy) : null,
+  };
+}
+
+const JOIN_REQUEST_STATUSES = new Set(["STARTED", "SUBMITTED", "REJECTED", "APPROVED"]);
 
 export function guildSettingsRoutes(ctx: DiscordRouteContext): void {
   const { app, store } = ctx;
@@ -91,12 +112,39 @@ export function guildSettingsRoutes(ctx: DiscordRouteContext): void {
     return c.json({ guild_id: guild.snowflake, enabled: false, new_member_actions: [], resource_channels: [] });
   });
 
-  // Guild join requests (GuildJoinRequestsListResponse); none tracked in the emulator.
+  // Guild join requests (GuildJoinRequestsListResponse).
   app.get("/api/v:version/guilds/:guildId/requests", (c) => {
     const guild = requireGuild(c);
     if (!getAuth(c, store)) return unauthorized(c);
     if (!guild) return notFound(c);
-    return c.json({ guild_join_requests: [] });
+    const ds = getDiscordStore(store);
+    const requests = ds.guildJoinRequests.findBy("guild_snowflake", guild.snowflake);
+    return c.json({ total: requests.length, guild_join_requests: requests.map((r) => toAPIGuildJoinRequest(r, ds)) });
+  });
+
+  // Approve or reject a guild join request (action_guild_join_request).
+  app.patch("/api/v:version/guilds/:guildId/requests/:requestId", async (c) => {
+    const guild = requireGuild(c);
+    const auth = getAuth(c, store);
+    if (!auth) return unauthorized(c);
+    if (!guild) return notFound(c);
+    const ds = getDiscordStore(store);
+    const request = ds.guildJoinRequests.findOneBy("snowflake", c.req.param("requestId"));
+    if (!request || request.guild_snowflake !== guild.snowflake) return notFound(c);
+    const body = (await c.req.json().catch(() => ({}))) as { action?: string; rejection_reason?: string | null };
+    if (typeof body.action !== "string" || !JOIN_REQUEST_STATUSES.has(body.action)) {
+      return invalidFormBody(c, { action: "Value must be one of (STARTED, SUBMITTED, REJECTED, APPROVED)." });
+    }
+    if (body.action === "REJECTED" && typeof body.rejection_reason === "string" && body.rejection_reason.length > 160) {
+      return invalidFormBody(c, { rejection_reason: "Must be 160 or fewer in length." });
+    }
+    ds.guildJoinRequests.update(request.id, {
+      application_status: body.action,
+      reviewed_at: new Date().toISOString(),
+      rejection_reason: body.action === "REJECTED" ? (body.rejection_reason ?? null) : null,
+      actioned_by_user_snowflake: auth.user?.snowflake ?? null,
+    });
+    return c.json(toAPIGuildJoinRequest(ds.guildJoinRequests.findOneBy("snowflake", request.snowflake)!, ds));
   });
 
   app.put("/api/v:version/guilds/:guildId/onboarding", async (c) => {

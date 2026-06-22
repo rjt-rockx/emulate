@@ -360,6 +360,18 @@ export interface DiscordBan extends Entity {
   reason: string | null;
 }
 
+/** A request to join a guild gated by membership screening / join-request review. */
+export interface DiscordGuildJoinRequest extends Entity {
+  snowflake: string;
+  guild_snowflake: string;
+  user_snowflake: string;
+  /** STARTED | SUBMITTED | REJECTED | APPROVED */
+  application_status: string;
+  reviewed_at: string | null;
+  rejection_reason: string | null;
+  actioned_by_user_snowflake: string | null;
+}
+
 export interface DiscordInvite extends Entity {
   code: string;
   guild_snowflake: string | null;

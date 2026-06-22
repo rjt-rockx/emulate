@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { writeFileSync } from "node:fs";
 import { createDiscordTestApp, api, botHeaders, seededIds } from "../helpers.js";
+import { getDiscordStore } from "../../store.js";
+import { createUser } from "../../factories.js";
 import { checkResponse, specOperations, findOverEmission } from "./specValidator.js";
 
 /**
@@ -87,6 +89,36 @@ describe("OpenAPI GET coverage sweep", () => {
       description: "d",
       type: 1,
     });
+
+    // Seed state directly so endpoints that depend on it become reachable and their response shapes
+    // get validated (the store is the source of truth — seeding it is legitimate test setup).
+    const ds = getDiscordStore(store);
+    const bannedUser = createUser(ds, { username: "cov-banned" });
+    ds.bans.insert({ guild_snowflake: ids.guild, user_snowflake: bannedUser.snowflake, reason: "cov" });
+    const seedVoiceState = (userSf: string) =>
+      ds.voiceStates.insert({
+        guild_snowflake: ids.guild,
+        channel_snowflake: ids.voice,
+        user_snowflake: userSf,
+        session_id: `cov-${userSf}`,
+        deaf: false,
+        mute: false,
+        self_deaf: false,
+        self_mute: false,
+        self_video: false,
+        suppress: false,
+        request_to_speak_timestamp: null,
+      });
+    seedVoiceState(ids.bot); // for voice-states/@me
+    seedVoiceState(ids.developer); // for voice-states/{user_id}
+    if (guildCommandId) {
+      ds.commandPermissions.insert({
+        application_snowflake: ids.app,
+        guild_snowflake: ids.guild,
+        command_snowflake: guildCommandId,
+        permissions: [{ id: ids.guild, type: 1, permission: true }],
+      });
+    }
     // Per-op path-param overrides: the same param name resolves to a different resource depending
     // on the parent path (thread vs channel, application vs guild emoji/command, stage channel).
     const PATH_PARAM_OVERRIDES: Record<string, Record<string, string | undefined>> = {
@@ -96,6 +128,7 @@ describe("OpenAPI GET coverage sweep", () => {
       "/applications/{application_id}/guilds/{guild_id}/commands/{command_id}": { command_id: guildCommandId },
       "/applications/{application_id}/guilds/{guild_id}/commands/{command_id}/permissions": { command_id: guildCommandId },
       "/stage-instances/{channel_id}": { channel_id: stageChannelId },
+      "/guilds/{guild_id}/bans/{user_id}": { user_id: bannedUser.snowflake },
     };
 
     const gets = specOperations().filter((o) => o.method === "GET");

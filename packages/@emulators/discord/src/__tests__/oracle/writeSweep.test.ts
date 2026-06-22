@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { writeFileSync } from "node:fs";
 import { createDiscordTestApp, api, botHeaders, seededIds } from "../helpers.js";
+import { getDiscordStore } from "../../store.js";
+import { snowflake } from "../../helpers.js";
 import { checkResponse, specOperations, generateRequestBody, findOverEmission } from "./specValidator.js";
 
 /**
@@ -76,6 +78,45 @@ describe("OpenAPI WRITE sweep (POST/PATCH responses)", () => {
       original_scheduled_start_time: startsAt,
     });
     const exceptionId = exception.event_exception_id as string | undefined;
+
+    // Seed state that has no offline creation path directly via the store, so the endpoints that
+    // depend on it become reachable and (where they return a body) get their shape validated.
+    const ds = getDiscordStore(store);
+    const joinRequest = ds.guildJoinRequests.insert({
+      snowflake: snowflake(),
+      guild_snowflake: ids.guild,
+      user_snowflake: ids.developer,
+      application_status: "SUBMITTED",
+      reviewed_at: null,
+      rejection_reason: null,
+      actioned_by_user_snowflake: null,
+    });
+    const sku = ds.skus.insert({ snowflake: snowflake(), application_snowflake: ids.app, type: 3, name: "ws-sku", slug: "ws-sku", flags: 0 });
+    const entitlement = ds.entitlements.insert({
+      snowflake: snowflake(),
+      sku_snowflake: sku.snowflake,
+      application_snowflake: ids.app,
+      user_snowflake: ids.developer,
+      guild_snowflake: null,
+      type: 1,
+      deleted: false,
+      starts_at: null,
+      ends_at: null,
+      consumed: false,
+    });
+    const interaction = ds.interactions.insert({
+      snowflake: snowflake(),
+      token: `ws-int-${snowflake()}`,
+      type: 1, // PING — a PONG callback is side-effect-free
+      application_snowflake: ids.app,
+      guild_snowflake: ids.guild,
+      channel_snowflake: ids.general,
+      user_snowflake: ids.developer,
+      data: null,
+      message_snowflake: null,
+      callback_used: false,
+      expires_at: new Date(Date.now() + 900_000).toISOString(),
+    });
     const map: Record<string, string | undefined> = {
       guild_id: ids.guild,
       channel_id: ids.general,
@@ -97,6 +138,10 @@ describe("OpenAPI WRITE sweep (POST/PATCH responses)", () => {
       guild_scheduled_event_id: scheduledEventId,
       exception_id: exceptionId,
       sticker_id: stickerId,
+      request_id: joinRequest.snowflake,
+      entitlement_id: entitlement.snowflake,
+      interaction_id: interaction.snowflake,
+      interaction_token: interaction.token,
       thread_id: await postId(`/channels/${ids.general}/threads`, { name: "ws-thread", type: 11, auto_archive_duration: 1440 }),
     };
     // Resolve id-shaped body fields (recipient_id, channel_id, ...) to real ids when we have them.
@@ -125,6 +170,8 @@ describe("OpenAPI WRITE sweep (POST/PATCH responses)", () => {
       },
       "POST /stage-instances": { topic: "oracle stage", channel_id: stageChannelId },
       "POST /guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/exceptions": { original_scheduled_start_time: startsAt },
+      "PATCH /guilds/{guild_id}/requests/{request_id}": { action: "APPROVED" },
+      "POST /interactions/{interaction_id}/{interaction_token}/callback": { type: 1 },
     };
 
     const ops = specOperations().filter((o) => o.method === "POST" || o.method === "PATCH");

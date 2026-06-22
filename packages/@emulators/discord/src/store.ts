@@ -15,6 +15,7 @@ import type {
   DiscordWebhook,
   DiscordInteraction,
   DiscordBan,
+  DiscordGuildJoinRequest,
   DiscordAuditLogEntry,
   DiscordInvite,
   DiscordSticker,
@@ -58,6 +59,7 @@ export interface DiscordStore {
   webhooks: Collection<DiscordWebhook>;
   interactions: Collection<DiscordInteraction>;
   bans: Collection<DiscordBan>;
+  guildJoinRequests: Collection<DiscordGuildJoinRequest>;
   auditLog: Collection<DiscordAuditLogEntry>;
   invites: Collection<DiscordInvite>;
   stickers: Collection<DiscordSticker>;
@@ -113,6 +115,11 @@ export function getDiscordStore(store: Store): DiscordStore {
       "application_snowflake",
     ]),
     bans: store.collection<DiscordBan>("discord.bans", ["guild_snowflake", "user_snowflake"]),
+    guildJoinRequests: store.collection<DiscordGuildJoinRequest>("discord.guild_join_requests", [
+      "snowflake",
+      "guild_snowflake",
+      "user_snowflake",
+    ]),
     auditLog: store.collection<DiscordAuditLogEntry>("discord.audit_log", ["guild_snowflake"]),
     invites: store.collection<DiscordInvite>("discord.invites", ["code", "guild_snowflake", "channel_snowflake"]),
     stickers: store.collection<DiscordSticker>("discord.stickers", ["snowflake", "guild_snowflake"]),

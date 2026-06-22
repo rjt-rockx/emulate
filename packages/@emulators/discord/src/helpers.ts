@@ -630,7 +630,8 @@ export function toAPIVoiceState(v: DiscordVoiceState, ds: DiscordStore): APIVoic
     mute: v.mute,
     self_deaf: v.self_deaf,
     self_mute: v.self_mute,
-    self_stream: v.self_stream ?? undefined,
+    // Required by the spec's VoiceStateResponse; defaults to false when the user isn't streaming.
+    self_stream: v.self_stream ?? false,
     self_video: v.self_video,
     suppress: v.suppress,
     request_to_speak_timestamp: v.request_to_speak_timestamp,

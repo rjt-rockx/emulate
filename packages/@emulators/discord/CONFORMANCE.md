@@ -28,12 +28,13 @@ Rather than hand-listing probes, two sweeps walk the operation surface **systema
 
 - `coverage.test.ts` enumerates every GET operation (103), fills path params from a seeded +
   freshly-created resource map (with per-op overrides for name-colliding params like an application
-  vs guild `{emoji_id}`), probes every reachable one, and validates the response. Currently **77
-  validated, 0 divergent**; the few non-2xx probes are correct rejections (no ban/voice-state exists).
+  vs guild `{emoji_id}`, and direct store seeding for state with no offline creation path — bans,
+  voice states, command permissions), probes every reachable one, and validates the response.
+  Currently **81 validated, 0 divergent, 0 gaps** (every reachable GET validates).
 - `writeSweep.test.ts` enumerates every POST/PATCH (76), synthesizes a minimal request body from each
   operation's request schema (`generateRequestBody`) — with hand-crafted overrides where semantic
-  validation needs a richer body — and validates every 2xx response. Currently **37 validated, 0
-  divergent**.
+  validation needs a richer body — and validates every 2xx response. Currently **41 validated, 0
+  divergent, 0 unmappable** (every op is reachable; the rest correctly reject the minimal body).
 
 ### Over-emission audit (the spec's blind spot, closed token-free)
 
@@ -48,8 +49,9 @@ fields the spec scopes more narrowly — message `guild_id`, command `default_pe
 On its first run the oracle found 5 real divergences that all prior audits and 1606 tests had
 missed (user/member/app `flags`, guild `home_header`/`nsfw`, member `banner`, app
 `type`/`flags_new`/`explicit_content_filter`). The systematic sweeps then found and fixed ~20 more
-(invite/automod/scheduled-event/application/template shapes, lobby `flags`, and the missing
-`update_application` endpoint), all now fixed.
+(invite/automod/scheduled-event/application/template shapes, lobby `flags`, voice-state
+`self_stream`) and surfaced missing endpoints since implemented (`update_application`, guild
+scheduled-event exceptions, and actioning guild join requests).
 
 ### Extending it
 - The sweeps are self-extending: seed a new resource into the param map and any operation needing it
@@ -96,6 +98,9 @@ not (exact null-vs-absent, undocumented fields). This is what resolves the `KNOW
 no over-emission) + discord.js and discord.py flows green against the emulator + N replay cassettes
 match exactly + zero open entries in the divergence ledgers (`AUDIT_R2.md` + the `KNOWN` allowlists).
 
-Current standing: 77 GET + 37 write responses validated with **0 divergences and 0 over-emission**;
-the only remaining unreached operations need live state the harness can't synthesize offline (active
-voice connections, multipart uploads, OAuth-bearer-scoped writes) — the cassette phase covers those.
+Current standing: 81 GET + 41 write responses validated with **0 divergences and 0 over-emission**;
+**every reachable GET endpoint and every POST/PATCH operation is now exercised** (0 gaps, 0
+unmappable) after seeding the state that has no offline creation path (bans, voice states, command
+permissions, join requests, entitlements, interactions) directly through the store. The only oracle
+not yet satisfied is the token-gated cassette phase, which pins down the residual spec-vs-reality
+`KNOWN` entries (e.g. exact null-vs-absent) that no offline source can adjudicate.
