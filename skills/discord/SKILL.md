@@ -131,7 +131,17 @@ discord:
   application_commands:
     - name: ping
       description: Replies with pong
+  # Optional strictness flags (all default off, so the emulator is lenient by default):
+  enforce_permissions: false           # return 403 Missing Permissions (50013) when the bot lacks them
+  validate_interactions_endpoint: false # PING/PONG-verify an interactions_endpoint_url when it is set
+  strict_scopes: false                  # enforce OAuth2 scopes on bearer endpoints
 ```
+
+Strictness flags let you exercise a bot's error handling: with `enforce_permissions`,
+permission-gated actions (send message, manage roles/channels, kick, ban) return
+`403 { code: 50013 }` unless the bot's roles grant them (guild owners and Administrator
+bypass). Rate limits can likewise be tightened at runtime via `setRateLimitConfig(store, …)`
+to drive a bot into `429`s.
 
 ## REST endpoints (under `/api/v10`)
 
