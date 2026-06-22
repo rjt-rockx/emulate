@@ -8,9 +8,13 @@ import { GatewayOpcodes, GatewayCloseCodes, HEARTBEAT_INTERVAL, type GatewayPayl
 import { Intents, hasIntent, intentsAllow } from "./intents.js";
 import { type DiscordEventBus, type GatewayEvent } from "./dispatcher.js";
 import { ZlibCompressor } from "./compression.js";
-import type { GatewaySession } from "./session.js";
+import type { GatewaySession, ResumableState } from "./session.js";
 
 const API_VERSION = 10;
+/** Max events retained per session for RESUME replay. */
+const MAX_BUFFER = 1000;
+/** How long a disconnected session stays resumable. */
+const RESUME_TIMEOUT_MS = 120_000;
 
 /**
  * The Discord Gateway, served over a WebSocket on the same HTTP server as REST.
@@ -21,6 +25,8 @@ const API_VERSION = 10;
 export class GatewayServer {
   private readonly wss: WebSocketServer;
   private readonly sessions = new Set<GatewaySession>();
+  /** Disconnected-but-resumable sessions, keyed by Discord session id. */
+  private readonly resumable = new Map<string, ResumableState>();
   private readonly unsubscribe: () => void;
   private readonly onUpgrade: (req: IncomingMessage, socket: Duplex, head: Buffer) => void;
 
@@ -52,11 +58,13 @@ export class GatewayServer {
       id: snowflake(),
       sessionId: snowflake(),
       identified: false,
+      token: null,
       intents: 0,
       botUserSnowflake: null,
       applicationSnowflake: null,
       guildIds: new Set(),
       seq: 0,
+      buffer: [],
       encoding,
       heartbeatAckPending: false,
     };
@@ -74,8 +82,8 @@ export class GatewayServer {
     this.send(session, { op: GatewayOpcodes.Hello, d: { heartbeat_interval: HEARTBEAT_INTERVAL } });
 
     ws.on("message", (raw) => this.onMessage(session, raw));
-    ws.on("close", () => this.removeSession(session));
-    ws.on("error", () => this.removeSession(session));
+    ws.on("close", () => this.removeSession(session, true));
+    ws.on("error", () => this.removeSession(session, true));
   }
 
   private onMessage(session: GatewaySession, raw: RawData): void {
@@ -96,8 +104,7 @@ export class GatewayServer {
         this.send(session, { op: GatewayOpcodes.HeartbeatAck });
         break;
       case GatewayOpcodes.Resume:
-        // No replay buffer in P1: force a fresh identify.
-        this.send(session, { op: GatewayOpcodes.InvalidSession, d: false });
+        this.handleResume(session, payload.d);
         break;
       case GatewayOpcodes.RequestGuildMembers:
         this.handleRequestGuildMembers(session, payload.d);
@@ -148,6 +155,7 @@ export class GatewayServer {
     );
 
     session.identified = true;
+    session.token = token;
     session.intents = intents;
     session.botUserSnowflake = botUser.snowflake;
     session.applicationSnowflake = application?.snowflake ?? null;
@@ -198,6 +206,62 @@ export class GatewayServer {
     });
   }
 
+  /**
+   * RESUME (op 6): re-bind a reconnecting client to a session left behind by a recent
+   * disconnect, replay every buffered event newer than the client's last seq, then send
+   * RESUMED. A missing session id or token mismatch yields InvalidSession(false), telling
+   * the client to start over with a fresh IDENTIFY.
+   */
+  private handleResume(session: GatewaySession, data: unknown): void {
+    if (session.identified) {
+      this.closeSession(session, GatewayCloseCodes.AlreadyAuthenticated, "Already authenticated");
+      return;
+    }
+    const d = (data ?? {}) as { token?: unknown; session_id?: unknown; seq?: unknown };
+    const rawToken = typeof d.token === "string" ? d.token : "";
+    const token = rawToken.replace(/^Bot\s+/i, "").trim();
+    const sessionId = typeof d.session_id === "string" ? d.session_id : "";
+    const clientSeq = typeof d.seq === "number" && Number.isFinite(d.seq) ? d.seq : 0;
+
+    const state = this.resumable.get(sessionId);
+    if (!state || state.token !== token) {
+      this.send(session, { op: GatewayOpcodes.InvalidSession, d: false });
+      return;
+    }
+
+    // Consume the snapshot and graft it onto the new connection, keeping the same session id.
+    clearTimeout(state.timer);
+    this.resumable.delete(sessionId);
+    session.identified = true;
+    session.sessionId = state.sessionId;
+    session.token = state.token;
+    session.intents = state.intents;
+    session.botUserSnowflake = state.botUserSnowflake;
+    session.applicationSnowflake = state.applicationSnowflake;
+    session.guildIds = state.guildIds;
+    session.seq = state.seq;
+    session.buffer = state.buffer;
+
+    const ds = getDiscordStore(this.store);
+    if (!ds.gatewaySessions.findOneBy("session_id", session.sessionId)) {
+      ds.gatewaySessions.insert({
+        session_id: session.sessionId,
+        bot_user_snowflake: session.botUserSnowflake ?? "",
+        application_snowflake: session.applicationSnowflake,
+        intents: session.intents,
+        connected_at: new Date().toISOString(),
+      });
+    }
+
+    // Replay missed events at their original sequence numbers, then RESUMED.
+    for (const event of session.buffer) {
+      if (event.seq > clientSeq) {
+        this.send(session, { op: GatewayOpcodes.Dispatch, s: event.seq, t: event.t, d: event.d });
+      }
+    }
+    this.dispatch(session, "RESUMED", {});
+  }
+
   // -------------------------------------------------------------------------
   // Dispatch / fan-out
   // -------------------------------------------------------------------------
@@ -208,20 +272,31 @@ export class GatewayServer {
       if (event.applicationId && session.applicationSnowflake !== event.applicationId) continue;
       if (!intentsAllow(session.intents, event.requiredIntents)) continue;
       if (event.guildId != null && !session.guildIds.has(event.guildId)) continue;
-      this.dispatch(session, event.t, this.dataForSession(session, event));
+      this.dispatch(session, event.t, this.dataFor(session.intents, session.botUserSnowflake, event));
+    }
+
+    // Buffer matching events for disconnected-but-resumable sessions so a RESUME can replay
+    // what arrived during the gap, exactly as the real Gateway does.
+    for (const state of this.resumable.values()) {
+      if (event.applicationId && state.applicationSnowflake !== event.applicationId) continue;
+      if (!intentsAllow(state.intents, event.requiredIntents)) continue;
+      if (event.guildId != null && !state.guildIds.has(event.guildId)) continue;
+      state.seq += 1;
+      state.buffer.push({ seq: state.seq, t: event.t, d: this.dataFor(state.intents, state.botUserSnowflake, event) });
+      if (state.buffer.length > MAX_BUFFER) state.buffer.shift();
     }
   }
 
   /**
-   * Choose the payload for a session. Message content is redacted only when the session
+   * Choose the payload for a recipient. Message content is redacted only when the recipient
    * lacks the MESSAGE_CONTENT intent AND the message is in a guild AND it is neither
-   * authored by, nor mentions, the session's bot (matching real Discord behavior).
+   * authored by, nor mentions, the recipient's bot (matching real Discord behavior).
    */
-  private dataForSession(session: GatewaySession, event: GatewayEvent): unknown {
+  private dataFor(intents: number, botUserSnowflake: string | null, event: GatewayEvent): unknown {
     if (event.redactedData === undefined) return event.d;
-    if (hasIntent(session.intents, Intents.MessageContent)) return event.d;
+    if (hasIntent(intents, Intents.MessageContent)) return event.d;
     if (event.guildId == null) return event.d; // DMs always include content
-    const bot = session.botUserSnowflake ?? "";
+    const bot = botUserSnowflake ?? "";
     if (event.messageAuthorId && event.messageAuthorId === bot) return event.d;
     if (event.messageMentionIds && event.messageMentionIds.includes(bot)) return event.d;
     return event.redactedData;
@@ -229,6 +304,8 @@ export class GatewayServer {
 
   private dispatch(session: GatewaySession, t: string, d: unknown): void {
     session.seq += 1;
+    session.buffer.push({ seq: session.seq, t, d });
+    if (session.buffer.length > MAX_BUFFER) session.buffer.shift();
     this.send(session, { op: GatewayOpcodes.Dispatch, s: session.seq, t, d });
   }
 
@@ -256,13 +333,30 @@ export class GatewayServer {
     this.removeSession(session);
   }
 
-  private removeSession(session: GatewaySession): void {
+  private removeSession(session: GatewaySession, resumable = false): void {
     if (!this.sessions.has(session)) return;
     this.sessions.delete(session);
     session.compressor?.close();
     const ds = getDiscordStore(this.store);
     const record = ds.gatewaySessions.findOneBy("session_id", session.sessionId);
     if (record) ds.gatewaySessions.delete(record.id);
+
+    // Retain an identified session briefly so the client can RESUME and replay missed events.
+    if (resumable && session.identified && session.token && !this.resumable.has(session.sessionId)) {
+      const timer = setTimeout(() => this.resumable.delete(session.sessionId), RESUME_TIMEOUT_MS);
+      if (typeof timer.unref === "function") timer.unref();
+      this.resumable.set(session.sessionId, {
+        sessionId: session.sessionId,
+        token: session.token,
+        intents: session.intents,
+        botUserSnowflake: session.botUserSnowflake,
+        applicationSnowflake: session.applicationSnowflake,
+        guildIds: session.guildIds,
+        seq: session.seq,
+        buffer: session.buffer,
+        timer,
+      });
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -280,6 +374,8 @@ export class GatewayServer {
       }
     }
     this.sessions.clear();
+    for (const state of this.resumable.values()) clearTimeout(state.timer);
+    this.resumable.clear();
     return new Promise((resolve) => this.wss.close(() => resolve()));
   }
 }
