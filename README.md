@@ -23,6 +23,7 @@ All services start with sensible defaults. No config file needed:
 - **MongoDB Atlas** on `http://localhost:4010`
 - **Clerk** on `http://localhost:4011`
 - **Linear** on `http://localhost:4012`
+- **Discord** on `http://localhost:4013`
 
 ## CLI
 

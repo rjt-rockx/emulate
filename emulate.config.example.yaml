@@ -128,3 +128,40 @@ google:
       mime_type: application/vnd.google-apps.folder
       parent_ids:
         - root
+
+discord:
+  application:
+    name: My Discord App
+    bot_token: test_bot_token
+    bot_username: my-bot
+    interactions_endpoint_url: http://localhost:3000/api/interactions
+  oauth_apps:
+    - client_id: my-client-id
+      client_secret: example_client_secret
+      name: My Discord App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/discord
+      scopes:
+        - identify
+        - email
+        - guilds
+  users:
+    - username: alice
+      global_name: Alice
+      email: alice@example.com
+  guilds:
+    - name: My Server
+      owner: alice
+      roles:
+        - name: Admin
+          permissions: "8"
+      channels:
+        - name: general
+          type: 0
+        - name: voice
+          type: 2
+      members:
+        - alice
+  application_commands:
+    - name: ping
+      description: Replies with pong
