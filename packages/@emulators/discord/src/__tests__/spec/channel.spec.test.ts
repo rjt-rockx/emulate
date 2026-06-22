@@ -10,7 +10,7 @@
 import { describe, it, expect } from "vitest";
 import { createDiscordTestApp, api, botHeaders, json } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
-import { createChannel, createMessage } from "../../factories.js";
+import { createChannel, createMessage, createUser, createToken, addGuildMember } from "../../factories.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
   const ds = getDiscordStore(store);
@@ -1071,5 +1071,219 @@ describe("channel.mdx — Set Voice Channel Status", () => {
       body: JSON.stringify({ status: null }),
     });
     expect(res.status).toBe(204);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P-1: Permission enforcement (MANAGE_CHANNELS / MANAGE_ROLES / MANAGE_THREADS)
+// ---------------------------------------------------------------------------
+
+describe("channel.mdx — P-1 Permission enforcement (enforce_permissions=true)", () => {
+  /**
+   * Seed a non-privileged bot token: creates a user with no guild roles, adds them as a member,
+   * and adds deny-all member overwrites on any channels provided, returns a Bot token.
+   */
+  function seedNoPermBot(store: ReturnType<typeof createDiscordTestApp>["store"], channelsToBlock: string[] = []) {
+    const ds = getDiscordStore(store);
+    const { guild } = ids(store);
+    const nopermsUser = createUser(ds, { username: "noperms-bot", global_name: "No Perms Bot" });
+    addGuildMember(ds, guild, nopermsUser.snowflake, { roles: [] });
+    // Deny all channel permissions for this user via a member-level overwrite.
+    for (const chId of channelsToBlock) {
+      const ch = ds.channels.findOneBy("snowflake", chId);
+      if (ch) {
+        const overwrites = ch.permission_overwrites.filter((o) => !(o.type === 1 && o.id === nopermsUser.snowflake));
+        overwrites.push({ id: nopermsUser.snowflake, type: 1, allow: "0", deny: String((1n << 53n) - 1n) });
+        ds.channels.update(ch.id, { permission_overwrites: overwrites });
+      }
+    }
+    const tok = createToken(ds, { token: "noperms_token", type: "bot", userSnowflake: nopermsUser.snowflake });
+    return { nopermsUser, token: tok.token, headers: { Authorization: `Bot ${tok.token}`, "Content-Type": "application/json" } };
+  }
+
+  function setupEnforced() {
+    const { app, store } = createDiscordTestApp();
+    store.setData("discord.enforce_permissions", true);
+    return { app, store };
+  }
+
+  it("PATCH /channels/:id returns 403/50013 for a caller without MANAGE_CHANNELS", async () => {
+    const { app, store } = setupEnforced();
+    const { general } = ids(store);
+    // Deny all perms on this channel for the no-perm user (overrides @everyone grant).
+    const { headers } = seedNoPermBot(store, [general.snowflake]);
+    const res = await app.request(api(`/channels/${general.snowflake}`), {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ name: "hacked" }),
+    });
+    expect(res.status).toBe(403);
+    expect((await res.json() as { code: number }).code).toBe(50013);
+  });
+
+  it("DELETE /channels/:id returns 403/50013 for a caller without MANAGE_CHANNELS", async () => {
+    const { app, store } = setupEnforced();
+    const { ds, guild } = ids(store);
+    const ch = createChannel(ds, { name: "doomed2", type: 0, guildSnowflake: guild });
+    const { headers } = seedNoPermBot(store, [ch.snowflake]);
+    const res = await app.request(api(`/channels/${ch.snowflake}`), {
+      method: "DELETE",
+      headers,
+    });
+    expect(res.status).toBe(403);
+    expect((await res.json() as { code: number }).code).toBe(50013);
+  });
+
+  it("PUT /channels/:id/permissions/:overwriteId returns 403/50013 for a caller without MANAGE_ROLES", async () => {
+    const { app, store } = setupEnforced();
+    const { general, developer } = ids(store);
+    const { headers } = seedNoPermBot(store, [general.snowflake]);
+    const res = await app.request(api(`/channels/${general.snowflake}/permissions/${developer}`), {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ type: 1, allow: "1024", deny: "0" }),
+    });
+    expect(res.status).toBe(403);
+    expect((await res.json() as { code: number }).code).toBe(50013);
+  });
+
+  it("DELETE /channels/:id/permissions/:overwriteId returns 403/50013 for a caller without MANAGE_ROLES", async () => {
+    const { app, store } = setupEnforced();
+    const { general, developer } = ids(store);
+    // First add an overwrite with the bot.
+    await app.request(api(`/channels/${general.snowflake}/permissions/${developer}`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify({ type: 1, allow: "1024", deny: "0" }),
+    });
+    const { headers } = seedNoPermBot(store, [general.snowflake]);
+    const res = await app.request(api(`/channels/${general.snowflake}/permissions/${developer}`), {
+      method: "DELETE",
+      headers,
+    });
+    expect(res.status).toBe(403);
+    expect((await res.json() as { code: number }).code).toBe(50013);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C-3: Edit Channel Permissions: type is required
+// ---------------------------------------------------------------------------
+
+describe("channel.mdx — C-3 Edit Channel Permissions: type field is required", () => {
+  it("PUT /channels/:id/permissions/:overwriteId without type returns 400/50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general, developer } = ids(store);
+    const res = await app.request(api(`/channels/${general.snowflake}/permissions/${developer}`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify({ allow: "1024", deny: "0" }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { code: number }).code).toBe(50035);
+  });
+
+  it("PUT /channels/:id/permissions/:overwriteId with type=0 (role) succeeds", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general, developer } = ids(store);
+    const res = await app.request(api(`/channels/${general.snowflake}/permissions/${developer}`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify({ type: 0, allow: "0", deny: "0" }),
+    });
+    expect(res.status).toBe(204);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C-8: Set Voice Channel Status permission
+// ---------------------------------------------------------------------------
+
+describe("channel.mdx — C-8 Set Voice Channel Status permission enforcement", () => {
+  it("returns 403/50013 when caller lacks SET_VOICE_CHANNEL_STATUS with enforce_permissions=true", async () => {
+    const { app, store } = createDiscordTestApp();
+    store.setData("discord.enforce_permissions", true);
+    const ds = getDiscordStore(store);
+    const { voice, guild } = ids(store);
+    const voiceId = voice.snowflake;
+    // Create a non-privileged user, add them to the guild, then deny all perms on the voice channel.
+    const nopermsUser = createUser(ds, { username: "noperms-vc", global_name: "No Perms VC" });
+    addGuildMember(ds, guild, nopermsUser.snowflake, { roles: [] });
+    const voiceCh = ds.channels.findOneBy("snowflake", voiceId);
+    if (voiceCh) {
+      const ows = voiceCh.permission_overwrites.filter((o) => !(o.type === 1 && o.id === nopermsUser.snowflake));
+      ows.push({ id: nopermsUser.snowflake, type: 1, allow: "0", deny: String((1n << 53n) - 1n) });
+      ds.channels.update(voiceCh.id, { permission_overwrites: ows });
+    }
+    const tok = createToken(ds, { token: "noperms_vc_token", type: "bot", userSnowflake: nopermsUser.snowflake });
+    const res = await app.request(api(`/channels/${voiceId}/voice-status`), {
+      method: "PUT",
+      headers: { Authorization: `Bot ${tok.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "live" }),
+    });
+    expect(res.status).toBe(403);
+    expect((await res.json() as { code: number }).code).toBe(50013);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C-1: message_count / total_message_sent on forum thread creation
+// ---------------------------------------------------------------------------
+
+describe("channel.mdx — C-1 message_count / total_message_sent on forum thread", () => {
+  it("forum thread has message_count=0 and total_message_sent=1 after creation", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { ds, guild } = ids(store);
+    const forum = createChannel(ds, { name: "forum-mc", type: 15, guildSnowflake: guild });
+    const res = await app.request(api(`/channels/${forum.snowflake}/threads`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "post", message: { content: "first" } }),
+    });
+    expect(res.status).toBe(201);
+    const thread = await res.json() as { message_count: number; total_message_sent: number };
+    // The initial message is excluded from message_count but counted in total_message_sent.
+    expect(thread.message_count).toBe(0);
+    expect(thread.total_message_sent).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C-2: List Public Archived Threads picks correct type for announcement parent
+// ---------------------------------------------------------------------------
+
+describe("channel.mdx — C-2 List Public Archived Threads uses ANNOUNCEMENT_THREAD (10) for announcement parent", () => {
+  it("returns archived ANNOUNCEMENT_THREAD (10) threads for a GUILD_ANNOUNCEMENT (5) parent", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { ds, guild, botSnowflake } = ids(store);
+    const announcement = createChannel(ds, { name: "news-arch", type: 5, guildSnowflake: guild });
+    const msg = createMessage(ds, {
+      channelSnowflake: announcement.snowflake,
+      guildSnowflake: guild,
+      authorSnowflake: botSnowflake,
+      content: "root",
+    });
+    // Create an ANNOUNCEMENT_THREAD (10) from this message.
+    const threadRes = await app.request(api(`/channels/${announcement.snowflake}/messages/${msg.snowflake}/threads`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "archived-news" }),
+    });
+    expect(threadRes.status).toBe(201);
+    const thread = await threadRes.json() as { id: string; type: number };
+    expect(thread.type).toBe(10);
+    // Archive the thread.
+    await app.request(api(`/channels/${thread.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ archived: true }),
+    });
+    // List public archived threads on the announcement parent — must return type-10 thread.
+    const listRes = await app.request(api(`/channels/${announcement.snowflake}/threads/archived/public`), {
+      headers: botHeaders(),
+    });
+    expect(listRes.status).toBe(200);
+    const body = await listRes.json() as { threads: Array<{ id: string; type: number }> };
+    expect(body.threads.some((t) => t.id === thread.id && t.type === 10)).toBe(true);
   });
 });

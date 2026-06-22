@@ -11,7 +11,7 @@
 import { describe, it, expect } from "vitest";
 import { createDiscordTestApp, api, botHeaders, json } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
-import { createChannel, createMessage } from "../../factories.js";
+import { createChannel, createMessage, createUser, createToken, addGuildMember } from "../../factories.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
   const ds = getDiscordStore(store);
@@ -273,7 +273,8 @@ describe("threads.mdx — Start Thread in Forum or Media Channel", () => {
     const thread = await json<{ type: number; message: { content: string }; message_count: number }>(res);
     expect(thread.type).toBe(11);
     expect(thread.message.content).toBe("hi");
-    expect(thread.message_count).toBe(1);
+    // C-1: message_count excludes the initial message per channel.mdx:39; total_message_sent counts it.
+    expect(thread.message_count).toBe(0);
   });
 
   it("reads applied_tags onto the created forum thread", async () => {
@@ -638,5 +639,274 @@ describe("threads.mdx — Thread modify applied_tags limit", () => {
       body: JSON.stringify({ applied_tags: ["1", "2", "3", "4", "5"] }),
     });
     expect(res.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T-3: auto_archive_duration validation on thread create and modify
+// ---------------------------------------------------------------------------
+
+describe("threads.mdx — T-3 auto_archive_duration validation", () => {
+  it("rejects an invalid auto_archive_duration on thread create (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const res = await app.request(api(`/channels/${general.snowflake}/threads`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "t", type: 11, auto_archive_duration: 4321 }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects an invalid auto_archive_duration on thread modify (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const thread = (await (
+      await app.request(api(`/channels/${general.snowflake}/threads`), {
+        method: "POST",
+        headers: botHeaders(),
+        body: JSON.stringify({ name: "t", type: 11 }),
+      })
+    ).json()) as { id: string };
+    const res = await app.request(api(`/channels/${thread.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ auto_archive_duration: 999 }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { code: number }).code).toBe(50035);
+  });
+
+  it("accepts valid auto_archive_duration values {60,1440,4320,10080} on thread create", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    for (const dur of [60, 1440, 4320, 10080]) {
+      const res = await app.request(api(`/channels/${general.snowflake}/threads`), {
+        method: "POST",
+        headers: botHeaders(),
+        body: JSON.stringify({ name: `t-${dur}`, type: 11, auto_archive_duration: dur }),
+      });
+      expect(res.status).toBe(201);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T-4: Start Thread without Message: type must be 10, 11, or 12
+// ---------------------------------------------------------------------------
+
+describe("threads.mdx — T-4 Start Thread without Message type validation", () => {
+  it("rejects type=0 (GUILD_TEXT) with 400/50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const res = await app.request(api(`/channels/${general.snowflake}/threads`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "t", type: 0 }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects type=99 (unknown) with 400/50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const res = await app.request(api(`/channels/${general.snowflake}/threads`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "t", type: 99 }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { code: number }).code).toBe(50035);
+  });
+
+  it("accepts type=10, 11, 12 without error", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    for (const t of [10, 11, 12]) {
+      const res = await app.request(api(`/channels/${general.snowflake}/threads`), {
+        method: "POST",
+        headers: botHeaders(),
+        body: JSON.stringify({ name: `t-${t}`, type: t }),
+      });
+      expect(res.status).toBe(201);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T-5: Forum thread creation — REQUIRE_TAG enforcement and applied_tags cap
+// ---------------------------------------------------------------------------
+
+describe("threads.mdx — T-5 Forum thread applied_tags validation", () => {
+  it("rejects forum thread creation with >5 applied_tags (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { ds, guild } = ids(store);
+    const forum = createChannel(ds, { name: "forum-t5", type: 15, guildSnowflake: guild });
+    const res = await app.request(api(`/channels/${forum.snowflake}/threads`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "post", message: { content: "x" }, applied_tags: ["1","2","3","4","5","6"] }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { code: number }).code).toBe(50035);
+  });
+
+  it("rejects forum thread creation when REQUIRE_TAG is set and applied_tags is empty (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { ds, guild } = ids(store);
+    const REQUIRE_TAG = 1 << 4;
+    const forum = createChannel(ds, { name: "forum-req-tag", type: 15, guildSnowflake: guild });
+    ds.channels.update(forum.id, { flags: REQUIRE_TAG });
+    const res = await app.request(api(`/channels/${forum.snowflake}/threads`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "post", message: { content: "x" } }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { code: number }).code).toBe(50035);
+  });
+
+  it("allows forum thread with REQUIRE_TAG when applied_tags has >=1 entry", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { ds, guild } = ids(store);
+    const REQUIRE_TAG = 1 << 4;
+    const forum = createChannel(ds, { name: "forum-req-tag-ok", type: 15, guildSnowflake: guild });
+    ds.channels.update(forum.id, { flags: REQUIRE_TAG });
+    const res = await app.request(api(`/channels/${forum.snowflake}/threads`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "post", message: { content: "x" }, applied_tags: ["tag1"] }),
+    });
+    expect(res.status).toBe(201);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T-6: Thread member operations require channel to be a thread (and unarchived for mutations)
+// ---------------------------------------------------------------------------
+
+describe("threads.mdx — T-6 Thread member operations require a thread channel", () => {
+  it("Join Thread (@me) on a non-thread channel returns 400/50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const res = await app.request(api(`/channels/${general.snowflake}/thread-members/@me`), {
+      method: "PUT",
+      headers: botHeaders(),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { code: number }).code).toBe(50035);
+  });
+
+  it("Add Thread Member on a non-thread channel returns 400/50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general, developer } = ids(store);
+    const res = await app.request(api(`/channels/${general.snowflake}/thread-members/${developer}`), {
+      method: "PUT",
+      headers: botHeaders(),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { code: number }).code).toBe(50035);
+  });
+
+  it("Join Thread (@me) on an archived thread returns 403", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const thread = (await (
+      await app.request(api(`/channels/${general.snowflake}/threads`), {
+        method: "POST",
+        headers: botHeaders(),
+        body: JSON.stringify({ name: "t", type: 11 }),
+      })
+    ).json()) as { id: string };
+    // Archive the thread.
+    await app.request(api(`/channels/${thread.id}`), {
+      method: "PATCH",
+      headers: botHeaders(),
+      body: JSON.stringify({ archived: true }),
+    });
+    const res = await app.request(api(`/channels/${thread.id}/thread-members/@me`), {
+      method: "PUT",
+      headers: botHeaders(),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("List Thread Members on a non-thread channel returns 400/50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ids(store);
+    const res = await app.request(api(`/channels/${general.snowflake}/thread-members`), {
+      headers: botHeaders(),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { code: number }).code).toBe(50035);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T-1: Permission enforcement on thread operations
+// ---------------------------------------------------------------------------
+
+describe("threads.mdx — T-1 Permission enforcement on thread routes (enforce_permissions=true)", () => {
+  /** Seed a non-privileged bot token with no guild roles. */
+  function seedNoPermBot(store: ReturnType<typeof createDiscordTestApp>["store"], suffix = "", channelsToBlock: string[] = []) {
+    const ds = getDiscordStore(store);
+    const { guild } = ids(store);
+    const nopermsUser = createUser(ds, { username: `noperms-bot${suffix}`, global_name: "No Perms Bot" });
+    addGuildMember(ds, guild, nopermsUser.snowflake, { roles: [] });
+    // Deny all channel permissions for this user via a member-level overwrite.
+    for (const chId of channelsToBlock) {
+      const ch = ds.channels.findOneBy("snowflake", chId);
+      if (ch) {
+        const ows = ch.permission_overwrites.filter((o) => !(o.type === 1 && o.id === nopermsUser.snowflake));
+        ows.push({ id: nopermsUser.snowflake, type: 1, allow: "0", deny: String((1n << 53n) - 1n) });
+        ds.channels.update(ch.id, { permission_overwrites: ows });
+      }
+    }
+    const tok = createToken(ds, { token: `noperms_token${suffix}`, type: "bot", userSnowflake: nopermsUser.snowflake });
+    return { nopermsUser, token: tok.token, headers: { Authorization: `Bot ${tok.token}`, "Content-Type": "application/json" } };
+  }
+
+  it("Start Thread without Message returns 403/50013 for caller without SEND_MESSAGES", async () => {
+    const { app, store } = createDiscordTestApp();
+    store.setData("discord.enforce_permissions", true);
+    const { general } = ids(store);
+    // Deny all perms on the general channel for the no-perm user.
+    const { headers } = seedNoPermBot(store, "_t1_start", [general.snowflake]);
+    const res = await app.request(api(`/channels/${general.snowflake}/threads`), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "t", type: 11 }),
+    });
+    expect(res.status).toBe(403);
+    expect((await res.json() as { code: number }).code).toBe(50013);
+  });
+
+  it("Remove Thread Member returns 403/50013 for caller without MANAGE_THREADS", async () => {
+    const { app, store } = createDiscordTestApp();
+    store.setData("discord.enforce_permissions", true);
+    const { general, botSnowflake } = ids(store);
+    // Create thread as bot (bot has all permissions because it's the guild owner's bot).
+    const thread = (await (
+      await app.request(api(`/channels/${general.snowflake}/threads`), {
+        method: "POST",
+        headers: botHeaders(),
+        body: JSON.stringify({ name: "t", type: 11 }),
+      })
+    ).json()) as { id: string };
+    // Seed a no-perm user with all channel perms denied on the thread, then add them as the bot.
+    const { nopermsUser, headers: noPermHeaders } = seedNoPermBot(store, "_t1_remove", [thread.id]);
+    await app.request(api(`/channels/${thread.id}/thread-members/${nopermsUser.snowflake}`), {
+      method: "PUT",
+      headers: botHeaders(),
+    });
+    // No-perm user tries to remove the bot — should fail without MANAGE_THREADS.
+    const res = await app.request(api(`/channels/${thread.id}/thread-members/${botSnowflake}`), {
+      method: "DELETE",
+      headers: noPermHeaders,
+    });
+    expect(res.status).toBe(403);
+    expect((await res.json() as { code: number }).code).toBe(50013);
   });
 });

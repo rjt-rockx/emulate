@@ -13,13 +13,20 @@ import {
   toAPIMessage,
   recordAudit,
   AuditLogEvent,
+  requirePermission,
+  discordError,
 } from "../helpers.js";
 import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import type { DiscordChannel } from "../entities.js";
+import { PermissionFlags } from "../permissions.js";
 
 /** Parent channel types that can spawn threads: text (0), announcement (5), forum (15), media (16). */
 const THREADABLE_PARENT_TYPES = new Set([0, 5, 15, 16]);
+/** Valid thread types for Start Thread without Message: PUBLIC_THREAD (11), ANNOUNCEMENT_THREAD (10), PRIVATE_THREAD (12). */
+const VALID_THREAD_TYPES = new Set([10, 11, 12]);
+/** Valid auto_archive_duration values per the Discord docs. */
+const VALID_AUTO_ARCHIVE = new Set([60, 1440, 4320, 10080]);
 const isForumParent = (type: number): boolean => type === 15 || type === 16;
 
 /** Build the current user's thread-member object as attached to a freshly created thread. */
@@ -65,7 +72,7 @@ function createThread(
   parent: DiscordChannel,
   ownerSnowflake: string,
   body: Record<string, unknown>,
-  opts: { type: number; snowflake?: string } & { messageCount?: number },
+  opts: { type: number; snowflake?: string; messageCount?: number; totalMessageSent?: number },
 ): DiscordChannel {
   const now = new Date().toISOString();
   // Threads in thread-only channels copy the parent's default_thread_rate_limit_per_user when no explicit rate is sent.
@@ -103,6 +110,7 @@ function createThread(
       ...(opts.type === 12 && typeof body.invitable === "boolean" ? { invitable: body.invitable } : {}),
     },
     message_count: opts.messageCount ?? 0,
+    total_message_sent: opts.totalMessageSent ?? opts.messageCount ?? 0,
     member_count: 0,
     applied_tags: Array.isArray(body.applied_tags) ? (body.applied_tags as string[]) : [],
   });
@@ -183,6 +191,14 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
       return invalidFormBody(c, { message_id: "A thread has already been created for this message" });
     }
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    // T-1: Start Thread requires SEND_MESSAGES in the parent channel.
+    const deniedStart = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.SendMessages, { channelId: parentChannelId });
+    if (deniedStart) return deniedStart;
+    // T-3: auto_archive_duration must be one of {60,1440,4320,10080}.
+    if (body.auto_archive_duration !== undefined && body.auto_archive_duration !== null &&
+        !VALID_AUTO_ARCHIVE.has(body.auto_archive_duration as number)) {
+      return invalidFormBody(c, { auto_archive_duration: "Must be one of 60, 1440, 4320, 10080." });
+    }
     const threadType = parent.type === 5 ? 10 : 11;
     const thread = createThread(ds, parent, auth.user!.snowflake, body, { type: threadType, snowflake: messageId });
     return finishThread(c, ds, thread, auth.user!.snowflake);
@@ -200,6 +216,14 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
       return invalidFormBody(c, { channel_id: "Cannot execute action on this channel type" });
     }
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    // T-1: Start Thread requires SEND_MESSAGES in the parent channel.
+    const deniedStart = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.SendMessages, { channelId: parentChannelId });
+    if (deniedStart) return deniedStart;
+    // T-3: auto_archive_duration must be one of {60,1440,4320,10080}.
+    if (body.auto_archive_duration !== undefined && body.auto_archive_duration !== null &&
+        !VALID_AUTO_ARCHIVE.has(body.auto_archive_duration as number)) {
+      return invalidFormBody(c, { auto_archive_duration: "Must be one of 60, 1440, 4320, 10080." });
+    }
 
     if (isForumParent(parent.type)) {
       // Forum/media: a message is created with the same id as the thread; the type is PUBLIC_THREAD.
@@ -214,7 +238,20 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
           message: "You must provide at least one of content, embeds, sticker_ids, components, or files[n]",
         });
       }
-      const thread = createThread(ds, parent, auth.user!.snowflake, body, { type: 11, messageCount: 1 });
+      // T-5: if the parent forum has REQUIRE_TAG, require >= 1 applied_tags.
+      const REQUIRE_TAG_FLAG = 1 << 4; // 16
+      if ((parent.flags ?? 0) & REQUIRE_TAG_FLAG) {
+        const tags = Array.isArray(body.applied_tags) ? body.applied_tags : [];
+        if (tags.length === 0) {
+          return invalidFormBody(c, { applied_tags: "This forum requires at least one tag." });
+        }
+      }
+      // T-5: cap applied_tags at 5.
+      if (Array.isArray(body.applied_tags) && (body.applied_tags as unknown[]).length > 5) {
+        return invalidFormBody(c, { applied_tags: "Must be 5 or fewer in length." });
+      }
+      // C-1: message_count excludes the initial message (0); total_message_sent counts it (1).
+      const thread = createThread(ds, parent, auth.user!.snowflake, body, { type: 11, messageCount: 0, totalMessageSent: 1 });
       const message = createMessage(ds, {
         channelSnowflake: thread.snowflake,
         guildSnowflake: thread.guild_snowflake,
@@ -235,7 +272,11 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
     }
 
     // Text/announcement: type defaults to PRIVATE_THREAD (12) to match legacy behavior.
+    // T-4: type must be 10, 11, or 12; reject any other value with 50035.
     const threadType = typeof body.type === "number" ? body.type : 12;
+    if (!VALID_THREAD_TYPES.has(threadType)) {
+      return invalidFormBody(c, { type: "Must be a thread type (10, 11, or 12)." });
+    }
     const thread = createThread(ds, parent, auth.user!.snowflake, body, { type: threadType });
     return finishThread(c, ds, thread, auth.user!.snowflake);
   };
@@ -266,23 +307,52 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
   // Thread members.
   app.put("/api/v:version/channels/:threadId/thread-members/@me", (c) => {
     const g = requireUser(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
-    if (!ds.channels.findOneBy("snowflake", c.req.param("threadId"))) return notFound(c);
-    addThreadMember(ds, c.req.param("threadId"), auth.user!.snowflake);
-    emitThreadMembers(c.req.param("threadId"), { added: [auth.user!.snowflake] });
+    const threadId = c.req.param("threadId");
+    const ch = ds.channels.findOneBy("snowflake", threadId);
+    if (!ch) return notFound(c);
+    // T-6: channel must be a thread and not archived for mutations.
+    const isThread = ch.type === 10 || ch.type === 11 || ch.type === 12;
+    if (!isThread) return invalidFormBody(c, { channel_id: "Cannot execute action on this channel type" });
+    if (ch.thread_metadata?.archived) return discordError(c, 403, "Thread is archived", 50083);
+    // T-1: ability to send in the thread.
+    const denied = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.SendMessagesInThreads, { channelId: threadId });
+    if (denied) return denied;
+    addThreadMember(ds, threadId, auth.user!.snowflake);
+    emitThreadMembers(threadId, { added: [auth.user!.snowflake] });
     return new Response(null, { status: 204 });
   });
 
   app.put("/api/v:version/channels/:threadId/thread-members/:userId", (c) => {
-    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
-    if (!ds.channels.findOneBy("snowflake", c.req.param("threadId"))) return notFound(c);
-    addThreadMember(ds, c.req.param("threadId"), c.req.param("userId"));
-    emitThreadMembers(c.req.param("threadId"), { added: [c.req.param("userId")] });
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
+    const threadId = c.req.param("threadId");
+    const ch = ds.channels.findOneBy("snowflake", threadId);
+    if (!ch) return notFound(c);
+    // T-6: channel must be a thread and not archived for mutations.
+    const isThread = ch.type === 10 || ch.type === 11 || ch.type === 12;
+    if (!isThread) return invalidFormBody(c, { channel_id: "Cannot execute action on this channel type" });
+    if (ch.thread_metadata?.archived) return discordError(c, 403, "Thread is archived", 50083);
+    // T-1: ability to send in the thread (SEND_MESSAGES_IN_THREADS).
+    const denied = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.SendMessagesInThreads, { channelId: threadId });
+    if (denied) return denied;
+    addThreadMember(ds, threadId, c.req.param("userId"));
+    emitThreadMembers(threadId, { added: [c.req.param("userId")] });
     return new Response(null, { status: 204 });
   });
 
-  const removeMember = (c: Parameters<Parameters<typeof app.delete>[1]>[0], userId: string) => {
+  const removeMember = (c: Parameters<Parameters<typeof app.delete>[1]>[0], userId: string, callerSnowflake?: string) => {
     const ds = getDiscordStore(store);
     const threadId = c.req.param("threadId");
+    const ch = ds.channels.findOneBy("snowflake", threadId);
+    if (!ch) return notFound(c);
+    // T-6: channel must be a thread and not archived for mutations.
+    const isThread = ch.type === 10 || ch.type === 11 || ch.type === 12;
+    if (!isThread) return invalidFormBody(c, { channel_id: "Cannot execute action on this channel type" });
+    if (ch.thread_metadata?.archived) return discordError(c, 403, "Thread is archived", 50083);
+    // T-1: Remove Thread Member requires MANAGE_THREADS (unless removing self).
+    if (callerSnowflake && callerSnowflake !== userId) {
+      const denied = requirePermission(c, store, callerSnowflake, PermissionFlags.ManageThreads, { channelId: threadId });
+      if (denied) return denied;
+    }
     const member = ds.threadMembers.findBy("thread_snowflake", threadId).find((m) => m.user_snowflake === userId);
     if (member) {
       ds.threadMembers.delete(member.id);
@@ -295,17 +365,20 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
 
   app.delete("/api/v:version/channels/:threadId/thread-members/@me", (c) => {
     const g = requireUser(c, store); if (g instanceof Response) return g; const { auth } = g;
-    return removeMember(c, auth.user!.snowflake);
+    return removeMember(c, auth.user!.snowflake, auth.user!.snowflake);
   });
   app.delete("/api/v:version/channels/:threadId/thread-members/:userId", (c) => {
-    const g = requireBot(c, store); if (g instanceof Response) return g;
-    return removeMember(c, c.req.param("userId"));
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth } = g;
+    return removeMember(c, c.req.param("userId"), auth.user?.snowflake);
   });
 
   app.get("/api/v:version/channels/:threadId/thread-members", (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const threadId = c.req.param("threadId");
     const thread = requireChannel(c, ds, threadId); if (thread instanceof Response) return thread;
+    // T-6: channel must be a thread (reads are allowed even on archived threads).
+    const isThread = thread.type === 10 || thread.type === 11 || thread.type === 12;
+    if (!isThread) return invalidFormBody(c, { channel_id: "Cannot execute action on this channel type" });
     const withMember = c.req.query("with_member") === "true";
     const after = c.req.query("after");
     const limitRaw = Number(c.req.query("limit"));
@@ -327,6 +400,9 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
     const threadId = c.req.param("threadId");
     const userId = c.req.param("userId");
     const thread = requireChannel(c, ds, threadId); if (thread instanceof Response) return thread;
+    // T-6: channel must be a thread.
+    const isThread = thread.type === 10 || thread.type === 11 || thread.type === 12;
+    if (!isThread) return invalidFormBody(c, { channel_id: "Cannot execute action on this channel type" });
     const member = ds.threadMembers.findBy("thread_snowflake", threadId).find((m) => m.user_snowflake === userId);
     if (!member) return notFound(c);
     const withMember = c.req.query("with_member") === "true";
@@ -351,8 +427,12 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
 
   app.get("/api/v:version/channels/:channelId/threads/archived/public", (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
-    if (!ds.channels.findOneBy("snowflake", c.req.param("channelId"))) return notFound(c);
-    return c.json(archivedList(c.req.param("channelId"), 11));
+    const channelId = c.req.param("channelId");
+    const parent = ds.channels.findOneBy("snowflake", channelId);
+    if (!parent) return notFound(c);
+    // C-2: GUILD_ANNOUNCEMENT (5) returns ANNOUNCEMENT_THREAD (10); text returns PUBLIC_THREAD (11).
+    const publicThreadType = parent.type === 5 ? 10 : 11;
+    return c.json(archivedList(channelId, publicThreadType));
   });
 
   app.get("/api/v:version/channels/:channelId/threads/archived/private", (c) => {

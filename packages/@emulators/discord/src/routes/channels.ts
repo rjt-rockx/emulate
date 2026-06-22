@@ -152,6 +152,12 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
   app.patch("/api/v:version/channels/:channelId", async (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const channel = requireChannel(c, ds, c.req.param("channelId")); if (channel instanceof Response) return channel;
+    // P-1: PATCH /channels/:id -> MANAGE_CHANNELS (or MANAGE_THREADS for threads).
+    const channelId = c.req.param("channelId");
+    const isThreadForPerm = channel.type === 10 || channel.type === 11 || channel.type === 12;
+    const patchPermFlag = isThreadForPerm ? PermissionFlags.ManageThreads : PermissionFlags.ManageChannels;
+    const deniedPatch = requirePermission(c, store, auth.user?.snowflake, patchPermFlag, { channelId });
+    if (deniedPatch) return deniedPatch;
     const body = await readBody<Record<string, unknown>>(c);
     // --- Validation: field ranges per the Discord docs ---
 
@@ -236,6 +242,11 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
       patch.default_thread_rate_limit_per_user = body.default_thread_rate_limit_per_user;
     if (body.applied_tags !== undefined) patch.applied_tags = body.applied_tags;
     const isThread = channel.type === 10 || channel.type === 11 || channel.type === 12;
+    // T-3: auto_archive_duration (thread metadata field) must be one of {60,1440,4320,10080}.
+    if (isThread && body.auto_archive_duration !== undefined && body.auto_archive_duration !== null &&
+        !VALID_AUTO_ARCHIVE.has(body.auto_archive_duration as number)) {
+      return invalidFormBody(c, { auto_archive_duration: "Must be one of 60, 1440, 4320, 10080." });
+    }
     if (
       isThread &&
       (body.archived !== undefined ||
@@ -286,6 +297,11 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
   app.delete("/api/v:version/channels/:channelId", (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const channel = requireChannel(c, ds, c.req.param("channelId")); if (channel instanceof Response) return channel;
+    // P-1: DELETE /channels/:id -> MANAGE_CHANNELS (or MANAGE_THREADS if channel is a thread).
+    const isThreadForPerm = channel.type === 10 || channel.type === 11 || channel.type === 12;
+    const deletePermFlag = isThreadForPerm ? PermissionFlags.ManageThreads : PermissionFlags.ManageChannels;
+    const deniedDelete = requirePermission(c, store, auth.user?.snowflake, deletePermFlag, { channelId: channel.snowflake });
+    if (deniedDelete) return deniedDelete;
     const payload = toAPIChannel(channel);
     const isThread = channel.type === 10 || channel.type === 11 || channel.type === 12;
     for (const m of ds.messages.findBy("channel_snowflake", channel.snowflake)) ds.messages.delete(m.id);
@@ -337,11 +353,18 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
   app.put("/api/v:version/channels/:channelId/permissions/:overwriteId", async (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const channel = requireChannel(c, ds, c.req.param("channelId")); if (channel instanceof Response) return channel;
+    // P-1: PUT /channels/:id/permissions/:overwriteId -> MANAGE_ROLES.
+    const deniedPut = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageRoles, { channelId: channel.snowflake });
+    if (deniedPut) return deniedPut;
     const overwriteId = c.req.param("overwriteId");
     const body = (await c.req.json().catch(() => ({}))) as { type?: number; allow?: string; deny?: string };
+    // C-3: type (0=role, 1=member) is required; reject with 50035 when absent.
+    if (body.type === undefined || body.type === null) {
+      return invalidFormBody(c, { type: "This field is required." });
+    }
     const overwrite = {
       id: overwriteId,
-      type: body.type ?? 0,
+      type: body.type,
       allow: body.allow ?? "0",
       deny: body.deny ?? "0",
     };
@@ -373,6 +396,9 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
   app.delete("/api/v:version/channels/:channelId/permissions/:overwriteId", (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const channel = requireChannel(c, ds, c.req.param("channelId")); if (channel instanceof Response) return channel;
+    // P-1: DELETE /channels/:id/permissions/:overwriteId -> MANAGE_ROLES.
+    const deniedDel = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageRoles, { channelId: channel.snowflake });
+    if (deniedDel) return deniedDel;
     const overwriteId = c.req.param("overwriteId");
     const removed = channel.permission_overwrites.find((o) => o.id === overwriteId);
     ds.channels.update(channel.id, {
@@ -520,8 +546,11 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
 
   // Set a voice channel's status string.
   app.put("/api/v:version/channels/:channelId/voice-status", async (c) => {
-    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const channel = requireChannel(c, ds, c.req.param("channelId")); if (channel instanceof Response) return channel;
+    // C-8: requires SET_VOICE_CHANNEL_STATUS.
+    const deniedStatus = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.SetVoiceChannelStatus, { channelId: channel.snowflake });
+    if (deniedStatus) return deniedStatus;
     const body = (await c.req.json().catch(() => ({}))) as { status?: string | null };
     if (typeof body.status === "string" && body.status.length > 500) {
       return invalidFormBody(c, { status: "Must be 500 or fewer in length." });
