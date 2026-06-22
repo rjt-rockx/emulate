@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import WebSocket from "ws";
-import { createDiscordTestApp, startDiscordTestEmulator, api, botHeaders, type RunningDiscordEmulator } from "./helpers.js";
+import { createDiscordTestApp, startDiscordTestEmulator, api, botHeaders, json, type RunningDiscordEmulator } from "./helpers.js";
 import { getDiscordStore } from "../store.js";
 import { buildInteraction, InteractionType } from "../interactions/trigger.js";
 import { MessageFlags } from "../helpers.js";
@@ -99,7 +99,7 @@ describe("ephemeral interaction responses", () => {
       headers: botHeaders(),
       body: JSON.stringify({ type: 2, commandName: "secret", channelSnowflake: channelId }),
     });
-    const trigger = (await triggerRes.json()) as { id: string; token: string };
+    const trigger = await json<{ id: string; token: string }>(triggerRes);
     const cb = await fetch(api(`/interactions/${trigger.id}/${trigger.token}/callback`, emu.baseUrl), {
       method: "POST",
       headers: botHeaders(),
@@ -116,13 +116,13 @@ describe("ephemeral interaction responses", () => {
     const original = await fetch(api(`/webhooks/${aid}/${trigger.token}/messages/@original`, emu.baseUrl), {
       headers: botHeaders(),
     });
-    const originalBody = (await original.json()) as { content: string; flags: number };
+    const originalBody = await json<{ content: string; flags: number }>(original);
     expect(originalBody.content).toBe("for your eyes only");
     expect((originalBody.flags & MessageFlags.Ephemeral) !== 0).toBe(true);
 
     // It does not appear in the channel message list.
     const list = await fetch(api(`/channels/${channelId}/messages`, emu.baseUrl), { headers: botHeaders() });
-    const listBody = (await list.json()) as Array<{ content: string }>;
+    const listBody = await json<Array<{ content: string }>>(list);
     expect(listBody.some((m) => m.content === "for your eyes only")).toBe(false);
   });
 

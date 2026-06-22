@@ -2,9 +2,8 @@ import { describe, it, expect } from "vitest";
 import { Hono, Store, WebhookDispatcher, type AppEnv } from "@emulators/core";
 import { discordPlugin } from "../index.js";
 import { getDiscordRuntime } from "../runtime.js";
-import { getDiscordStore } from "../store.js";
 import { applicationManagementRoutes } from "../routes/applicationManagement.js";
-import { api, botHeaders, TEST_BASE_URL } from "./helpers.js";
+import { api, botHeaders, TEST_BASE_URL, json, seededIds } from "./helpers.js";
 
 function build() {
   const store = new Store();
@@ -20,12 +19,11 @@ function build() {
 describe("GET /applications/@me", () => {
   it("returns the current application with id and name", async () => {
     const { app, store } = build();
-    const ds = getDiscordStore(store);
-    const appId = ds.applications.all()[0].snowflake;
+    const { app: appId } = seededIds(store);
 
     const res = await app.request(api("/applications/@me"), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = await json(res);
     expect(body.id).toBe(appId);
     expect(typeof body.name).toBe("string");
     expect(body.verify_key).toBeDefined();
@@ -49,13 +47,13 @@ describe("PATCH /applications/@me", () => {
       body: JSON.stringify({ description: "updated description" }),
     });
     expect(patchRes.status).toBe(200);
-    const patched = (await patchRes.json()) as Record<string, unknown>;
+    const patched = await json(patchRes);
     expect(patched.description).toBe("updated description");
 
     // Re-GET should reflect the change (stateful)
     const getRes = await app.request(api("/applications/@me"), { headers: botHeaders() });
     expect(getRes.status).toBe(200);
-    const got = (await getRes.json()) as Record<string, unknown>;
+    const got = await json(getRes);
     expect(got.description).toBe("updated description");
   });
 
@@ -68,7 +66,7 @@ describe("PATCH /applications/@me", () => {
       body: JSON.stringify({ interactions_endpoint_url: "https://example.com/interactions" }),
     });
     expect(patchRes.status).toBe(200);
-    const patched = (await patchRes.json()) as Record<string, unknown>;
+    const patched = await json(patchRes);
     // The field is not directly returned in the application object but the update should succeed
     expect(patched.id).toBeDefined();
   });
@@ -77,12 +75,11 @@ describe("PATCH /applications/@me", () => {
 describe("Application Emojis CRUD", () => {
   it("list is empty initially wrapped in { items: [] }", async () => {
     const { app, store } = build();
-    const ds = getDiscordStore(store);
-    const appId = ds.applications.all()[0].snowflake;
+    const { app: appId } = seededIds(store);
 
     const res = await app.request(api(`/applications/${appId}/emojis`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { items: unknown[] };
+    const body = await json<{ items: unknown[] }>(res);
     expect(body).toHaveProperty("items");
     expect(Array.isArray(body.items)).toBe(true);
     expect(body.items.length).toBe(0);
@@ -90,8 +87,7 @@ describe("Application Emojis CRUD", () => {
 
   it("creates an emoji and it appears in the items list", async () => {
     const { app, store } = build();
-    const ds = getDiscordStore(store);
-    const appId = ds.applications.all()[0].snowflake;
+    const { app: appId } = seededIds(store);
 
     const createRes = await app.request(api(`/applications/${appId}/emojis`), {
       method: "POST",
@@ -99,14 +95,14 @@ describe("Application Emojis CRUD", () => {
       body: JSON.stringify({ name: "test_emoji", image: "data:image/png;base64,abc" }),
     });
     expect(createRes.status).toBe(201);
-    const created = (await createRes.json()) as Record<string, unknown>;
+    const created = await json(createRes);
     expect(created.id).toBeDefined();
     expect(created.name).toBe("test_emoji");
 
     // List should now contain it
     const listRes = await app.request(api(`/applications/${appId}/emojis`), { headers: botHeaders() });
     expect(listRes.status).toBe(200);
-    const list = (await listRes.json()) as { items: Array<Record<string, unknown>> };
+    const list = await json<{ items: Array<Record<string, unknown>> }>(listRes);
     expect(list.items.length).toBe(1);
     expect(list.items[0].id).toBe(created.id);
     expect(list.items[0].name).toBe("test_emoji");
@@ -114,28 +110,26 @@ describe("Application Emojis CRUD", () => {
 
   it("GET by emojiId returns the emoji", async () => {
     const { app, store } = build();
-    const ds = getDiscordStore(store);
-    const appId = ds.applications.all()[0].snowflake;
+    const { app: appId } = seededIds(store);
 
     const createRes = await app.request(api(`/applications/${appId}/emojis`), {
       method: "POST",
       headers: botHeaders(),
       body: JSON.stringify({ name: "find_me", image: "data:image/png;base64,abc" }),
     });
-    const created = (await createRes.json()) as Record<string, unknown>;
+    const created = await json(createRes);
     const emojiId = created.id as string;
 
     const getRes = await app.request(api(`/applications/${appId}/emojis/${emojiId}`), { headers: botHeaders() });
     expect(getRes.status).toBe(200);
-    const got = (await getRes.json()) as Record<string, unknown>;
+    const got = await json(getRes);
     expect(got.id).toBe(emojiId);
     expect(got.name).toBe("find_me");
   });
 
   it("GET by emojiId returns 404 if not found", async () => {
     const { app, store } = build();
-    const ds = getDiscordStore(store);
-    const appId = ds.applications.all()[0].snowflake;
+    const { app: appId } = seededIds(store);
 
     const res = await app.request(api(`/applications/${appId}/emojis/000000000000000000`), {
       headers: botHeaders(),
@@ -145,15 +139,14 @@ describe("Application Emojis CRUD", () => {
 
   it("PATCH renames the emoji", async () => {
     const { app, store } = build();
-    const ds = getDiscordStore(store);
-    const appId = ds.applications.all()[0].snowflake;
+    const { app: appId } = seededIds(store);
 
     const createRes = await app.request(api(`/applications/${appId}/emojis`), {
       method: "POST",
       headers: botHeaders(),
       body: JSON.stringify({ name: "original_name" }),
     });
-    const created = (await createRes.json()) as Record<string, unknown>;
+    const created = await json(createRes);
     const emojiId = created.id as string;
 
     const patchRes = await app.request(api(`/applications/${appId}/emojis/${emojiId}`), {
@@ -162,22 +155,21 @@ describe("Application Emojis CRUD", () => {
       body: JSON.stringify({ name: "renamed_emoji" }),
     });
     expect(patchRes.status).toBe(200);
-    const renamed = (await patchRes.json()) as Record<string, unknown>;
+    const renamed = await json(patchRes);
     expect(renamed.name).toBe("renamed_emoji");
     expect(renamed.id).toBe(emojiId);
   });
 
   it("DELETE removes the emoji and it is gone (204 + 404 on re-fetch)", async () => {
     const { app, store } = build();
-    const ds = getDiscordStore(store);
-    const appId = ds.applications.all()[0].snowflake;
+    const { app: appId } = seededIds(store);
 
     const createRes = await app.request(api(`/applications/${appId}/emojis`), {
       method: "POST",
       headers: botHeaders(),
       body: JSON.stringify({ name: "to_delete" }),
     });
-    const created = (await createRes.json()) as Record<string, unknown>;
+    const created = await json(createRes);
     const emojiId = created.id as string;
 
     const deleteRes = await app.request(api(`/applications/${appId}/emojis/${emojiId}`), {
@@ -188,7 +180,7 @@ describe("Application Emojis CRUD", () => {
 
     // Should be gone from list
     const listRes = await app.request(api(`/applications/${appId}/emojis`), { headers: botHeaders() });
-    const list = (await listRes.json()) as { items: Array<Record<string, unknown>> };
+    const list = await json<{ items: Array<Record<string, unknown>> }>(listRes);
     expect(list.items.some((e) => e.id === emojiId)).toBe(false);
 
     // Should 404 on direct GET
@@ -198,8 +190,7 @@ describe("Application Emojis CRUD", () => {
 
   it("list response is wrapped in { items: [...] } object", async () => {
     const { app, store } = build();
-    const ds = getDiscordStore(store);
-    const appId = ds.applications.all()[0].snowflake;
+    const { app: appId } = seededIds(store);
 
     // Create two emojis
     await app.request(api(`/applications/${appId}/emojis`), {
@@ -215,7 +206,7 @@ describe("Application Emojis CRUD", () => {
 
     const listRes = await app.request(api(`/applications/${appId}/emojis`), { headers: botHeaders() });
     expect(listRes.status).toBe(200);
-    const body = (await listRes.json()) as Record<string, unknown>;
+    const body = await json(listRes);
 
     // Must be wrapped in { items: [...] }, not a bare array
     expect(Array.isArray(body)).toBe(false);

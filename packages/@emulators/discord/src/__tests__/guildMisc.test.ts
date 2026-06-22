@@ -1,9 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "./helpers.js";
-import { getDiscordStore } from "../store.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "./helpers.js";
 
 function guildId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).guilds.findOneBy("name", "Emulate Server")!.snowflake;
+  return seededIds(store).guild;
 }
 
 describe("discord guild misc", () => {
@@ -11,7 +10,7 @@ describe("discord guild misc", () => {
     const { app } = createDiscordTestApp();
     const res = await app.request(api("/voice/regions"), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const regions = (await res.json()) as Array<{ id: string }>;
+    const regions = await json<Array<{ id: string }>>(res);
     expect(regions.some((r) => r.id === "us-east")).toBe(true);
   });
 
@@ -19,9 +18,9 @@ describe("discord guild misc", () => {
     const { app, store } = createDiscordTestApp();
     const gid = guildId(store);
     const prune = await app.request(api(`/guilds/${gid}/prune`), { headers: botHeaders() });
-    expect(((await prune.json()) as { pruned: number }).pruned).toBe(0);
+    expect((await json<{ pruned: number }>(prune)).pruned).toBe(0);
     const vanity = await app.request(api(`/guilds/${gid}/vanity-url`), { headers: botHeaders() });
-    expect(((await vanity.json()) as { code: string | null }).code).toBeNull();
+    expect((await json<{ code: string | null }>(vanity)).code).toBeNull();
   });
 
   it("returns an audit log with referenced users", async () => {
@@ -29,7 +28,7 @@ describe("discord guild misc", () => {
     const gid = guildId(store);
     const res = await app.request(api(`/guilds/${gid}/audit-logs`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const log = (await res.json()) as { audit_log_entries: unknown[]; users: Array<{ username: string }> };
+    const log = await json<{ audit_log_entries: unknown[]; users: Array<{ username: string }> }>(res);
     expect(Array.isArray(log.audit_log_entries)).toBe(true);
     expect(log.users.some((u) => u.username === "emulate-bot")).toBe(true);
   });
@@ -44,7 +43,7 @@ describe("discord guild misc", () => {
       headers: botHeaders(),
       body: JSON.stringify({ name: "Moderators", color: 0xff0000 }),
     });
-    const role = (await roleRes.json()) as { id: string };
+    const role = await json<{ id: string }>(roleRes);
 
     // Create a channel -> ChannelCreate (10).
     const channelRes = await app.request(api(`/guilds/${gid}/channels`), {
@@ -52,13 +51,13 @@ describe("discord guild misc", () => {
       headers: botHeaders(),
       body: JSON.stringify({ name: "mod-log", type: 0 }),
     });
-    const channel = (await channelRes.json()) as { id: string };
+    const channel = await json<{ id: string }>(channelRes);
 
     const res = await app.request(api(`/guilds/${gid}/audit-logs`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const log = (await res.json()) as {
+    const log = await json<{
       audit_log_entries: Array<{ id: string; target_id: string; action_type: number; user_id: string }>;
-    };
+    }>(res);
     // Newest first: channel create should precede role create.
     expect(log.audit_log_entries[0]?.action_type).toBe(10);
     expect(log.audit_log_entries[0]?.target_id).toBe(channel.id);
@@ -84,7 +83,7 @@ describe("discord guild misc", () => {
     });
 
     const res = await app.request(api(`/guilds/${gid}/audit-logs?action_type=30`), { headers: botHeaders() });
-    const log = (await res.json()) as { audit_log_entries: Array<{ action_type: number }> };
+    const log = await json<{ audit_log_entries: Array<{ action_type: number }> }>(res);
     expect(log.audit_log_entries.length).toBe(1);
     expect(log.audit_log_entries.every((e) => e.action_type === 30)).toBe(true);
   });

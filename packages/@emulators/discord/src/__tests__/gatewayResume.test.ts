@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import WebSocket from "ws";
-import { startDiscordTestEmulator, api, botHeaders, type RunningDiscordEmulator } from "./helpers.js";
+import { startDiscordTestEmulator, api, botHeaders, json, type RunningDiscordEmulator } from "./helpers.js";
 import { GatewayOpcodes } from "../gateway/opcodes.js";
 import { Intents } from "../gateway/intents.js";
 import { getDiscordStore } from "../store.js";
@@ -101,7 +101,7 @@ describe("discord gateway resume", () => {
       headers: botHeaders(),
       body: JSON.stringify({ name: "while-away", type: 0 }),
     });
-    const channel = (await created.json()) as { id: string };
+    const channel = await json<{ id: string }>(created);
 
     // Reconnect and RESUME from the last seq we saw.
     const second = await connect(`${emu.gatewayUrl}?v=10&encoding=json`);

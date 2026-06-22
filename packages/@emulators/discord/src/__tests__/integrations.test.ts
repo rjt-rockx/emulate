@@ -4,7 +4,7 @@ import { discordPlugin } from "../index.js";
 import { getDiscordRuntime } from "../runtime.js";
 import { getDiscordStore } from "../store.js";
 import { integrationsRoutes } from "../routes/integrations.js";
-import { api, botHeaders, TEST_BASE_URL } from "./helpers.js";
+import { api, botHeaders, TEST_BASE_URL, json } from "./helpers.js";
 import { snowflake } from "../helpers.js";
 
 function build() {
@@ -43,7 +43,7 @@ describe("integrations routes", () => {
       headers: botHeaders(),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Array<Record<string, unknown>>;
+    const body = await json<Array<Record<string, unknown>>>(res);
     expect(Array.isArray(body)).toBe(true);
     expect(body.length).toBeGreaterThanOrEqual(1);
     const found = body.find((i) => i.id === integSnowflake);
@@ -138,7 +138,7 @@ describe("integrations routes", () => {
 
     const res = await app.request(api("/users/@me/connections"), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Array<Record<string, unknown>>;
+    const body = await json<Array<Record<string, unknown>>>(res);
     expect(Array.isArray(body)).toBe(true);
     const found = body.find((c) => c.id === "gh-user-42");
     expect(found).toBeDefined();
@@ -163,7 +163,7 @@ describe("integrations routes", () => {
     const { app } = build();
     const res = await app.request(api("/sticker-packs"), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { sticker_packs: Array<Record<string, unknown>> };
+    const body = await json<{ sticker_packs: Array<Record<string, unknown>> }>(res);
     expect(Array.isArray(body.sticker_packs)).toBe(true);
     expect(body.sticker_packs.length).toBeGreaterThanOrEqual(1);
     const pack = body.sticker_packs[0];
@@ -181,12 +181,12 @@ describe("integrations routes", () => {
     const { app } = build();
     // First retrieve the list to get a real id.
     const listRes = await app.request(api("/sticker-packs"), { headers: botHeaders() });
-    const listBody = (await listRes.json()) as { sticker_packs: Array<Record<string, unknown>> };
+    const listBody = await json<{ sticker_packs: Array<Record<string, unknown>> }>(listRes);
     const firstId = listBody.sticker_packs[0].id as string;
 
     const res = await app.request(api(`/sticker-packs/${firstId}`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const pack = (await res.json()) as Record<string, unknown>;
+    const pack = await json(res);
     expect(pack.id).toBe(firstId);
     expect(typeof pack.name).toBe("string");
   });

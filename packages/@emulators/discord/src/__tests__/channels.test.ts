@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "./helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "./helpers.js";
 import { getDiscordStore } from "../store.js";
 
 function guildId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
-  return getDiscordStore(store).guilds.findOneBy("name", "Emulate Server")!.snowflake;
+  return seededIds(store).guild;
 }
 
 describe("discord channels routes", () => {
@@ -11,7 +11,7 @@ describe("discord channels routes", () => {
     const { app, store } = createDiscordTestApp();
     const res = await app.request(api(`/guilds/${guildId(store)}/channels`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const channels = (await res.json()) as Array<{ name: string; type: number }>;
+    const channels = await json<Array<{ name: string; type: number }>>(res);
     expect(channels.some((ch) => ch.name === "general" && ch.type === 0)).toBe(true);
   });
 
@@ -24,7 +24,7 @@ describe("discord channels routes", () => {
       body: JSON.stringify({ name: "new-topic", type: 0, topic: "hi" }),
     });
     expect(createRes.status).toBe(201);
-    const created = (await createRes.json()) as { id: string; name: string };
+    const created = await json<{ id: string; name: string }>(createRes);
     expect(created.name).toBe("new-topic");
 
     const getRes = await app.request(api(`/channels/${created.id}`), { headers: botHeaders() });
@@ -35,7 +35,7 @@ describe("discord channels routes", () => {
       headers: botHeaders(),
       body: JSON.stringify({ topic: "updated" }),
     });
-    expect(((await patchRes.json()) as { topic: string }).topic).toBe("updated");
+    expect((await json<{ topic: string }>(patchRes)).topic).toBe("updated");
 
     const delRes = await app.request(api(`/channels/${created.id}`), { method: "DELETE", headers: botHeaders() });
     expect(delRes.status).toBe(200);
@@ -46,8 +46,8 @@ describe("discord channels routes", () => {
 
   it("POST typing returns 204", async () => {
     const { app, store } = createDiscordTestApp();
-    const general = getDiscordStore(store).channels.findOneBy("name", "general")!;
-    const res = await app.request(api(`/channels/${general.snowflake}/typing`), {
+    const { general } = seededIds(store);
+    const res = await app.request(api(`/channels/${general}/typing`), {
       method: "POST",
       headers: botHeaders(),
     });

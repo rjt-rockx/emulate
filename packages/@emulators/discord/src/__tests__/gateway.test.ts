@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import WebSocket from "ws";
-import { startDiscordTestEmulator, api, botHeaders, type RunningDiscordEmulator } from "./helpers.js";
+import { startDiscordTestEmulator, api, botHeaders, json, type RunningDiscordEmulator } from "./helpers.js";
 import { GatewayOpcodes } from "../gateway/opcodes.js";
 import { Intents } from "../gateway/intents.js";
 
@@ -63,7 +63,7 @@ describe("discord gateway", () => {
     emu = await startDiscordTestEmulator();
     const res = await fetch(api("/gateway/bot", emu.baseUrl), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { url: string; shards: number; session_start_limit: unknown };
+    const body = await json<{ url: string; shards: number; session_start_limit: unknown }>(res);
     expect(body.url).toBe(emu.gatewayUrl);
     expect(body.shards).toBe(1);
     expect(body.session_start_limit).toBeTruthy();

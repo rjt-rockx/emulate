@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import WebSocket from "ws";
-import { startDiscordTestEmulator, api, botHeaders, type RunningDiscordEmulator } from "./helpers.js";
+import { startDiscordTestEmulator, api, botHeaders, json, type RunningDiscordEmulator } from "./helpers.js";
 import { GatewayOpcodes } from "../gateway/opcodes.js";
 import { Intents } from "../gateway/intents.js";
 import { getDiscordStore } from "../store.js";
@@ -65,7 +65,7 @@ describe("gateway membership transitions", () => {
       headers: botHeaders(),
       body: JSON.stringify({ name: "Fresh Guild" }),
     });
-    const guild = (await created.json()) as { id: string; name: string };
+    const guild = await json<{ id: string; name: string }>(created);
 
     const event = await waitFor("GUILD_CREATE");
     expect((event.d as { id: string }).id).toBe(guild.id);
@@ -125,7 +125,7 @@ describe("gateway membership transitions", () => {
       headers: botHeaders(),
       body: JSON.stringify({ name: "new-here", type: 0 }),
     });
-    const ch = (await channel.json()) as { id: string };
+    const ch = await json<{ id: string }>(channel);
     const chEvent = await waitFor("CHANNEL_CREATE");
     expect((chEvent.d as { id: string }).id).toBe(ch.id);
   });

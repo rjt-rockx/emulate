@@ -1,14 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "./helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "./helpers.js";
 import { getDiscordStore } from "../store.js";
 import { createMessage } from "../factories.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
-  const ds = getDiscordStore(store);
+  const s = seededIds(store);
   return {
-    guild: ds.guilds.findOneBy("name", "Emulate Server")!.snowflake,
-    channel: ds.channels.findOneBy("name", "general")!.snowflake,
-    bot: ds.users.findOneBy("username", "emulate-bot")!.snowflake,
+    guild: s.guild,
+    channel: s.general,
+    bot: s.bot,
   };
 }
 
@@ -19,7 +19,7 @@ async function getAuditLog(
 ): Promise<Array<{ action_type: number; target_id: string | null; user_id: string | null }>> {
   const qs = actionType != null ? `?action_type=${actionType}` : "";
   const res = await app.request(api(`/guilds/${guildId}/audit-logs${qs}`), { headers: botHeaders() });
-  const body = (await res.json()) as { audit_log_entries: Array<{ action_type: number; target_id: string | null; user_id: string | null }> };
+  const body = await json<{ audit_log_entries: Array<{ action_type: number; target_id: string | null; user_id: string | null }> }>(res);
   return body.audit_log_entries;
 }
 
@@ -34,7 +34,7 @@ describe("audit log coverage — emoji create", () => {
       body: JSON.stringify({ name: "wave", animated: false, image: "data:image/png;base64,AAAA" }),
     });
     expect(res.status).toBe(201);
-    const emoji = (await res.json()) as { id: string };
+    const emoji = await json<{ id: string }>(res);
 
     const entries = await getAuditLog(app, guild, 60);
     expect(entries.length).toBeGreaterThan(0);
@@ -106,7 +106,7 @@ describe("audit log coverage — scheduled event create", () => {
       }),
     });
     expect(res.status).toBe(201);
-    const event = (await res.json()) as { id: string };
+    const event = await json<{ id: string }>(res);
 
     const entries = await getAuditLog(app, guild, 100);
     expect(entries.length).toBeGreaterThan(0);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders, TEST_BASE_URL } from "./helpers.js";
+import { createDiscordTestApp, api, botHeaders, TEST_BASE_URL, json } from "./helpers.js";
 import { getDiscordStore } from "../store.js";
 
 function ctx(store: ReturnType<typeof createDiscordTestApp>["store"]) {
@@ -17,7 +17,7 @@ async function trigger(app: ReturnType<typeof createDiscordTestApp>["app"], inpu
     headers: botHeaders(),
     body: JSON.stringify(input),
   });
-  return (await res.json()) as { id: string; token: string; interaction: Record<string, unknown> };
+  return json<{ id: string; token: string; interaction: Record<string, unknown> }>(res);
 }
 
 async function callback(app: ReturnType<typeof createDiscordTestApp>["app"], id: string, token: string, body: unknown) {
@@ -120,14 +120,14 @@ describe("interaction component flows", () => {
     expect(first.status).toBe(204);
     const second = await callback(app, t.id, t.token, { type: 4, data: { content: "again" } });
     expect(second.status).toBe(400);
-    expect(((await second.json()) as { code: number }).code).toBe(40060);
+    expect((await json<{ code: number }>(second)).code).toBe(40060);
   });
 
   it("rejects an unknown interaction id with 10062", async () => {
     const { app } = createDiscordTestApp();
     const res = await callback(app, "999999999999999999", "bogus_token", { type: 4, data: { content: "hi" } });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { code: number }).code).toBe(10062);
+    expect((await json<{ code: number }>(res)).code).toBe(10062);
   });
 
   it("context-menu command resolves target_id and resolved data", async () => {

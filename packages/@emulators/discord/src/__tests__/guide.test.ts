@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { Client, GatewayIntentBits, Events, EmbedBuilder, type TextChannel } from "discord.js";
-import { startDiscordTestEmulator, api, botHeaders, type RunningDiscordEmulator } from "./helpers.js";
+import { startDiscordTestEmulator, api, botHeaders, json, type RunningDiscordEmulator } from "./helpers.js";
 import { getDiscordStore } from "../store.js";
 
 /**
@@ -66,7 +66,7 @@ describe("discord.js guide patterns", () => {
       body: JSON.stringify({ content: "Hello from REST" }),
     });
     expect(createRes.status).toBe(200);
-    const msg = (await createRes.json()) as { id: string; content: string };
+    const msg = await json<{ id: string; content: string }>(createRes);
     expect(msg.content).toBe("Hello from REST");
 
     // Fetch the message
@@ -81,7 +81,7 @@ describe("discord.js guide patterns", () => {
       headers: botHeaders(),
       body: JSON.stringify({ content: "Edited message" }),
     });
-    const edited = (await editRes.json()) as { content: string };
+    const edited = await json<{ content: string }>(editRes);
     expect(edited.content).toBe("Edited message");
 
     // Delete the message
@@ -135,7 +135,7 @@ describe("discord.js guide patterns", () => {
       headers: botHeaders(),
       body: JSON.stringify({ content: "React to me" }),
     });
-    const msg = (await msgRes.json()) as { id: string };
+    const msg = await json<{ id: string }>(msgRes);
 
     // React with a Unicode emoji (thumbs up)
     const THUMBS = encodeURIComponent("👍");
@@ -149,7 +149,7 @@ describe("discord.js guide patterns", () => {
     const listRes = await fetch(api(`/channels/${channelId}/messages/${msg.id}/reactions/${THUMBS}`, emu.baseUrl), {
       headers: botHeaders(),
     });
-    const users = (await listRes.json()) as Array<{ id: string }>;
+    const users = await json<Array<{ id: string }>>(listRes);
     expect(users.some((u) => u.id === bot.snowflake)).toBe(true);
   }, 25000);
 
@@ -164,7 +164,7 @@ describe("discord.js guide patterns", () => {
       headers: botHeaders(),
       body: JSON.stringify({ content: "Remove reaction" }),
     });
-    const msg = (await msgRes.json()) as { id: string };
+    const msg = await json<{ id: string }>(msgRes);
 
     // Add reaction
     const THUMBS = encodeURIComponent("👍");
@@ -224,14 +224,14 @@ describe("discord.js guide patterns", () => {
       body: JSON.stringify({ name: "greet", description: "Greet the user" }),
     });
     expect(regRes.status).toBe(201);
-    const cmd = (await regRes.json()) as { id: string; name: string };
+    const cmd = await json<{ id: string; name: string }>(regRes);
     expect(cmd.name).toBe("greet");
 
     // Verify it's registered
     const listRes = await fetch(api(`/applications/${aid}/commands`, emu.baseUrl), {
       headers: botHeaders(),
     });
-    const commands = (await listRes.json()) as Array<{ name: string }>;
+    const commands = await json<Array<{ name: string }>>(listRes);
     expect(commands.some((c) => c.name === "greet")).toBe(true);
 
     // Trigger the command via emulator control endpoint
@@ -242,7 +242,7 @@ describe("discord.js guide patterns", () => {
       body: JSON.stringify({ type: 2, commandName: "greet", channelSnowflake: channelId }),
     });
     expect(triggerRes.status).toBe(200);
-    const triggerData = (await triggerRes.json()) as { id: string; token: string };
+    const triggerData = await json<{ id: string; token: string }>(triggerRes);
     expect(triggerData.id).toBeTruthy();
     expect(triggerData.token).toBeTruthy();
   }, 25000);
@@ -284,7 +284,7 @@ describe("discord.js guide patterns", () => {
       }),
     });
     expect(msgRes.status).toBe(200);
-    const msg = (await msgRes.json()) as { id: string; components: Array<{ type: number }> };
+    const msg = await json<{ id: string; components: Array<{ type: number }> }>(msgRes);
     expect(msg.components).toHaveLength(1);
     expect(msg.components[0].type).toBe(1); // ACTION_ROW
   }, 25000);
@@ -336,7 +336,7 @@ describe("discord.js guide patterns", () => {
       }),
     });
     expect(msgRes.status).toBe(200);
-    const msg = (await msgRes.json()) as { id: string; components: Array<{ components: Array<{ type: number; options: Array<{ value: string }> }> }> };
+    const msg = await json<{ id: string; components: Array<{ components: Array<{ type: number; options: Array<{ value: string }> }> }> }>(msgRes);
     expect(msg.components).toHaveLength(1);
     const selectComponent = msg.components[0].components[0];
     expect(selectComponent.type).toBe(3); // STRING_SELECT
@@ -427,7 +427,7 @@ describe("discord.js guide patterns", () => {
       }),
     });
     expect(createRes.status).toBe(200);
-    const role = (await createRes.json()) as { id: string; name: string; color: number };
+    const role = await json<{ id: string; name: string; color: number }>(createRes);
     expect(role.name).toBe("Moderator");
     expect(role.color).toBe(0xff0000);
 
@@ -558,7 +558,7 @@ describe("discord.js guide patterns", () => {
       body: JSON.stringify({ type: 2, commandName: "workflow-test", channelSnowflake: channelId }),
     });
     expect(triggerRes.status).toBe(200);
-    const triggerData = (await triggerRes.json()) as { id: string; token: string };
+    const triggerData = await json<{ id: string; token: string }>(triggerRes);
     expect(triggerData.id).toBeTruthy();
     expect(triggerData.token).toBeTruthy();
   }, 25000);
@@ -577,7 +577,7 @@ describe("discord.js guide patterns", () => {
       }),
     });
     expect(msgRes.status).toBe(200);
-    const msg = (await msgRes.json()) as { id: string; content: string };
+    const msg = await json<{ id: string; content: string }>(msgRes);
     expect(msg.content).toContain("https://discord.js.org/");
     expect(msg.content).toContain("@everyone");
   }, 25000);

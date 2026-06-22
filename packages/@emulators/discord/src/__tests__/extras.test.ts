@@ -1,15 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "./helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "./helpers.js";
 import { getDiscordStore } from "../store.js";
 import { createMessage } from "../factories.js";
 
 function ids(store: ReturnType<typeof createDiscordTestApp>["store"]) {
-  const ds = getDiscordStore(store);
+  const s = seededIds(store);
   return {
-    guild: ds.guilds.findOneBy("name", "Emulate Server")!.snowflake,
-    channel: ds.channels.findOneBy("name", "general")!.snowflake,
-    developer: ds.users.findOneBy("username", "developer")!.snowflake,
-    bot: ds.users.findOneBy("username", "emulate-bot")!.snowflake,
+    guild: s.guild,
+    channel: s.general,
+    developer: s.developer,
+    bot: s.bot,
   };
 }
 
@@ -24,7 +24,7 @@ describe("discord pins", () => {
     expect(pinRes.status).toBe(204);
     expect(ds.messages.findOneBy("snowflake", message.snowflake)!.pinned).toBe(true);
 
-    const list = (await (await app.request(api(`/channels/${channel}/pins`), { headers: botHeaders() })).json()) as Array<{ id: string }>;
+    const list = await json<Array<{ id: string }>>(await app.request(api(`/channels/${channel}/pins`), { headers: botHeaders() }));
     expect(list.some((m) => m.id === message.snowflake)).toBe(true);
 
     const unpin = await app.request(api(`/channels/${channel}/pins/${message.snowflake}`), { method: "DELETE", headers: botHeaders() });
@@ -48,7 +48,7 @@ describe("discord bans", () => {
     // member removed from the guild
     expect(ds.members.findBy("guild_snowflake", guild).some((m) => m.user_snowflake === developer)).toBe(false);
 
-    const list = (await (await app.request(api(`/guilds/${guild}/bans`), { headers: botHeaders() })).json()) as Array<{ user: { id: string }; reason: string }>;
+    const list = await json<Array<{ user: { id: string }; reason: string }>>(await app.request(api(`/guilds/${guild}/bans`), { headers: botHeaders() }));
     expect(list.some((b) => b.user.id === developer && b.reason === "spam")).toBe(true);
 
     const unban = await app.request(api(`/guilds/${guild}/bans/${developer}`), { method: "DELETE", headers: botHeaders() });
@@ -62,19 +62,17 @@ describe("discord invites", () => {
     const { app, store } = createDiscordTestApp();
     const { channel } = ids(store);
 
-    const created = (await (
-      await app.request(api(`/channels/${channel}/invites`), {
-        method: "POST",
-        headers: botHeaders(),
-        body: JSON.stringify({ max_uses: 5, temporary: true }),
-      })
-    ).json()) as { code: string; max_uses: number };
+    const created = await json<{ code: string; max_uses: number }>(await app.request(api(`/channels/${channel}/invites`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ max_uses: 5, temporary: true }),
+    }));
     expect(created.code).toBeTruthy();
     expect(created.max_uses).toBe(5);
 
     const fetched = await app.request(api(`/invites/${created.code}`), { headers: botHeaders() });
     expect(fetched.status).toBe(200);
-    expect(((await fetched.json()) as { code: string }).code).toBe(created.code);
+    expect((await json<{ code: string }>(fetched)).code).toBe(created.code);
 
     const del = await app.request(api(`/invites/${created.code}`), { method: "DELETE", headers: botHeaders() });
     expect(del.status).toBe(200);

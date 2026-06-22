@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "./helpers.js";
+import { createDiscordTestApp, api, botHeaders, json, seededIds } from "./helpers.js";
 import { getDiscordStore } from "../store.js";
 import type { DiscordTestApp } from "./helpers.js";
 
@@ -11,17 +11,11 @@ describe("guilds routes", () => {
   });
 
   function guildId(): string {
-    const ds = getDiscordStore(testApp.store);
-    const guild = ds.guilds.findOneBy("name", "Emulate Server");
-    if (!guild) throw new Error("Seeded guild not found");
-    return guild.snowflake;
+    return seededIds(testApp.store).guild;
   }
 
   function developerUserId(): string {
-    const ds = getDiscordStore(testApp.store);
-    const user = ds.users.findOneBy("username", "developer");
-    if (!user) throw new Error("Seeded developer user not found");
-    return user.snowflake;
+    return seededIds(testApp.store).developer;
   }
 
   // -------------------------------------------------------------------------
@@ -32,7 +26,7 @@ describe("guilds routes", () => {
     const id = guildId();
     const res = await testApp.app.request(api(`/guilds/${id}`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = await json(res);
     expect(body.id).toBe(id);
     expect(body.name).toBe("Emulate Server");
     const roles = body.roles as Array<Record<string, unknown>>;
@@ -51,7 +45,7 @@ describe("guilds routes", () => {
     const id = guildId();
     const res = await testApp.app.request(api(`/guilds/${id}?with_counts=true`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = await json(res);
     expect(typeof body.approximate_member_count).toBe("number");
   });
 
@@ -66,7 +60,7 @@ describe("guilds routes", () => {
       body: JSON.stringify({ name: "My New Guild" }),
     });
     expect(res.status).toBe(201);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = await json(res);
     expect(body.name).toBe("My New Guild");
     expect(typeof body.id).toBe("string");
     // full serialization includes channels and members
@@ -86,7 +80,7 @@ describe("guilds routes", () => {
       body: JSON.stringify({ name: "Renamed Server" }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = await json(res);
     expect(body.name).toBe("Renamed Server");
     expect(body.id).toBe(id);
 
@@ -110,14 +104,14 @@ describe("guilds routes", () => {
       body: JSON.stringify({ name: "Moderators", color: 0x3498db, permissions: "8" }),
     });
     expect(createRes.status).toBe(200);
-    const created = (await createRes.json()) as Record<string, unknown>;
+    const created = await json(createRes);
     expect(created.name).toBe("Moderators");
     expect(typeof created.id).toBe("string");
 
     // List roles — should include @everyone and the new one.
     const listRes = await testApp.app.request(api(`/guilds/${id}/roles`), { headers: botHeaders() });
     expect(listRes.status).toBe(200);
-    const roles = (await listRes.json()) as Array<Record<string, unknown>>;
+    const roles = await json<Array<Record<string, unknown>>>(listRes);
     expect(roles.some((r) => r.name === "Moderators")).toBe(true);
     expect(roles.some((r) => r.name === "@everyone")).toBe(true);
   });
@@ -132,7 +126,7 @@ describe("guilds routes", () => {
       body: JSON.stringify({ name: "TempRole" }),
     });
     expect(createRes.status).toBe(200);
-    const created = (await createRes.json()) as Record<string, unknown>;
+    const created = await json(createRes);
     const roleId = created.id as string;
 
     // Delete it.
@@ -163,7 +157,7 @@ describe("guilds routes", () => {
       body: JSON.stringify({ name: "Fresh Guild" }),
     });
     expect(newGuildRes.status).toBe(201);
-    const newGuild = (await newGuildRes.json()) as Record<string, unknown>;
+    const newGuild = await json(newGuildRes);
     const newGuildId = newGuild.id as string;
 
     const res = await testApp.app.request(api(`/guilds/${newGuildId}/members/${devId}`), {
@@ -184,7 +178,7 @@ describe("guilds routes", () => {
     const id = guildId();
     const res = await testApp.app.request(api(`/guilds/${id}/members`), { headers: botHeaders() });
     expect(res.status).toBe(200);
-    const members = (await res.json()) as Array<Record<string, unknown>>;
+    const members = await json<Array<Record<string, unknown>>>(res);
     expect(members.length).toBeGreaterThan(0);
     const first = members[0];
     expect(first).toHaveProperty("roles");
@@ -206,13 +200,13 @@ describe("guilds routes", () => {
       body: JSON.stringify({ name: "thumbsup", animated: false, image: "data:image/png;base64,AAAA" }),
     });
     expect(createRes.status).toBe(201);
-    const created = (await createRes.json()) as Record<string, unknown>;
+    const created = await json(createRes);
     expect(created.name).toBe("thumbsup");
     expect(typeof created.id).toBe("string");
 
     const listRes = await testApp.app.request(api(`/guilds/${id}/emojis`), { headers: botHeaders() });
     expect(listRes.status).toBe(200);
-    const emojis = (await listRes.json()) as Array<Record<string, unknown>>;
+    const emojis = await json<Array<Record<string, unknown>>>(listRes);
     expect(emojis.some((e) => e.name === "thumbsup")).toBe(true);
   });
 });

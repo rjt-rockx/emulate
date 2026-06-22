@@ -4,7 +4,7 @@ import { discordPlugin } from "../index.js";
 import { getDiscordRuntime } from "../runtime.js";
 import { getDiscordStore } from "../store.js";
 import { commandPermissionsRoutes } from "../routes/commandPermissions.js";
-import { api, botHeaders, bearerHeaders, TEST_BASE_URL } from "./helpers.js";
+import { api, botHeaders, bearerHeaders, TEST_BASE_URL, json } from "./helpers.js";
 
 const TEST_BEARER = "test_cmd_perms_bearer";
 
@@ -49,7 +49,7 @@ describe("discord application command permissions", () => {
       { headers: botHeaders() },
     );
     expect(res.status).toBe(404);
-    const body = (await res.json()) as { code: number; message: string };
+    const body = await json<{ code: number; message: string }>(res);
     expect(body.code).toBe(10066);
     expect(body.message).toBe("Unknown application command permissions");
   });
@@ -89,12 +89,12 @@ describe("discord application command permissions", () => {
       },
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await json<{
       id: string;
       application_id: string;
       guild_id: string;
       permissions: Array<{ id: string; type: number; permission: boolean }>;
-    };
+    }>(res);
     expect(body.id).toBe(commandId);
     expect(body.application_id).toBe(appId);
     expect(body.guild_id).toBe(guildId);
@@ -123,10 +123,10 @@ describe("discord application command permissions", () => {
       { headers: botHeaders() },
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await json<{
       id: string;
       permissions: Array<{ id: string; type: number; permission: boolean }>;
-    };
+    }>(res);
     expect(body.id).toBe(commandId);
     expect(body.permissions).toEqual(permissions);
   });
@@ -153,7 +153,7 @@ describe("discord application command permissions", () => {
       { headers: botHeaders() },
     );
     expect(res.status).toBe(200);
-    const list = (await res.json()) as Array<{ id: string; permissions: unknown[] }>;
+    const list = await json<Array<{ id: string; permissions: unknown[] }>>(res);
     expect(Array.isArray(list)).toBe(true);
     const entry = list.find((x) => x.id === commandId);
     expect(entry).toBeDefined();
@@ -196,7 +196,7 @@ describe("discord application command permissions", () => {
       api(`/applications/${appId}/guilds/${guildId}/commands/permissions`),
       { headers: botHeaders() },
     );
-    const list = (await listRes.json()) as Array<{ id: string; permissions: unknown[] }>;
+    const list = await json<Array<{ id: string; permissions: unknown[] }>>(listRes);
     const entries = list.filter((x) => x.id === commandId);
     expect(entries).toHaveLength(1);
 
@@ -205,9 +205,9 @@ describe("discord application command permissions", () => {
       api(`/applications/${appId}/guilds/${guildId}/commands/${commandId}/permissions`),
       { headers: botHeaders() },
     );
-    const single = (await singleRes.json()) as {
+    const single = await json<{
       permissions: Array<{ id: string; type: number; permission: boolean }>;
-    };
+    }>(singleRes);
     expect(single.permissions).toEqual(secondPerms);
   });
 
@@ -250,10 +250,10 @@ describe("discord application command permissions", () => {
       ]),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Array<{ id: string }>;
+    const body = await json<Array<{ id: string }>>(res);
     expect(body.map((r) => r.id).sort()).toEqual(["111", "222"]);
 
-    const list = (await (await app.request(api(`/applications/${appId}/guilds/${guildId}/commands/permissions`), { headers: botHeaders() })).json()) as Array<{ id: string }>;
+    const list = await json<Array<{ id: string }>>(await app.request(api(`/applications/${appId}/guilds/${guildId}/commands/permissions`), { headers: botHeaders() }));
     expect(list.length).toBe(2);
   });
 });
