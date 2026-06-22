@@ -42,11 +42,23 @@ Generative invariants that kill whole bug classes at once and guard them forever
 carries the `{message, code}` envelope with a non-zero documented code; create→GET round-trips to an
 equal object; every list endpoint rejects `limit < 1` and paginates monotonically by snowflake.
 
-## Phase 3 (after): real-client acceptance matrix
+## Phase 3 (shipped): real-client acceptance matrix
 
-Grow beyond the single `discordjs.test.ts` to discord.js + discord.py representative flows (and,
-where feasible, their own suites) pointed at the emulator — the strongest oracle for behavior the
-schemas can't encode (gateway sequencing, ratelimit backoff, interaction signature verification).
+Two independent client oracles drive real libraries through login -> READY -> REST round-trips
+against the emulator. Because each library parses every response through its own strict models, a
+wire-shape divergence throws in the client rather than passing a hand-written assertion.
+
+- `discordjs.test.ts` — a real discord.js Client creates a role, channel, message (+edit),
+  reaction, webhook, fetches members, and creates an invite. It caught a real bug: discord.js
+  sends/reads role color via the newer `colors` object, which the emulator ignored on create.
+- `oracle/discordpy.test.ts` + `discordpy_flow.py` — a real discord.py Client (Python, a different
+  parser) logs in, reaches READY over the **zlib-stream** gateway, and round-trips channels/roles/
+  members/messages. It needs two overrides the harness applies: `Route.BASE` for REST and
+  `DiscordWebSocket.DEFAULT_GATEWAY` for the gateway (discord.py 2.x ignores the REST /gateway URL).
+  The test auto-skips when `python3`/`discord.py` aren't installed; enable it in CI with
+  `pip install "discord.py>=2.3"`.
+
+Next: point one or two representative open-source bots' own test suites at the emulator.
 
 ## Phase 4 (deferred — needs a token): record/replay cassettes
 
