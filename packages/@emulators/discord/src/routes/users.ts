@@ -1,7 +1,17 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, toAPIUser, toAPIChannel, toAPIMember } from "../helpers.js";
+import {
+  getAuth,
+  unauthorized,
+  unknownUser,
+  unknownGuild,
+  unknownMember,
+  toAPIUser,
+  toAPIChannel,
+  toAPIMember,
+} from "../helpers.js";
 import { createChannel } from "../factories.js";
+import { computeGuildPermissions } from "../permissions.js";
 import { Intents } from "../gateway/intents.js";
 
 export function usersRoutes(ctx: DiscordRouteContext): void {
@@ -29,6 +39,7 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
     if (typeof body.username === "string") patch.username = body.username;
     if (body.global_name !== undefined) patch.global_name = body.global_name;
     if (body.avatar !== undefined) patch.avatar = body.avatar;
+    if (body.banner !== undefined) patch.banner = body.banner;
     if (Object.keys(patch).length > 0) ds.users.update(auth.user.id, patch);
     const updated = ds.users.findOneBy("snowflake", auth.user.snowflake) ?? auth.user;
     bus.publish({ t: "USER_UPDATE", guildId: null, requiredIntents: 0, d: toAPIUser(updated, true) });
@@ -40,26 +51,35 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
     if (!auth || !auth.user) return unauthorized(c);
     const ds = getDiscordStore(store);
     const withCounts = c.req.query("with_counts") === "true";
+    const before = c.req.query("before");
+    const after = c.req.query("after");
+    const limitRaw = c.req.query("limit");
+    const limit = limitRaw !== undefined ? Math.max(0, Math.min(200, Number(limitRaw) || 0)) : 200;
     const memberships = ds.members.findBy("user_snowflake", auth.user.snowflake);
-    const guilds = memberships
+    let resolved = memberships
       .map((m) => ds.guilds.findOneBy("snowflake", m.guild_snowflake))
       .filter((g): g is NonNullable<typeof g> => !!g)
-      .map((g) => {
-        const partial: Record<string, unknown> = {
-          id: g.snowflake,
-          name: g.name,
-          icon: g.icon,
-          banner: g.splash,
-          owner: g.owner_snowflake === auth.user!.snowflake,
-          permissions: "0",
-          features: g.features,
-        };
-        if (withCounts) {
-          partial.approximate_member_count = g.member_snowflakes.length;
-          partial.approximate_presence_count = g.member_snowflakes.length;
-        }
-        return partial;
-      });
+      .sort((a, b) => (BigInt(a.snowflake) < BigInt(b.snowflake) ? -1 : 1));
+    // before/after are snowflake cursors over the guild id.
+    if (after) resolved = resolved.filter((g) => BigInt(g.snowflake) > BigInt(after));
+    if (before) resolved = resolved.filter((g) => BigInt(g.snowflake) < BigInt(before));
+    resolved = resolved.slice(0, limit);
+    const guilds = resolved.map((g) => {
+      const partial: Record<string, unknown> = {
+        id: g.snowflake,
+        name: g.name,
+        icon: g.icon,
+        banner: g.banner ?? null,
+        owner: g.owner_snowflake === auth.user!.snowflake,
+        permissions: computeGuildPermissions(ds, auth.user!.snowflake, g.snowflake).toString(),
+        features: g.features,
+      };
+      if (withCounts) {
+        partial.approximate_member_count = g.member_snowflakes.length;
+        partial.approximate_presence_count = g.member_snowflakes.length;
+      }
+      return partial;
+    });
     return c.json(guilds);
   });
 
@@ -69,8 +89,9 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
     if (!auth || !auth.user) return unauthorized(c);
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
+    if (!ds.guilds.findOneBy("snowflake", guildId)) return unknownGuild(c);
     const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === auth.user!.snowflake);
-    if (!member) return notFound(c);
+    if (!member) return unknownMember(c);
     return c.json(toAPIMember(member, ds));
   });
 
@@ -81,7 +102,7 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
     const guild = ds.guilds.findOneBy("snowflake", guildId);
-    if (!guild) return notFound(c);
+    if (!guild) return unknownGuild(c);
     const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === auth.user!.snowflake);
     if (member) {
       ds.members.delete(member.id);
@@ -110,7 +131,7 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
     }
     const recipientId = typeof body.recipient_id === "string" ? body.recipient_id : "";
     const recipient = ds.users.findOneBy("snowflake", recipientId);
-    if (!recipient) return notFound(c);
+    if (!recipient) return unknownUser(c);
 
     // Reuse an existing DM with the same recipient pair if present.
     const existing = ds.channels
@@ -134,7 +155,7 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
     if (!auth) return unauthorized(c);
     const ds = getDiscordStore(store);
     const user = ds.users.findOneBy("snowflake", c.req.param("userId"));
-    if (!user) return notFound(c);
+    if (!user) return unknownUser(c);
     return c.json(toAPIUser(user));
   });
 }
