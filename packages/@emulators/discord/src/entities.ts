@@ -387,3 +387,138 @@ export interface DiscordGatewaySession extends Entity {
   intents: number;
   connected_at: string;
 }
+
+/** An emoji owned by an application (separate from guild emojis). */
+export interface DiscordApplicationEmoji extends Entity {
+  snowflake: string;
+  application_snowflake: string;
+  name: string;
+  animated: boolean;
+  managed: boolean;
+  available: boolean;
+  require_colons: boolean;
+  creator_snowflake: string | null;
+  role_snowflakes: string[];
+}
+
+/** Application-command permission overrides for a guild. */
+export interface DiscordCommandPermissions extends Entity {
+  application_snowflake: string;
+  guild_snowflake: string;
+  /** command id, or the application id as a guild-wide constant. */
+  command_snowflake: string;
+  permissions: Array<{ id: string; type: number; permission: boolean }>;
+}
+
+/** A guild integration (bot/webhook/twitch/youtube/discord-application). */
+export interface DiscordIntegration extends Entity {
+  snowflake: string;
+  guild_snowflake: string;
+  name: string;
+  type: string; // "twitch" | "youtube" | "discord" | "guild_subscription"
+  enabled: boolean;
+  syncing?: boolean;
+  role_snowflake?: string | null;
+  enable_emoticons?: boolean;
+  expire_behavior?: number;
+  expire_grace_period?: number;
+  user_snowflake?: string | null;
+  account: { id: string; name: string };
+  synced_at?: string | null;
+  subscriber_count?: number;
+  revoked?: boolean;
+  application_snowflake?: string | null;
+  scopes?: string[];
+}
+
+/** A third-party account connection on a user (oauth `connections` scope). */
+export interface DiscordConnection extends Entity {
+  user_snowflake: string;
+  connection_id: string; // id on the external platform
+  name: string;
+  type: string; // "github" | "twitch" | "steam" | ...
+  revoked?: boolean;
+  verified: boolean;
+  friend_sync: boolean;
+  show_activity: boolean;
+  two_way_link: boolean;
+  visibility: number; // 0 none, 1 everyone
+}
+
+/** A user's voice connection state within a guild. */
+export interface DiscordVoiceState extends Entity {
+  guild_snowflake: string | null;
+  channel_snowflake: string | null;
+  user_snowflake: string;
+  session_id: string;
+  deaf: boolean;
+  mute: boolean;
+  self_deaf: boolean;
+  self_mute: boolean;
+  self_stream?: boolean;
+  self_video: boolean;
+  suppress: boolean;
+  request_to_speak_timestamp: string | null;
+}
+
+/** A monetization SKU (premium offering) for an application. */
+export interface DiscordSKU extends Entity {
+  snowflake: string;
+  application_snowflake: string;
+  type: number; // 2 DURABLE, 3 CONSUMABLE, 5 SUBSCRIPTION, 6 SUBSCRIPTION_GROUP
+  name: string;
+  slug: string;
+  flags: number;
+}
+
+/** A user's/guild's entitlement to a SKU. */
+export interface DiscordEntitlement extends Entity {
+  snowflake: string;
+  sku_snowflake: string;
+  application_snowflake: string;
+  user_snowflake: string | null;
+  guild_snowflake: string | null;
+  type: number; // 8 APPLICATION_SUBSCRIPTION, 1 PURCHASE, ...
+  deleted: boolean;
+  starts_at: string | null;
+  ends_at: string | null;
+  consumed?: boolean;
+}
+
+/** A recurring subscription to one or more SKUs. */
+export interface DiscordSubscription extends Entity {
+  snowflake: string;
+  user_snowflake: string;
+  sku_snowflakes: string[];
+  entitlement_snowflakes: string[];
+  current_period_start: string;
+  current_period_end: string;
+  status: number; // 0 ACTIVE, 1 ENDING, 2 INACTIVE
+  canceled_at: string | null;
+}
+
+/** A Social SDK lobby. */
+export interface DiscordLobby extends Entity {
+  snowflake: string;
+  application_snowflake: string;
+  metadata: Record<string, string> | null;
+  linked_channel_snowflake: string | null;
+}
+
+/** Membership of a user in a lobby. */
+export interface DiscordLobbyMember extends Entity {
+  lobby_snowflake: string;
+  user_snowflake: string;
+  metadata: Record<string, string> | null;
+  flags: number;
+}
+
+/** A message sent inside a lobby. */
+export interface DiscordLobbyMessage extends Entity {
+  snowflake: string;
+  lobby_snowflake: string;
+  channel_snowflake: string | null;
+  author_snowflake: string;
+  content: string;
+  metadata: Record<string, string> | null;
+}

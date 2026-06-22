@@ -27,6 +27,17 @@ import type {
   DiscordRoleConnection,
   DiscordSoundboardSound,
   DiscordGatewaySession,
+  DiscordApplicationEmoji,
+  DiscordCommandPermissions,
+  DiscordIntegration,
+  DiscordConnection,
+  DiscordVoiceState,
+  DiscordSKU,
+  DiscordEntitlement,
+  DiscordSubscription,
+  DiscordLobby,
+  DiscordLobbyMember,
+  DiscordLobbyMessage,
 } from "./entities.js";
 
 export interface DiscordStore {
@@ -57,6 +68,17 @@ export interface DiscordStore {
   roleConnections: Collection<DiscordRoleConnection>;
   soundboardSounds: Collection<DiscordSoundboardSound>;
   gatewaySessions: Collection<DiscordGatewaySession>;
+  appEmojis: Collection<DiscordApplicationEmoji>;
+  commandPermissions: Collection<DiscordCommandPermissions>;
+  integrations: Collection<DiscordIntegration>;
+  connections: Collection<DiscordConnection>;
+  voiceStates: Collection<DiscordVoiceState>;
+  skus: Collection<DiscordSKU>;
+  entitlements: Collection<DiscordEntitlement>;
+  subscriptions: Collection<DiscordSubscription>;
+  lobbies: Collection<DiscordLobby>;
+  lobbyMembers: Collection<DiscordLobbyMember>;
+  lobbyMessages: Collection<DiscordLobbyMessage>;
 }
 
 export function getDiscordStore(store: Store): DiscordStore {
@@ -99,5 +121,26 @@ export function getDiscordStore(store: Store): DiscordStore {
     roleConnections: store.collection<DiscordRoleConnection>("discord.role_connections", ["application_snowflake", "user_snowflake"]),
     soundboardSounds: store.collection<DiscordSoundboardSound>("discord.soundboard_sounds", ["snowflake", "guild_snowflake"]),
     gatewaySessions: store.collection<DiscordGatewaySession>("discord.gateway_sessions", ["session_id"]),
+    appEmojis: store.collection<DiscordApplicationEmoji>("discord.app_emojis", ["snowflake", "application_snowflake"]),
+    commandPermissions: store.collection<DiscordCommandPermissions>("discord.command_permissions", [
+      "application_snowflake",
+      "guild_snowflake",
+      "command_snowflake",
+    ]),
+    integrations: store.collection<DiscordIntegration>("discord.integrations", ["snowflake", "guild_snowflake"]),
+    connections: store.collection<DiscordConnection>("discord.connections", ["user_snowflake", "connection_id"]),
+    voiceStates: store.collection<DiscordVoiceState>("discord.voice_states", ["guild_snowflake", "user_snowflake", "channel_snowflake"]),
+    skus: store.collection<DiscordSKU>("discord.skus", ["snowflake", "application_snowflake"]),
+    entitlements: store.collection<DiscordEntitlement>("discord.entitlements", [
+      "snowflake",
+      "application_snowflake",
+      "user_snowflake",
+      "guild_snowflake",
+      "sku_snowflake",
+    ]),
+    subscriptions: store.collection<DiscordSubscription>("discord.subscriptions", ["snowflake", "user_snowflake"]),
+    lobbies: store.collection<DiscordLobby>("discord.lobbies", ["snowflake", "application_snowflake"]),
+    lobbyMembers: store.collection<DiscordLobbyMember>("discord.lobby_members", ["lobby_snowflake", "user_snowflake"]),
+    lobbyMessages: store.collection<DiscordLobbyMessage>("discord.lobby_messages", ["snowflake", "lobby_snowflake"]),
   };
 }
