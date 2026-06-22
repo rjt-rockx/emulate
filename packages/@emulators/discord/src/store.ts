@@ -19,6 +19,7 @@ import type {
   DiscordInvite,
   DiscordSticker,
   DiscordScheduledEvent,
+  DiscordScheduledEventUser,
   DiscordThreadMember,
   DiscordStageInstance,
   DiscordAutoModRule,
@@ -60,6 +61,7 @@ export interface DiscordStore {
   invites: Collection<DiscordInvite>;
   stickers: Collection<DiscordSticker>;
   scheduledEvents: Collection<DiscordScheduledEvent>;
+  scheduledEventUsers: Collection<DiscordScheduledEventUser>;
   threadMembers: Collection<DiscordThreadMember>;
   stageInstances: Collection<DiscordStageInstance>;
   autoModRules: Collection<DiscordAutoModRule>;
@@ -113,6 +115,11 @@ export function getDiscordStore(store: Store): DiscordStore {
     invites: store.collection<DiscordInvite>("discord.invites", ["code", "guild_snowflake", "channel_snowflake"]),
     stickers: store.collection<DiscordSticker>("discord.stickers", ["snowflake", "guild_snowflake"]),
     scheduledEvents: store.collection<DiscordScheduledEvent>("discord.scheduled_events", ["snowflake", "guild_snowflake"]),
+    scheduledEventUsers: store.collection<DiscordScheduledEventUser>("discord.scheduled_event_users", [
+      "event_snowflake",
+      "guild_snowflake",
+      "user_snowflake",
+    ]),
     threadMembers: store.collection<DiscordThreadMember>("discord.thread_members", ["thread_snowflake", "user_snowflake"]),
     stageInstances: store.collection<DiscordStageInstance>("discord.stage_instances", ["snowflake", "channel_snowflake"]),
     autoModRules: store.collection<DiscordAutoModRule>("discord.automod_rules", ["snowflake", "guild_snowflake"]),

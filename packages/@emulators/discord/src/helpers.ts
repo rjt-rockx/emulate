@@ -15,6 +15,8 @@ import type {
   DiscordApplicationCommand,
   DiscordTokenType,
   DiscordVoiceState,
+  DiscordStageInstance,
+  DiscordScheduledEvent,
 } from "./entities.js";
 
 // ---------------------------------------------------------------------------
@@ -80,6 +82,32 @@ export const unknownBan = (c: Context<AppEnv>): Response => discordError(c, 404,
 export const unknownInvite = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Invite", 10006);
 export const unknownEmoji = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Emoji", 10014);
 export const unknownWebhook = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Webhook", 10015);
+export const unknownIntegration = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Integration", 10063);
+export const unknownStageInstance = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Stage Instance", 10067);
+export const unknownSku = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown SKU", 10027);
+export const unknownEntitlement = (c: Context<AppEnv>): Response => discordError(c, 404, "Unknown Entitlement", 10029);
+export const unknownScheduledEvent = (c: Context<AppEnv>): Response =>
+  discordError(c, 404, "Unknown Guild Scheduled Event", 10070);
+
+/**
+ * Build a Discord "Invalid Form Body" (50035) error with a field-error tree. `errors` maps a
+ * dotted field path to a human message; Discord nests these under `_errors` arrays, which is what
+ * discord.js and other clients parse to surface per-field validation failures.
+ */
+export function invalidFormBody(c: Context<AppEnv>, errors: Record<string, string>): Response {
+  const tree: Record<string, unknown> = {};
+  for (const [path, message] of Object.entries(errors)) {
+    const parts = path.split(".");
+    let node = tree;
+    for (let i = 0; i < parts.length - 1; i++) {
+      node[parts[i]] = (node[parts[i]] as Record<string, unknown>) ?? {};
+      node = node[parts[i]] as Record<string, unknown>;
+    }
+    const leaf = parts[parts.length - 1];
+    node[leaf] = { _errors: [{ code: "BASE_TYPE_BAD_LENGTH", message }] };
+  }
+  return discordError(c, 400, "Invalid Form Body", 50035, { errors: tree });
+}
 
 // ---------------------------------------------------------------------------
 // Permission enforcement (opt-in)
@@ -220,13 +248,43 @@ export function resolveBotUser(ds: DiscordStore, auth: DiscordAuth | null): Disc
 // ---------------------------------------------------------------------------
 
 export const MessageFlags = {
-  /** Only the user that triggered the interaction can see the message. */
-  Ephemeral: 1 << 6, // 64
+  /** This message has been published to subscribed channels (Crossposted). */
+  Crossposted: 1 << 0,
+  /** This message originated from a now-deleted crosspost source. */
+  IsCrosspost: 1 << 1,
   /** Do not include any embeds when serializing this message. */
   SuppressEmbeds: 1 << 2,
+  /** The source message for this crosspost has been deleted. */
+  SourceMessageDeleted: 1 << 3,
+  /** This message came from the urgent message system. */
+  Urgent: 1 << 4,
+  /** This message has an associated thread. */
+  HasThread: 1 << 5,
+  /** Only the user that triggered the interaction can see the message. */
+  Ephemeral: 1 << 6, // 64
+  /** This message is an interaction-response loading state ("thinking"). */
+  Loading: 1 << 7,
+  /** This message failed to mention some roles and add their members to the thread. */
+  FailedToMentionSomeRolesInThread: 1 << 8,
   /** This message will not trigger push and desktop notifications. */
   SuppressNotifications: 1 << 12,
+  /** This message is a voice message. */
+  IsVoiceMessage: 1 << 13,
+  /** This message has a snapshot (from a forward). */
+  HasSnapshot: 1 << 14,
+  /** This message uses the components-v2 layout (cannot also carry content/embeds). */
+  IsComponentsV2: 1 << 15,
 } as const;
+
+/** Flags a client may set when creating a message. */
+export const CREATE_MESSAGE_SETTABLE_FLAGS =
+  MessageFlags.SuppressEmbeds |
+  MessageFlags.SuppressNotifications |
+  MessageFlags.IsVoiceMessage |
+  MessageFlags.IsComponentsV2;
+
+/** Flags a client may change when editing a message (SUPPRESS_EMBEDS toggling + IS_COMPONENTS_V2). */
+export const EDIT_MESSAGE_SETTABLE_FLAGS = MessageFlags.SuppressEmbeds | MessageFlags.IsComponentsV2;
 
 /** True when the message flags carry the EPHEMERAL bit. */
 export function isEphemeral(flags: number | undefined): boolean {
@@ -319,6 +377,8 @@ export function recordAudit(
     targetSnowflake?: string | null;
     changes?: unknown[];
     reason?: string | null;
+    /** Optional Audit Entry Info (count, channel_id, message_id, role_name, members_removed, ...). */
+    options?: Record<string, unknown>;
   },
 ): void {
   if (!input.guildSnowflake) return;
@@ -330,6 +390,7 @@ export function recordAudit(
     action_type: input.actionType,
     changes: input.changes ?? [],
     reason: input.reason ?? null,
+    options: input.options,
   });
   bus.publish({
     t: "GUILD_AUDIT_LOG_ENTRY_CREATE",
@@ -341,6 +402,7 @@ export function recordAudit(
       user_id: entry.user_snowflake,
       action_type: entry.action_type,
       changes: entry.changes,
+      ...(input.options ? { options: input.options } : {}),
       reason: entry.reason ?? undefined,
       guild_id: input.guildSnowflake,
     },
@@ -363,6 +425,9 @@ export function toAPIUser(u: DiscordUser, self = false): Record<string, unknown>
     banner: u.banner,
     accent_color: u.accent_color,
     public_flags: u.public_flags,
+    avatar_decoration_data: null,
+    collectibles: null,
+    primary_guild: null,
   };
   if (self) {
     base.mfa_enabled = u.mfa_enabled;
@@ -376,19 +441,21 @@ export function toAPIUser(u: DiscordUser, self = false): Record<string, unknown>
 }
 
 export function toAPIRole(r: DiscordRole): Record<string, unknown> {
-  return {
+  const role: Record<string, unknown> = {
     id: r.snowflake,
     name: r.name,
     color: r.color,
     hoist: r.hoist,
     icon: r.icon,
-    unicode_emoji: null,
+    unicode_emoji: r.unicode_emoji ?? null,
     position: r.position,
     permissions: r.permissions,
     managed: r.managed,
     mentionable: r.mentionable,
-    flags: 0,
+    flags: r.flags ?? 0,
   };
+  if (r.tags) role.tags = r.tags;
+  return role;
 }
 
 export function toAPIMember(
@@ -406,7 +473,7 @@ export function toAPIMember(
     mute: m.mute,
     pending: m.pending,
     communication_disabled_until: m.communication_disabled_until,
-    flags: 0,
+    flags: m.flags ?? 0,
   };
   if (opts.withUser !== false) {
     const user = ds.users.findOneBy("snowflake", m.user_snowflake);
@@ -442,7 +509,7 @@ export function toAPIChannel(c: DiscordChannel): Record<string, unknown> {
   const base: Record<string, unknown> = {
     id: c.snowflake,
     type: c.type,
-    flags: 0,
+    flags: c.flags ?? 0,
     last_message_id: c.last_message_snowflake,
   };
 
@@ -459,33 +526,41 @@ export function toAPIChannel(c: DiscordChannel): Record<string, unknown> {
 
   base.guild_id = c.guild_snowflake ?? undefined;
   base.name = c.name;
+  if (isThread) {
+    // Threads inherit the parent's permissions and have no position/overwrites of their own.
+    base.parent_id = c.parent_snowflake;
+    base.owner_id = c.owner_snowflake ?? null;
+    base.thread_metadata = c.thread_metadata ?? null;
+    base.message_count = c.message_count ?? 0;
+    base.member_count = c.member_count ?? 0;
+    base.total_message_sent = c.message_count ?? 0;
+    base.rate_limit_per_user = c.rate_limit_per_user;
+    base.applied_tags = c.applied_tags ?? [];
+    base.last_pin_timestamp = c.last_pin_timestamp ?? null;
+    return base;
+  }
   base.position = c.position;
   base.parent_id = c.parent_snowflake;
   base.permission_overwrites = c.permission_overwrites;
   base.nsfw = c.nsfw;
   base.topic = c.topic;
   base.rate_limit_per_user = c.rate_limit_per_user;
+  base.last_pin_timestamp = c.last_pin_timestamp ?? null;
+  if (c.default_auto_archive_duration != null) base.default_auto_archive_duration = c.default_auto_archive_duration;
   if (c.bitrate != null) base.bitrate = c.bitrate;
   if (c.user_limit != null) base.user_limit = c.user_limit;
   // Voice (2) and stage (13) extras.
   if (c.type === 2 || c.type === 13) {
-    base.rtc_region = null;
-    base.video_quality_mode = 1;
+    base.rtc_region = c.rtc_region ?? null;
+    base.video_quality_mode = c.video_quality_mode ?? 1;
   }
   // Forum (15) and media (16) extras.
   if (c.type === 15 || c.type === 16) {
-    base.available_tags = [];
-    base.default_reaction_emoji = null;
-    base.default_sort_order = null;
-    base.default_forum_layout = 0;
-    base.default_thread_rate_limit_per_user = 0;
-  }
-  if (isThread) {
-    base.owner_id = c.owner_snowflake ?? null;
-    base.thread_metadata = c.thread_metadata ?? null;
-    base.message_count = c.message_count ?? 0;
-    base.member_count = c.member_count ?? 0;
-    base.total_message_sent = c.message_count ?? 0;
+    base.available_tags = c.available_tags ?? [];
+    base.default_reaction_emoji = c.default_reaction_emoji ?? null;
+    base.default_sort_order = c.default_sort_order ?? null;
+    base.default_forum_layout = c.default_forum_layout ?? 0;
+    base.default_thread_rate_limit_per_user = c.default_thread_rate_limit_per_user ?? 0;
   }
   return base;
 }
@@ -511,26 +586,35 @@ export function aggregateReactions(
   meSnowflake?: string,
 ): Array<Record<string, unknown>> {
   const rows = ds.reactions.findBy("message_snowflake", messageSnowflake);
-  const map = new Map<string, { count: number; me: boolean; emoji: Record<string, unknown> }>();
+  const map = new Map<
+    string,
+    { normal: number; burst: number; me: boolean; meBurst: boolean; emoji: Record<string, unknown> }
+  >();
   for (const r of rows) {
     const key = r.emoji_snowflake ? `${r.emoji_name}:${r.emoji_snowflake}` : r.emoji_name;
     let agg = map.get(key);
     if (!agg) {
       agg = {
-        count: 0,
+        normal: 0,
+        burst: 0,
         me: false,
+        meBurst: false,
         emoji: { id: r.emoji_snowflake, name: r.emoji_name, animated: r.emoji_animated || undefined },
       };
       map.set(key, agg);
     }
-    agg.count++;
-    if (meSnowflake && r.user_snowflake === meSnowflake) agg.me = true;
+    if (r.burst) agg.burst++;
+    else agg.normal++;
+    if (meSnowflake && r.user_snowflake === meSnowflake) {
+      if (r.burst) agg.meBurst = true;
+      else agg.me = true;
+    }
   }
   return [...map.values()].map((a) => ({
-    count: a.count,
-    count_details: { burst: 0, normal: a.count },
+    count: a.normal + a.burst,
+    count_details: { burst: a.burst, normal: a.normal },
     me: a.me,
-    me_burst: false,
+    me_burst: a.meBurst,
     emoji: a.emoji,
     burst_colors: [],
   }));
@@ -557,6 +641,10 @@ export function toAPIMessage(m: DiscordMessage, ds: DiscordStore, meSnowflake?: 
     .map((s) => ds.users.findOneBy("snowflake", s))
     .filter((u): u is DiscordUser => !!u)
     .map((u) => toAPIUser(u));
+  const stickerItems = (m.sticker_snowflakes ?? [])
+    .map((id) => ds.stickers.findOneBy("snowflake", id))
+    .filter((s): s is NonNullable<typeof s> => !!s)
+    .map((s) => ({ id: s.snowflake, name: s.name, format_type: s.format_type }));
   return {
     id: m.snowflake,
     channel_id: m.channel_snowflake,
@@ -573,7 +661,7 @@ export function toAPIMessage(m: DiscordMessage, ds: DiscordStore, meSnowflake?: 
     attachments: m.attachments,
     embeds: m.embeds,
     components: m.components,
-    sticker_items: [],
+    sticker_items: stickerItems,
     reactions: aggregateReactions(ds, m.snowflake, meSnowflake),
     pinned: m.pinned,
     webhook_id: m.webhook_snowflake ?? undefined,
@@ -581,6 +669,7 @@ export function toAPIMessage(m: DiscordMessage, ds: DiscordStore, meSnowflake?: 
     flags: m.flags,
     nonce: m.nonce ?? undefined,
     message_reference: m.message_reference ?? undefined,
+    ...(m.message_snapshots ? { message_snapshots: m.message_snapshots } : {}),
     referenced_message: m.referenced_message_snowflake
       ? (() => {
           const ref = ds.messages.findOneBy("snowflake", m.referenced_message_snowflake!);
@@ -652,23 +741,23 @@ export function toAPIGuild(g: DiscordGuild, ds: DiscordStore, opts: GuildSeriali
     // Documented fields emitted with stable defaults (read fidelity); the ones backed by
     // optional entity columns reflect stored state.
     icon_hash: null,
-    discovery_splash: null,
-    banner: null,
+    discovery_splash: g.discovery_splash ?? null,
+    banner: g.banner ?? null,
     owner: false,
     region: null,
     widget_enabled: g.widget_enabled ?? false,
     widget_channel_id: g.widget_channel_snowflake ?? null,
-    system_channel_flags: 0,
-    rules_channel_id: null,
-    public_updates_channel_id: null,
-    safety_alerts_channel_id: null,
+    system_channel_flags: g.system_channel_flags ?? 0,
+    rules_channel_id: g.rules_channel_snowflake ?? null,
+    public_updates_channel_id: g.public_updates_channel_snowflake ?? null,
+    safety_alerts_channel_id: g.safety_alerts_channel_snowflake ?? null,
     max_presences: null,
     max_members: 500_000,
     max_video_channel_users: 25,
     max_stage_video_channel_users: 50,
-    vanity_url_code: null,
+    vanity_url_code: g.vanity_url_code ?? null,
     application_id: null,
-    premium_progress_bar_enabled: false,
+    premium_progress_bar_enabled: g.premium_progress_bar_enabled ?? false,
     stickers: ds.stickers.findBy("guild_snowflake", g.snowflake).map((s) => ({
       id: s.snowflake,
       name: s.name,
@@ -685,37 +774,98 @@ export function toAPIGuild(g: DiscordGuild, ds: DiscordStore, opts: GuildSeriali
     base.approximate_presence_count = g.member_snowflakes.length;
   }
   if (opts.full) {
+    const allChannels = ds.channels.findBy("guild_snowflake", g.snowflake);
+    const isThreadType = (t: number) => t === 10 || t === 11 || t === 12;
     const members = ds.members.findBy("guild_snowflake", g.snowflake).map((m) => toAPIMember(m, ds));
-    const channels = ds.channels.findBy("guild_snowflake", g.snowflake).map(toAPIChannel);
+    const channels = allChannels.filter((c) => !isThreadType(c.type)).map(toAPIChannel);
     base.channels = channels;
     base.members = members;
     base.member_count = members.length;
     base.large = g.large;
     base.unavailable = false;
     base.joined_at = g.created_at;
-    // discord.js hydrates these caches from GUILD_CREATE; always present (possibly empty).
-    base.threads = [];
-    base.voice_states = [];
+    // discord.js hydrates these caches from GUILD_CREATE; populate them from current state.
+    base.threads = allChannels.filter((c) => isThreadType(c.type)).map(toAPIChannel);
+    base.voice_states = ds.voiceStates
+      .findBy("guild_snowflake", g.snowflake)
+      .map((v) => {
+        const state = toAPIVoiceState(v, ds);
+        delete (state as Record<string, unknown>).guild_id; // omitted inside GUILD_CREATE
+        return state;
+      });
     base.presences = [];
-    base.stage_instances = [];
-    base.guild_scheduled_events = [];
-    base.soundboard_sounds = [];
+    base.stage_instances = ds.stageInstances.all().filter((s) => s.guild_snowflake === g.snowflake).map(toAPIStageInstance);
+    base.guild_scheduled_events = ds.scheduledEvents
+      .findBy("guild_snowflake", g.snowflake)
+      .map((e) => toAPIScheduledEvent(e, ds));
+    base.soundboard_sounds = ds.soundboardSounds.findBy("guild_snowflake", g.snowflake).map((s) => ({
+      sound_id: s.snowflake,
+      name: s.name,
+      volume: s.volume,
+      emoji_id: s.emoji_snowflake,
+      emoji_name: s.emoji_name,
+      guild_id: s.guild_snowflake,
+      available: s.available,
+    }));
   }
   return base;
 }
 
 export function toAPIApplicationCommand(cmd: DiscordApplicationCommand): Record<string, unknown> {
-  return {
+  const out: Record<string, unknown> = {
     id: cmd.snowflake,
     type: cmd.type,
     application_id: cmd.application_snowflake,
     guild_id: cmd.guild_snowflake ?? undefined,
     name: cmd.name,
+    name_localizations: cmd.name_localizations ?? null,
     description: cmd.description,
+    description_localizations: cmd.description_localizations ?? null,
     options: cmd.options,
     default_member_permissions: cmd.default_member_permissions,
+    // dm_permission is deprecated in favor of contexts but still emitted for compatibility.
     dm_permission: cmd.dm_permission,
+    default_permission: cmd.default_permission ?? true,
     nsfw: cmd.nsfw,
+    integration_types: cmd.integration_types ?? [0],
+    contexts: cmd.contexts ?? null,
     version: cmd.version,
+  };
+  if (cmd.handler != null) out.handler = cmd.handler;
+  return out;
+}
+
+export function toAPIStageInstance(s: DiscordStageInstance): Record<string, unknown> {
+  return {
+    id: s.snowflake,
+    guild_id: s.guild_snowflake,
+    channel_id: s.channel_snowflake,
+    topic: s.topic,
+    privacy_level: s.privacy_level,
+    discoverable_disabled: s.discoverable_disabled,
+    guild_scheduled_event_id: s.guild_scheduled_event_snowflake ?? null,
+  };
+}
+
+export function toAPIScheduledEvent(e: DiscordScheduledEvent, ds: DiscordStore): Record<string, unknown> {
+  const creator = e.creator_snowflake ? ds.users.findOneBy("snowflake", e.creator_snowflake) : null;
+  return {
+    id: e.snowflake,
+    guild_id: e.guild_snowflake,
+    channel_id: e.channel_snowflake,
+    creator_id: e.creator_snowflake,
+    name: e.name,
+    description: e.description ?? undefined,
+    scheduled_start_time: e.scheduled_start_time,
+    scheduled_end_time: e.scheduled_end_time,
+    privacy_level: e.privacy_level,
+    status: e.status,
+    entity_type: e.entity_type,
+    entity_id: e.entity_snowflake ?? null,
+    entity_metadata: e.entity_metadata ?? null,
+    user_count: e.user_count,
+    creator: creator ? toAPIUser(creator) : undefined,
+    image: e.image ?? null,
+    recurrence_rule: e.recurrence_rule ?? null,
   };
 }

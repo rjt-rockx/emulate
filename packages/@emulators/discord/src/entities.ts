@@ -81,6 +81,15 @@ export interface DiscordGuild extends Entity {
   member_snowflakes: string[];
   large: boolean;
   unavailable: boolean;
+  banner?: string | null;
+  discovery_splash?: string | null;
+  system_channel_flags?: number;
+  rules_channel_snowflake?: string | null;
+  public_updates_channel_snowflake?: string | null;
+  safety_alerts_channel_snowflake?: string | null;
+  premium_progress_bar_enabled?: boolean;
+  vanity_url_code?: string | null;
+  vanity_uses?: number;
   widget_enabled?: boolean;
   widget_channel_snowflake?: string | null;
   welcome_screen?: { description: string | null; welcome_channels: unknown[] } | null;
@@ -98,6 +107,11 @@ export interface DiscordRole extends Entity {
   managed: boolean;
   mentionable: boolean;
   icon: string | null;
+  unicode_emoji?: string | null;
+  /** Role flags bitfield (IN_PROMPT 1<<0). */
+  flags?: number;
+  /** Role tags (bot_id, integration_id, premium_subscriber, ...) for managed roles. */
+  tags?: Record<string, unknown> | null;
 }
 
 export interface DiscordGuildMember extends Entity {
@@ -112,6 +126,8 @@ export interface DiscordGuildMember extends Entity {
   mute: boolean;
   pending: boolean;
   communication_disabled_until: string | null;
+  /** Guild member flags (DID_REJOIN 1<<0, COMPLETED_ONBOARDING 1<<1, ...). */
+  flags?: number;
 }
 
 export interface DiscordChannel extends Entity {
@@ -129,11 +145,24 @@ export interface DiscordChannel extends Entity {
   user_limit: number | null;
   permission_overwrites: DiscordPermissionOverwrite[];
   recipient_snowflakes: string[]; // for DM / group DM channels
+  /** Channel flags bitfield (PINNED 1<<1, REQUIRE_TAG 1<<4, ...). */
+  flags?: number;
+  last_pin_timestamp?: string | null;
+  default_auto_archive_duration?: number;
+  rtc_region?: string | null;
+  video_quality_mode?: number;
+  // Forum / media (types 15/16) configuration.
+  available_tags?: unknown[];
+  default_reaction_emoji?: unknown | null;
+  default_sort_order?: number | null;
+  default_forum_layout?: number;
+  default_thread_rate_limit_per_user?: number;
   // Thread-only fields (channel types 10/11/12).
   owner_snowflake?: string | null;
   thread_metadata?: DiscordThreadMetadata | null;
   message_count?: number;
   member_count?: number;
+  applied_tags?: string[];
 }
 
 export interface DiscordThreadMetadata {
@@ -183,6 +212,10 @@ export interface DiscordMessage extends Entity {
   nonce: string | null;
   message_reference: DiscordMessageReference | null;
   referenced_message_snowflake: string | null;
+  /** Stickers attached to the message (Create Message `sticker_ids`). */
+  sticker_snowflakes?: string[];
+  /** Immutable snapshots captured for a forwarded message (message_reference type 1). */
+  message_snapshots?: unknown[];
   poll?: DiscordPoll | null;
   poll_finalized?: boolean;
 }
@@ -204,6 +237,7 @@ export interface DiscordPollVote extends Entity {
 }
 
 export interface DiscordMessageReference {
+  type?: number; // 0 = DEFAULT (reply), 1 = FORWARD
   message_id?: string;
   channel_id?: string;
   guild_id?: string;
@@ -218,6 +252,8 @@ export interface DiscordReaction extends Entity {
   emoji_name: string;
   emoji_snowflake: string | null;
   emoji_animated: boolean;
+  /** True for a super-reaction (BURST, reaction type 1). */
+  burst?: boolean;
 }
 
 export interface DiscordEmoji extends Entity {
@@ -244,6 +280,15 @@ export interface DiscordApplicationCommand extends Entity {
   dm_permission: boolean;
   nsfw: boolean;
   version: string;
+  /** Installation contexts (0 GUILD_INSTALL, 1 USER_INSTALL); null = default. */
+  integration_types?: number[] | null;
+  /** Interaction contexts (0 GUILD, 1 BOT_DM, 2 PRIVATE_CHANNEL); null = default. */
+  contexts?: number[] | null;
+  name_localizations?: Record<string, string> | null;
+  description_localizations?: Record<string, string> | null;
+  default_permission?: boolean | null;
+  /** Entry point handler (1 APP_HANDLER, 2 DISCORD_LAUNCH_ACTIVITY) for PRIMARY_ENTRY_POINT. */
+  handler?: number | null;
 }
 
 export type DiscordTokenType = "bot" | "bearer";
@@ -268,6 +313,9 @@ export interface DiscordWebhook extends Entity {
   avatar: string | null;
   token: string;
   application_snowflake: string | null;
+  /** For channel-follower webhooks (type 2): the followed source guild/channel. */
+  source_guild_snowflake?: string | null;
+  source_channel_snowflake?: string | null;
 }
 
 export interface DiscordInteraction extends Entity {
@@ -292,6 +340,7 @@ export interface DiscordAuditLogEntry extends Entity {
   action_type: number;
   changes: unknown[];
   reason: string | null;
+  options?: Record<string, unknown>;
 }
 
 export interface DiscordBan extends Entity {
@@ -310,6 +359,11 @@ export interface DiscordInvite extends Entity {
   max_age: number;
   temporary: boolean;
   expires_at: string | null;
+  /** 1 = STREAM, 2 = EMBEDDED_APPLICATION. */
+  target_type?: number | null;
+  target_user_snowflake?: string | null;
+  target_application_snowflake?: string | null;
+  flags?: number;
 }
 
 export interface DiscordSticker extends Entity {
@@ -337,6 +391,17 @@ export interface DiscordScheduledEvent extends Entity {
   status: number; // 1 scheduled, 2 active, 3 completed, 4 canceled
   entity_type: number; // 1 stage, 2 voice, 3 external
   user_count: number;
+  entity_snowflake?: string | null;
+  entity_metadata?: { location?: string } | null;
+  recurrence_rule?: unknown | null;
+  image?: string | null;
+}
+
+/** A user's subscription to a guild scheduled event. */
+export interface DiscordScheduledEventUser extends Entity {
+  event_snowflake: string;
+  guild_snowflake: string;
+  user_snowflake: string;
 }
 
 export interface DiscordStageInstance extends Entity {
@@ -346,6 +411,7 @@ export interface DiscordStageInstance extends Entity {
   topic: string;
   privacy_level: number; // 2 = guild only
   discoverable_disabled: boolean;
+  guild_scheduled_event_snowflake?: string | null;
 }
 
 export interface DiscordAutoModRule extends Entity {
@@ -486,6 +552,7 @@ export interface DiscordEntitlement extends Entity {
   starts_at: string | null;
   ends_at: string | null;
   consumed?: boolean;
+  subscription_snowflake?: string | null;
 }
 
 /** A recurring subscription to one or more SKUs. */
@@ -498,6 +565,7 @@ export interface DiscordSubscription extends Entity {
   current_period_end: string;
   status: number; // 0 ACTIVE, 1 ENDING, 2 INACTIVE
   canceled_at: string | null;
+  renewal_sku_snowflakes?: string[] | null;
 }
 
 /** A Social SDK lobby. */
