@@ -318,6 +318,15 @@ export interface DiscordAutoModRule extends Entity {
   exempt_channels: string[];
 }
 
+export interface DiscordGuildTemplate extends Entity {
+  code: string;
+  source_guild_snowflake: string;
+  name: string;
+  description: string | null;
+  usage_count: number;
+  creator_snowflake: string | null;
+}
+
 /** Lightweight mirror of a live gateway connection, for the inspector. */
 export interface DiscordGatewaySession extends Entity {
   session_id: string;
