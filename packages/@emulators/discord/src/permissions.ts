@@ -43,6 +43,18 @@ export const PermissionFlags = {
   SendMessagesInThreads: 1n << 38n,
   UseEmbeddedActivities: 1n << 39n,
   ModerateMembers: 1n << 40n,
+  ViewCreatorMonetizationAnalytics: 1n << 41n,
+  UseSoundboard: 1n << 42n,
+  CreateGuildExpressions: 1n << 43n,
+  CreateEvents: 1n << 44n,
+  UseExternalSounds: 1n << 45n,
+  SendVoiceMessages: 1n << 46n,
+  // bit 47 is reserved/unassigned in the Discord documentation
+  SetVoiceChannelStatus: 1n << 48n,
+  SendPolls: 1n << 49n,
+  UseExternalApps: 1n << 50n,
+  PinMessages: 1n << 51n,
+  BypassSlowmode: 1n << 52n,
 } as const;
 
 const ALL = Object.values(PermissionFlags).reduce((acc, bit) => acc | bit, 0n);
