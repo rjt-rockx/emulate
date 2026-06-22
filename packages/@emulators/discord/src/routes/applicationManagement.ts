@@ -44,6 +44,60 @@ interface ApplicationExtras {
   event_webhooks_types?: string[];
 }
 
+/**
+ * Team Member Membership State enum values (teams.mdx — Membership State Enum).
+ *
+ * INVITED  (1): the user has been invited but has not yet accepted.
+ * ACCEPTED (2): the user has accepted the invitation and is a full member.
+ */
+export const MembershipState = {
+  INVITED: 1,
+  ACCEPTED: 2,
+} as const;
+
+/**
+ * Team Member Role string values (teams.mdx — Team Member Role Types).
+ *
+ * The owner role is NOT stored in `role`; it is identified via `owner_user_id` on the Team object.
+ */
+export const TeamMemberRole = {
+  ADMIN: "admin",
+  DEVELOPER: "developer",
+  READ_ONLY: "read_only",
+} as const;
+
+/** Partial user shape carried inside a TeamMember (avatar, discriminator, id, username). */
+export interface TeamMemberUser {
+  id: string;
+  username: string;
+  discriminator?: string;
+  avatar?: string | null;
+}
+
+/** Serialisable shape of a single team member (teams.mdx — Team Member Object). */
+export interface TeamMember {
+  membership_state: 1 | 2;
+  team_id: string;
+  user: TeamMemberUser;
+  role: string;
+}
+
+/**
+ * Serialisable shape of the Team object that the Application carries (teams.mdx — Team Object).
+ * Stored in the store's key/value side-channel keyed by application snowflake so tests can
+ * configure a team without touching entities or factories.
+ */
+export interface TeamData {
+  id: string;
+  name: string;
+  icon: string | null;
+  owner_user_id: string;
+  members: TeamMember[];
+}
+
+/** Store key for a {@link TeamData} value associated with an application snowflake. */
+export const APP_TEAM_KEY = (appSnowflake: string): string => `discord.application_team.${appSnowflake}`;
+
 const APP_EXTRAS_KEY = (snowflake: string): string => `discord.application_extras.${snowflake}`;
 
 function getApplicationExtras(application: DiscordApplication, store: DiscordRouteContext["store"]): ApplicationExtras {
@@ -79,6 +133,9 @@ function toAPIApplication(
   const approximateGuildCount = botUser
     ? ds.members.findBy("user_snowflake", botUser.snowflake).length
     : 0;
+  // Team is null when the application is not owned by a team. A team can be configured for
+  // testing by writing a TeamData value to the store side-channel via APP_TEAM_KEY.
+  const team = store.getData<TeamData>(APP_TEAM_KEY(application.snowflake)) ?? null;
   return {
     id: application.snowflake,
     name: application.name,
@@ -92,7 +149,7 @@ function toAPIApplication(
     privacy_policy_url: undefined,
     owner: owner ? toAPIUser(owner) : null,
     verify_key: application.verify_key,
-    team: null,
+    team,
     flags: application.flags,
     approximate_guild_count: approximateGuildCount,
     redirect_uris: [],
