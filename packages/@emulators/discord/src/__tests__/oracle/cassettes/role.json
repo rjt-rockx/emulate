@@ -1,0 +1,21 @@
+{
+  "source": "discord-api-docs developers/topics/permissions.mdx (Role Object)",
+  "response": {
+    "id": "41771983423143936",
+    "name": "WE DEM BOYZZ!!!!!!",
+    "color": 3447003,
+    "colors": {
+      "primary_color": 3447003,
+      "secondary_color": null,
+      "tertiary_color": null
+    },
+    "hoist": true,
+    "icon": "cf3ced8600b777c9486c6d8d84fb4327",
+    "unicode_emoji": null,
+    "position": 1,
+    "permissions": "66321471",
+    "managed": false,
+    "mentionable": false,
+    "flags": 0
+  }
+}

@@ -133,6 +133,8 @@ const DRIVERS: Record<string, Driver> = {
     return packs.sticker_packs[0]?.stickers[0];
   },
   application: ({ app }) => get(app, "/applications/@me"),
+  role: ({ app, ids }) => post(app, `/guilds/${ids.guild}/roles`, { name: "cassette-role" }),
+  thread: ({ app, ids }) => post(app, `/channels/${ids.general}/threads`, { name: "cassette-thread", type: 11, auto_archive_duration: 1440 }),
   member: ({ app, ids }) => get(app, `/guilds/${ids.guild}/members/${ids.developer}`),
   soundboard_sound: ({ app, ids }) => post(app, `/guilds/${ids.guild}/soundboard-sounds`, { name: "cassette-sound", sound: "data:audio/ogg;base64,AAAA" }),
   voice_state: async ({ app, ids, store }) => {

@@ -1,0 +1,22 @@
+{
+  "source": "discord-api-docs developers/resources/channel.mdx (Thread Channel)",
+  "response": {
+    "id": "41771983423143937",
+    "guild_id": "41771983423143937",
+    "parent_id": "41771983423143937",
+    "owner_id": "41771983423143937",
+    "name": "don't buy dota-2",
+    "type": 11,
+    "last_message_id": "155117677105512449",
+    "message_count": 1,
+    "member_count": 5,
+    "rate_limit_per_user": 2,
+    "thread_metadata": {
+      "archived": false,
+      "auto_archive_duration": 1440,
+      "archive_timestamp": "2021-04-12T23:40:39.855793+00:00",
+      "locked": false
+    },
+    "total_message_sent": 1
+  }
+}
