@@ -110,6 +110,24 @@ export function resolveBotUser(ds: DiscordStore, auth: DiscordAuth | null): Disc
 }
 
 // ---------------------------------------------------------------------------
+// Message flags
+// ---------------------------------------------------------------------------
+
+export const MessageFlags = {
+  /** Only the user that triggered the interaction can see the message. */
+  Ephemeral: 1 << 6, // 64
+  /** Do not include any embeds when serializing this message. */
+  SuppressEmbeds: 1 << 2,
+  /** This message will not trigger push and desktop notifications. */
+  SuppressNotifications: 1 << 12,
+} as const;
+
+/** True when the message flags carry the EPHEMERAL bit. */
+export function isEphemeral(flags: number | undefined): boolean {
+  return ((flags ?? 0) & MessageFlags.Ephemeral) !== 0;
+}
+
+// ---------------------------------------------------------------------------
 // Audit log
 // ---------------------------------------------------------------------------
 

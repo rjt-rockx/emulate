@@ -1,6 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, toAPIMessage, redactMessageContent } from "../helpers.js";
+import { getAuth, unauthorized, notFound, toAPIMessage, redactMessageContent, isEphemeral } from "../helpers.js";
 import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 
@@ -30,6 +30,8 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
     const after = c.req.query("after");
     let messages = ds.messages
       .findBy("channel_snowflake", channelId)
+      // Ephemeral interaction replies are not part of channel history.
+      .filter((mm) => !isEphemeral(mm.flags))
       .sort((a, b) => (BigInt(a.snowflake) < BigInt(b.snowflake) ? 1 : -1));
     if (before) messages = messages.filter((mm) => BigInt(mm.snowflake) < BigInt(before));
     if (after) messages = messages.filter((mm) => BigInt(mm.snowflake) > BigInt(after));

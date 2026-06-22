@@ -1,7 +1,7 @@
 import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore, type DiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, snowflake, toAPIUser, toAPIMessage, redactMessageContent, recordAudit, AuditLogEvent } from "../helpers.js";
+import { getAuth, unauthorized, notFound, snowflake, toAPIUser, toAPIMessage, redactMessageContent, recordAudit, AuditLogEvent, isEphemeral } from "../helpers.js";
 import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import { getOriginalResponse, setOriginalResponse } from "../interactions/dispatch.js";
@@ -157,14 +157,17 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
       });
       if (!getOriginalResponse(store, token)) setOriginalResponse(store, token, message.snowflake);
       const payload = toAPIMessage(message, ds);
-      bus.publish({
-        t: "MESSAGE_CREATE",
-        guildId: message.guild_snowflake,
-        requiredIntents: message.guild_snowflake ? Intents.GuildMessages : Intents.DirectMessages,
-        d: payload,
-        redactedData: redactMessageContent(payload),
-        messageAuthorId: application.bot_user_snowflake,
-      });
+      // Ephemeral followups reach only the invoking user — never broadcast them.
+      if (!isEphemeral(typeof body.flags === "number" ? body.flags : 0)) {
+        bus.publish({
+          t: "MESSAGE_CREATE",
+          guildId: message.guild_snowflake,
+          requiredIntents: message.guild_snowflake ? Intents.GuildMessages : Intents.DirectMessages,
+          d: payload,
+          redactedData: redactMessageContent(payload),
+          messageAuthorId: application.bot_user_snowflake,
+        });
+      }
       return c.json(payload);
     }
 

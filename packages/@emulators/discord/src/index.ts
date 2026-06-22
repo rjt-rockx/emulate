@@ -116,4 +116,9 @@ export {
   toAPIRole,
   toAPIMember,
   toAPIEmoji,
+  MessageFlags,
+  isEphemeral,
+  AuditLogEvent,
+  recordAudit,
 } from "./helpers.js";
+export { packETF, unpackETF } from "./gateway/etf.js";

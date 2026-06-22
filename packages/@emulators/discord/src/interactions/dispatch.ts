@@ -2,7 +2,7 @@ import type { DiscordStore } from "../store.js";
 import type { DiscordApplication, DiscordInteraction } from "../entities.js";
 import type { DiscordEventBus } from "../gateway/dispatcher.js";
 import { Intents } from "../gateway/intents.js";
-import { toAPIMessage, redactMessageContent } from "../helpers.js";
+import { toAPIMessage, redactMessageContent, isEphemeral } from "../helpers.js";
 import { createMessage } from "../factories.js";
 import { signInteraction } from "./ed25519.js";
 
@@ -76,6 +76,7 @@ export function applyInteractionResponse(
     interaction.channel_snowflake
   ) {
     const data = response.data ?? {};
+    const flags = typeof data.flags === "number" ? data.flags : 0;
     const message = createMessage(ds, {
       channelSnowflake: interaction.channel_snowflake,
       guildSnowflake: interaction.guild_snowflake,
@@ -83,19 +84,23 @@ export function applyInteractionResponse(
       content: typeof data.content === "string" ? data.content : "",
       embeds: (data.embeds as unknown[]) ?? [],
       components: (data.components as unknown[]) ?? [],
-      flags: typeof data.flags === "number" ? data.flags : 0,
+      flags,
       type: 20, // CHAT_INPUT_COMMAND reply
     });
     setOriginalResponse(store, interaction.token, message.snowflake);
-    const payload = toAPIMessage(message, ds);
-    bus.publish({
-      t: "MESSAGE_CREATE",
-      guildId: interaction.guild_snowflake,
-      requiredIntents: interaction.guild_snowflake ? Intents.GuildMessages : Intents.DirectMessages,
-      d: payload,
-      redactedData: redactMessageContent(payload),
-      messageAuthorId: botSnowflake,
-    });
+    // Ephemeral responses are visible only to the invoking user: they are retrievable via
+    // the interaction token (@original) but never broadcast to gateway listeners.
+    if (!isEphemeral(flags)) {
+      const payload = toAPIMessage(message, ds);
+      bus.publish({
+        t: "MESSAGE_CREATE",
+        guildId: interaction.guild_snowflake,
+        requiredIntents: interaction.guild_snowflake ? Intents.GuildMessages : Intents.DirectMessages,
+        d: payload,
+        redactedData: redactMessageContent(payload),
+        messageAuthorId: botSnowflake,
+      });
+    }
   } else if (response.type === InteractionResponseType.UpdateMessage && interaction.message_snowflake) {
     const target = ds.messages.findOneBy("snowflake", interaction.message_snowflake);
     if (target) {
