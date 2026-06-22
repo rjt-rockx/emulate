@@ -1,15 +1,9 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
 import { getAuth, unauthorized, notFound, toAPIMessage, redactMessageContent } from "../helpers.js";
-import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import { buildInteraction, type TriggerInput } from "../interactions/trigger.js";
-import {
-  routeInteraction,
-  applyInteractionResponse,
-  getOriginalResponse,
-  setOriginalResponse,
-} from "../interactions/dispatch.js";
+import { routeInteraction, applyInteractionResponse, getOriginalResponse } from "../interactions/dispatch.js";
 
 export function interactionsRoutes(ctx: DiscordRouteContext): void {
   const { app, store, bus } = ctx;
@@ -72,37 +66,8 @@ export function interactionsRoutes(ctx: DiscordRouteContext): void {
     return new Response(null, { status: 204 });
   });
 
-  // Followup messages.
-  app.post("/api/v:version/webhooks/:appId/:token", async (c) => {
-    const ds = getDiscordStore(store);
-    const token = c.req.param("token");
-    const interaction = ds.interactions.findOneBy("token", token);
-    const application = ds.applications.findOneBy("snowflake", c.req.param("appId")) ?? ds.applications.all()[0];
-    const channelSnowflake = interaction?.channel_snowflake ?? null;
-    if (!channelSnowflake || !application) return notFound(c);
-    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    const message = createMessage(ds, {
-      channelSnowflake,
-      guildSnowflake: interaction?.guild_snowflake ?? null,
-      authorSnowflake: application.bot_user_snowflake,
-      content: typeof body.content === "string" ? body.content : "",
-      embeds: (body.embeds as unknown[]) ?? [],
-      components: (body.components as unknown[]) ?? [],
-      flags: typeof body.flags === "number" ? body.flags : 0,
-    });
-    // The first followup becomes the original response if none exists yet.
-    if (!getOriginalResponse(store, token)) setOriginalResponse(store, token, message.snowflake);
-    const payload = toAPIMessage(message, ds);
-    bus.publish({
-      t: "MESSAGE_CREATE",
-      guildId: message.guild_snowflake,
-      requiredIntents: message.guild_snowflake ? Intents.GuildMessages : Intents.DirectMessages,
-      d: payload,
-      redactedData: redactMessageContent(payload),
-      messageAuthorId: application.bot_user_snowflake,
-    });
-    return c.json(payload);
-  });
+  // Note: POST /webhooks/:id/:token (interaction followup OR webhook execute) is handled in
+  // webhooks.ts, which disambiguates by whether the token is an interaction or webhook token.
 
   app.get("/api/v:version/webhooks/:appId/:token/messages/:messageId", (c) => {
     const ds = getDiscordStore(store);
