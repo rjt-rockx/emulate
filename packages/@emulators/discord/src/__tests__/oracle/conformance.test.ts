@@ -209,6 +209,28 @@ describe("OpenAPI conformance (official discord-api-spec oracle)", () => {
       }
     }
 
+    // Modify (PATCH) responses often diverge from create shapes. Create a resource, then modify it.
+    const created = async (path: string, body: unknown): Promise<string | undefined> => {
+      const res = await app.request(api(path), { method: "POST", headers: botHeaders(), body: JSON.stringify(body) });
+      const b = (await res.json().catch(() => ({}))) as { id?: string };
+      return b.id;
+    };
+    const roleId = await created(`/guilds/${ids.guild}/roles`, { name: "mod-role" });
+    const chanId = await created(`/guilds/${ids.guild}/channels`, { name: "mod-chan", type: 0 });
+    const msgId = await created(`/channels/${ids.general}/messages`, { content: "to edit" });
+    const modifies: Array<{ path: string; body: unknown }> = [
+      { path: `/guilds/${ids.guild}`, body: { name: "Renamed Guild" } },
+      { path: `/channels/${ids.general}`, body: { topic: "new topic" } },
+      ...(roleId ? [{ path: `/guilds/${ids.guild}/roles/${roleId}`, body: { name: "renamed", color: 0xabcdef } }] : []),
+      ...(chanId ? [{ path: `/channels/${chanId}`, body: { name: "renamed-chan", topic: "t" } }] : []),
+      ...(msgId ? [{ path: `/channels/${ids.general}/messages/${msgId}`, body: { content: "edited" } }] : []),
+    ];
+    for (const mod of modifies) {
+      const res = await app.request(api(mod.path), { method: "PATCH", headers: botHeaders(), body: JSON.stringify(mod.body) });
+      const body = await res.json().catch(() => null);
+      record("PATCH", mod.path, res.status, body);
+    }
+
     const validated = all.filter((a) => a.validated);
     const failing = validated.filter((a) => a.errors.length > 0);
     const lines = [`write-path validated=${validated.length} divergent=${failing.length}`];
