@@ -2,6 +2,7 @@ import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
 import { getAuth, unauthorized, notFound, discordError, toAPIUser, snowflake } from "../helpers.js";
 import { signInteraction } from "../interactions/ed25519.js";
+import type { APIApplication, APIEmoji } from "discord-api-types/v10";
 import type { DiscordApplication, DiscordApplicationEmoji } from "../entities.js";
 
 /**
@@ -122,7 +123,7 @@ function toAPIApplication(
   application: DiscordApplication,
   ds: ReturnType<typeof getDiscordStore>,
   store: DiscordRouteContext["store"],
-): Record<string, unknown> {
+): APIApplication {
   const botUser = ds.users.findOneBy("snowflake", application.bot_user_snowflake);
   const owner =
     (application.owner_snowflake && ds.users.findOneBy("snowflake", application.owner_snowflake)) ||
@@ -171,16 +172,16 @@ function toAPIApplication(
     install_params: extras.install_params,
     integration_types_config: extras.integration_types_config ?? { "0": {} },
     custom_install_url: extras.custom_install_url,
-  };
+  } as unknown as APIApplication;
 }
 
-function toAPIAppEmoji(e: DiscordApplicationEmoji, ds: ReturnType<typeof getDiscordStore>): Record<string, unknown> {
+function toAPIAppEmoji(e: DiscordApplicationEmoji, ds: ReturnType<typeof getDiscordStore>): APIEmoji {
   const creator = e.creator_snowflake ? ds.users.findOneBy("snowflake", e.creator_snowflake) : null;
   return {
     id: e.snowflake,
     name: e.name,
     roles: e.role_snowflakes,
-    user: creator ? toAPIUser(creator) : null,
+    user: (creator ? toAPIUser(creator) : null) as APIEmoji["user"],
     require_colons: e.require_colons,
     managed: e.managed,
     animated: e.animated,

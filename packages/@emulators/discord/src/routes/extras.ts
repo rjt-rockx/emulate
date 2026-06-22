@@ -4,11 +4,13 @@ import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore, type DiscordStore } from "../store.js";
 import { getAuth, unauthorized, notFound, unknownGuild, unknownChannel, unknownMessage, unknownBan, unknownInvite, invalidFormBody, discordError, toAPIUser, toAPIMessage, toAPIScheduledEvent, recordAudit, AuditLogEvent, auditReason } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
+import type { APIBan, APIInvite } from "discord-api-types/v10";
 import type { DiscordBan, DiscordInvite } from "../entities.js";
 
-function toAPIBan(b: DiscordBan, ds: DiscordStore): Record<string, unknown> {
+function toAPIBan(b: DiscordBan, ds: DiscordStore): APIBan {
   const user = ds.users.findOneBy("snowflake", b.user_snowflake);
-  return { reason: b.reason, user: user ? toAPIUser(user) : null };
+  // user is always present in practice; the null is a defensive fallback only.
+  return { reason: b.reason, user: (user ? toAPIUser(user) : null) as APIBan["user"] };
 }
 
 /**
@@ -38,7 +40,7 @@ interface InviteSerializeOptions {
   guildScheduledEventId?: string | null;
 }
 
-function toAPIInvite(inv: DiscordInvite, ds: DiscordStore, opts: InviteSerializeOptions = {}): Record<string, unknown> {
+function toAPIInvite(inv: DiscordInvite, ds: DiscordStore, opts: InviteSerializeOptions = {}): APIInvite {
   const guild = inv.guild_snowflake ? ds.guilds.findOneBy("snowflake", inv.guild_snowflake) : null;
   const channel = ds.channels.findOneBy("snowflake", inv.channel_snowflake);
   const inviter = inv.inviter_snowflake ? ds.users.findOneBy("snowflake", inv.inviter_snowflake) : null;
@@ -88,7 +90,7 @@ function toAPIInvite(inv: DiscordInvite, ds: DiscordStore, opts: InviteSerialize
       payload.guild_scheduled_event = toAPIScheduledEvent(event, ds);
     }
   }
-  return payload;
+  return payload as unknown as APIInvite;
 }
 
 export function extrasRoutes(ctx: DiscordRouteContext): void {

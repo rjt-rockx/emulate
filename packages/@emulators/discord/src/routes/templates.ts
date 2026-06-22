@@ -10,6 +10,7 @@ import {
   toAPIGuild,
 } from "../helpers.js";
 import { createGuild, createChannel, createRole } from "../factories.js";
+import type { APITemplate } from "discord-api-types/v10";
 import type { DiscordGuildTemplate } from "../entities.js";
 
 // ---------------------------------------------------------------------------
@@ -85,7 +86,7 @@ function serializeSourceGuild(ds: DiscordStore, sourceGuildSnowflake: string): R
   };
 }
 
-function toAPITemplate(t: DiscordGuildTemplate, ds: DiscordStore): Record<string, unknown> {
+function toAPITemplate(t: DiscordGuildTemplate, ds: DiscordStore): APITemplate {
   const creator = t.creator_snowflake ? ds.users.findOneBy("snowflake", t.creator_snowflake) : null;
   return {
     code: t.code,
@@ -99,7 +100,7 @@ function toAPITemplate(t: DiscordGuildTemplate, ds: DiscordStore): Record<string
     source_guild_id: t.source_guild_snowflake,
     serialized_source_guild: serializeSourceGuild(ds, t.source_guild_snowflake),
     is_dirty: null,
-  };
+  } as unknown as APITemplate;
 }
 
 // ---------------------------------------------------------------------------

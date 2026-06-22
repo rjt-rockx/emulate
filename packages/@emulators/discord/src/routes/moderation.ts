@@ -15,9 +15,10 @@ import {
   auditReason,
 } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
+import type { APIAutoModerationRule } from "discord-api-types/v10";
 import type { DiscordAutoModRule } from "../entities.js";
 
-function toAPIAutoMod(r: DiscordAutoModRule): Record<string, unknown> {
+function toAPIAutoMod(r: DiscordAutoModRule): APIAutoModerationRule {
   return {
     id: r.snowflake,
     guild_id: r.guild_snowflake,
@@ -30,7 +31,7 @@ function toAPIAutoMod(r: DiscordAutoModRule): Record<string, unknown> {
     enabled: r.enabled,
     exempt_roles: r.exempt_roles,
     exempt_channels: r.exempt_channels,
-  };
+  } as unknown as APIAutoModerationRule;
 }
 
 // ----- Auto Moderation enums (from the docs) -----

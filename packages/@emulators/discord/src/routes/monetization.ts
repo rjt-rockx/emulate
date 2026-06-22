@@ -12,6 +12,7 @@ import {
   parsePagination,
   sliceBySnowflake,
 } from "../helpers.js";
+import type { APISKU, APIEntitlement, APISubscription } from "discord-api-types/v10";
 import type { DiscordEntitlement, DiscordSubscription } from "../entities.js";
 
 /** SKU types per developers/resources/sku.mdx (SKU Types table). */
@@ -28,14 +29,14 @@ function toAPISKU(sku: {
   name: string;
   slug: string;
   flags: number;
-}): Record<string, unknown> {
+}): APISKU {
   return {
     id: sku.snowflake,
-    type: sku.type,
+    type: sku.type as APISKU["type"],
     application_id: sku.application_snowflake,
     name: sku.name,
     slug: sku.slug,
-    flags: sku.flags,
+    flags: sku.flags as APISKU["flags"],
   };
 }
 
@@ -45,7 +46,7 @@ function toAPISKU(sku: {
  * `partial` mode (Create Test Entitlement) returns the partial object that, per the doc,
  * "will not contain subscription_id, starts_at, or ends_at, as it's valid in perpetuity".
  */
-function toAPIEntitlement(e: DiscordEntitlement, partial = false): Record<string, unknown> {
+function toAPIEntitlement(e: DiscordEntitlement, partial = false): APIEntitlement {
   const obj: Record<string, unknown> = {
     id: e.snowflake,
     sku_id: e.sku_snowflake,
@@ -61,10 +62,10 @@ function toAPIEntitlement(e: DiscordEntitlement, partial = false): Record<string
   if (e.user_snowflake != null) obj.user_id = e.user_snowflake;
   if (e.guild_snowflake != null) obj.guild_id = e.guild_snowflake;
   if (e.consumed != null) obj.consumed = e.consumed;
-  return obj;
+  return obj as unknown as APIEntitlement;
 }
 
-function toAPISubscription(s: DiscordSubscription): Record<string, unknown> {
+function toAPISubscription(s: DiscordSubscription): APISubscription {
   return {
     id: s.snowflake,
     user_id: s.user_snowflake,
@@ -74,7 +75,7 @@ function toAPISubscription(s: DiscordSubscription): Record<string, unknown> {
     renewal_sku_ids: s.renewal_sku_snowflakes ?? null,
     current_period_start: s.current_period_start,
     current_period_end: s.current_period_end,
-    status: s.status,
+    status: s.status as APISubscription["status"],
     canceled_at: s.canceled_at,
   };
 }

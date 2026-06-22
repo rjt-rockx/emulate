@@ -5,9 +5,10 @@ import { getAuth, unauthorized, notFound, discordError, invalidFormBody, unknown
 import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import { getOriginalResponse, setOriginalResponse } from "../interactions/dispatch.js";
+import type { APIWebhook } from "discord-api-types/v10";
 import type { DiscordWebhook } from "../entities.js";
 
-function toAPIWebhook(w: DiscordWebhook, ds: DiscordStore, baseUrl: string, opts: { withUser?: boolean } = {}): Record<string, unknown> {
+function toAPIWebhook(w: DiscordWebhook, ds: DiscordStore, baseUrl: string, opts: { withUser?: boolean } = {}): APIWebhook {
   const creator = opts.withUser !== false && w.user_snowflake ? ds.users.findOneBy("snowflake", w.user_snowflake) : null;
   const out: Record<string, unknown> = {
     id: w.snowflake,
@@ -24,7 +25,7 @@ function toAPIWebhook(w: DiscordWebhook, ds: DiscordStore, baseUrl: string, opts
   if (opts.withUser !== false && creator) {
     out.user = toAPIUser(creator);
   }
-  return out;
+  return out as unknown as APIWebhook;
 }
 
 export function webhooksRoutes(ctx: DiscordRouteContext): void {

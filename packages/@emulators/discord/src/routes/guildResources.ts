@@ -1,5 +1,9 @@
 import type { DiscordRouteContext } from "../context.js";
-import type { APIGuildScheduledEvent } from "discord-api-types/v10";
+import type {
+  APIGuildScheduledEvent,
+  APIGuildScheduledEventUser,
+  APIStickerPack,
+} from "discord-api-types/v10";
 import { getDiscordStore, type DiscordStore } from "../store.js";
 import {
   getAuth,
@@ -81,7 +85,7 @@ function ensureStandardStickers(ds: DiscordStore, store: Store): void {
   }
 }
 
-function toAPIStickerPack(pack: StaticStickerPack, ds: DiscordStore): Record<string, unknown> {
+function toAPIStickerPack(pack: StaticStickerPack, ds: DiscordStore): APIStickerPack {
   const stickers = pack.stickers
     .map((st) => ds.stickers.findOneBy("snowflake", st.snowflake))
     .filter((s): s is DiscordSticker => !!s)
@@ -95,7 +99,7 @@ function toAPIStickerPack(pack: StaticStickerPack, ds: DiscordStore): Record<str
   };
   if (pack.cover_index != null) out.cover_sticker_id = pack.stickers[pack.cover_index].snowflake;
   if (pack.banner_asset_snowflake) out.banner_asset_id = pack.banner_asset_snowflake;
-  return out;
+  return out as unknown as APIStickerPack;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,7 +185,7 @@ function toAPIScheduledEventUser(
   guildSnowflake: string,
   userSnowflake: string,
   withMember: boolean,
-): Record<string, unknown> | null {
+): APIGuildScheduledEventUser | null {
   const user = ds.users.findOneBy("snowflake", userSnowflake);
   if (!user) return null;
   const out: Record<string, unknown> = {
@@ -192,7 +196,7 @@ function toAPIScheduledEventUser(
     const member = ds.members.findBy("guild_snowflake", guildSnowflake).find((m) => m.user_snowflake === userSnowflake);
     if (member) out.member = toAPIMember(member, ds, { withUser: false });
   }
-  return out;
+  return out as unknown as APIGuildScheduledEventUser;
 }
 
 /** Count subscribers for an event. */
@@ -619,7 +623,7 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
 
     const users = rows
       .map((r) => toAPIScheduledEventUser(ds, event.snowflake, guildId, r.user_snowflake, withMember))
-      .filter((u): u is Record<string, unknown> => u !== null);
+      .filter((u): u is APIGuildScheduledEventUser => u !== null);
     return c.json(users);
   });
 

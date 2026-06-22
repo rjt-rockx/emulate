@@ -12,10 +12,11 @@ import {
   snowflake,
 } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
+import type { APIGuildIntegration } from "discord-api-types/v10";
 import type { DiscordIntegration } from "../entities.js";
 
 /** Serialize a stored integration to the documented Integration wire object. */
-function toAPIIntegration(integ: DiscordIntegration, ds: DiscordStore): Record<string, unknown> {
+function toAPIIntegration(integ: DiscordIntegration, ds: DiscordStore): APIGuildIntegration {
   const user = integ.user_snowflake ? ds.users.findOneBy("snowflake", integ.user_snowflake) : null;
   const obj: Record<string, unknown> = {
     id: integ.snowflake,
@@ -42,7 +43,7 @@ function toAPIIntegration(integ: DiscordIntegration, ds: DiscordStore): Record<s
       : null;
   }
   if (integ.scopes !== undefined) obj.scopes = integ.scopes;
-  return obj;
+  return obj as unknown as APIGuildIntegration;
 }
 
 export function integrationsRoutes(ctx: DiscordRouteContext): void {
