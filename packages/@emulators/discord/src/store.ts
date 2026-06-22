@@ -14,6 +14,8 @@ import type {
   DiscordToken,
   DiscordWebhook,
   DiscordInteraction,
+  DiscordBan,
+  DiscordInvite,
   DiscordGatewaySession,
 } from "./entities.js";
 
@@ -32,6 +34,8 @@ export interface DiscordStore {
   tokens: Collection<DiscordToken>;
   webhooks: Collection<DiscordWebhook>;
   interactions: Collection<DiscordInteraction>;
+  bans: Collection<DiscordBan>;
+  invites: Collection<DiscordInvite>;
   gatewaySessions: Collection<DiscordGatewaySession>;
 }
 
@@ -62,6 +66,8 @@ export function getDiscordStore(store: Store): DiscordStore {
       "token",
       "application_snowflake",
     ]),
+    bans: store.collection<DiscordBan>("discord.bans", ["guild_snowflake", "user_snowflake"]),
+    invites: store.collection<DiscordInvite>("discord.invites", ["code", "guild_snowflake", "channel_snowflake"]),
     gatewaySessions: store.collection<DiscordGatewaySession>("discord.gateway_sessions", ["session_id"]),
   };
 }

@@ -230,6 +230,24 @@ export interface DiscordInteraction extends Entity {
   expires_at: string;
 }
 
+export interface DiscordBan extends Entity {
+  guild_snowflake: string;
+  user_snowflake: string;
+  reason: string | null;
+}
+
+export interface DiscordInvite extends Entity {
+  code: string;
+  guild_snowflake: string | null;
+  channel_snowflake: string;
+  inviter_snowflake: string | null;
+  uses: number;
+  max_uses: number;
+  max_age: number;
+  temporary: boolean;
+  expires_at: string | null;
+}
+
 /** Lightweight mirror of a live gateway connection, for the inspector. */
 export interface DiscordGatewaySession extends Entity {
   session_id: string;

@@ -23,6 +23,7 @@ import { oauthRoutes } from "./routes/oauth.js";
 import { applicationCommandsRoutes } from "./routes/applicationCommands.js";
 import { interactionsRoutes } from "./routes/interactions.js";
 import { webhooksRoutes } from "./routes/webhooks.js";
+import { extrasRoutes } from "./routes/extras.js";
 import { inspectorRoutes } from "./routes/inspector.js";
 
 export const discordPlugin: ServicePlugin = {
@@ -42,6 +43,7 @@ export const discordPlugin: ServicePlugin = {
     applicationCommandsRoutes(ctx);
     interactionsRoutes(ctx);
     webhooksRoutes(ctx);
+    extrasRoutes(ctx);
     inspectorRoutes(ctx);
   },
 
