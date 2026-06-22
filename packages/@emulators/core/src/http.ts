@@ -159,7 +159,9 @@ export class Context<E = unknown, P extends string = string> {
   }
 
   json(data: unknown, status?: ContentfulStatusCode, headers?: HeadersInit): Response {
-    return this.response(JSON.stringify(data), status, defaultContentType(headers, "application/json; charset=UTF-8"));
+    // Plain `application/json` (no charset) matches what real APIs like Discord return and
+    // what strict clients (e.g. discord.py) require for exact Content-Type matching.
+    return this.response(JSON.stringify(data), status, defaultContentType(headers, "application/json"));
   }
 
   text(text: string, status?: ContentfulStatusCode, headers?: HeadersInit): Response {
