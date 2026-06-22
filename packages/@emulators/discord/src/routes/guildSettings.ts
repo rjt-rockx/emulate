@@ -83,6 +83,14 @@ export function guildSettingsRoutes(ctx: DiscordRouteContext): void {
     return c.json({ guild_id: guild.snowflake, ...onboarding });
   });
 
+  // Guild home / new-member-welcome settings (GuildHomeSettingsResponse).
+  app.get("/api/v:version/guilds/:guildId/new-member-welcome", (c) => {
+    const guild = requireGuild(c);
+    if (!getAuth(c, store)) return unauthorized(c);
+    if (!guild) return notFound(c);
+    return c.json({ guild_id: guild.snowflake, enabled: false, new_member_actions: [], resource_channels: [] });
+  });
+
   app.put("/api/v:version/guilds/:guildId/onboarding", async (c) => {
     const guild = requireGuild(c);
     if (!getAuth(c, store)) return unauthorized(c);

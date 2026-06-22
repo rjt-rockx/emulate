@@ -119,6 +119,15 @@ function createThread(
 export function threadsRoutes(ctx: DiscordRouteContext): void {
   const { app, store, bus } = ctx;
 
+  // Thread search within a (forum/media) channel. Minimal result set; the endpoint exists and
+  // conforms to the spec's ThreadSearchResponse shape.
+  app.get("/api/v:version/channels/:channelId/threads/search", (c) => {
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    const channel = requireChannel(c, ds, c.req.param("channelId"));
+    if (channel instanceof Response) return channel;
+    return c.json({ threads: [], members: [], has_more: false, total_results: 0 });
+  });
+
   const emitThreadMembers = (threadId: string, change: { added?: string[]; removed?: string[] }): void => {
     const ds = getDiscordStore(store);
     const thread = ds.channels.findOneBy("snowflake", threadId);

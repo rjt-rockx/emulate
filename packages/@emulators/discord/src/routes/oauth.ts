@@ -334,4 +334,25 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
   // The unversioned alias is documented alongside the versioned route.
   app.get("/api/oauth2/applications/@me", currentApplicationHandler);
   app.get("/api/v:version/oauth2/applications/@me", currentApplicationHandler);
+
+  // OpenID Connect userinfo (requires the `openid` scope in practice; lenient here).
+  const userinfoHandler = (c: Context<AppEnv>): Response => {
+    const auth = getAuth(c, store);
+    if (!auth || !auth.user) return unauthorized(c);
+    const u = auth.user;
+    const out: Record<string, unknown> = {
+      sub: u.snowflake,
+      preferred_username: u.username,
+      nickname: u.global_name ?? null,
+      locale: u.locale ?? "en-US",
+    };
+    if (u.avatar) out.picture = `https://cdn.discordapp.com/avatars/${u.snowflake}/${u.avatar}.png`;
+    if (auth.scopes.includes("email")) {
+      out.email = u.email ?? null;
+      out.email_verified = u.verified ?? false;
+    }
+    return c.json(out);
+  };
+  app.get("/api/oauth2/userinfo", userinfoHandler);
+  app.get("/api/v:version/oauth2/userinfo", userinfoHandler);
 }

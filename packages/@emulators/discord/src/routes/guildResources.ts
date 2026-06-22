@@ -727,6 +727,16 @@ export function guildResourcesRoutes(ctx: DiscordRouteContext): void {
   });
 
   // ----- Get Guild Scheduled Event Users -----
+  // Subscriber counts for an event (literal `/users/counts`, registered before `/users`).
+  app.get("/api/v:version/guilds/:guildId/scheduled-events/:eventId/users/counts", (c) => {
+    const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
+    const guildId = c.req.param("guildId");
+    const event = ds.scheduledEvents.findOneBy("snowflake", c.req.param("eventId"));
+    if (!event || event.guild_snowflake !== guildId) return unknownScheduledEvent(c);
+    const count = ds.scheduledEventUsers.findBy("event_snowflake", event.snowflake).length;
+    return c.json({ guild_scheduled_event_count: count, guild_scheduled_event_exception_counts: {} });
+  });
+
   app.get("/api/v:version/guilds/:guildId/scheduled-events/:eventId/users", (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { ds } = g;
     const guildId = c.req.param("guildId");
