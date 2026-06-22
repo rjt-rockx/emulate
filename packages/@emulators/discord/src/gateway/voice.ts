@@ -85,9 +85,24 @@ export class VoiceGatewayServer {
     const cleanup = () => {
       this.sockets.delete(ws);
       this.participants.delete(ssrc);
+      // Notify the remaining participants in the same guild that this client disconnected.
+      if (participant.guildId && participant.userId) {
+        this.broadcastToGuild(participant, {
+          op: VoiceOpcodes.ClientDisconnect,
+          d: { user_id: participant.userId },
+        });
+      }
     };
     ws.on("close", cleanup);
     ws.on("error", cleanup);
+  }
+
+  /** Send a control-plane payload to every other identified participant in `from`'s guild. */
+  private broadcastToGuild(from: VoiceParticipant, payload: VoicePayload): void {
+    for (const p of this.participants.values()) {
+      if (p === from || !p.guildId || p.guildId !== from.guildId) continue;
+      this.send(p.ws, payload);
+    }
   }
 
   /**
@@ -139,14 +154,31 @@ export class VoiceGatewayServer {
           op: VoiceOpcodes.Ready,
           d: { ssrc, ip: "127.0.0.1", port: this.udpPort, modes: VOICE_ENCRYPTION_MODES, experiments: [] },
         });
+        // Inform this client of the users already connected in the guild (Clients Connect), and
+        // inform those existing participants that this user has connected.
+        if (participant.guildId && participant.userId) {
+          const existing = [...this.participants.values()].filter(
+            (p) => p !== participant && p.guildId === participant.guildId && p.userId,
+          );
+          if (existing.length > 0) {
+            this.send(ws, { op: VoiceOpcodes.ClientsConnect, d: { user_ids: existing.map((p) => p.userId) } });
+          }
+          this.broadcastToGuild(participant, {
+            op: VoiceOpcodes.ClientsConnect,
+            d: { user_ids: [participant.userId] },
+          });
+        }
         break;
       }
       case VoiceOpcodes.SelectProtocol: {
         const d = (payload.d ?? {}) as { data?: { mode?: string } };
         const mode = d.data?.mode && VOICE_ENCRYPTION_MODES.includes(d.data.mode) ? d.data.mode : VOICE_ENCRYPTION_MODES[0];
+        // Session Description carries the negotiated mode, the 32-byte transport secret_key, and
+        // the selected DAVE protocol version (0 = no E2EE; the actual MLS/E2EE exchange is out of
+        // scope, so the emulator reports version 0).
         this.send(ws, {
           op: VoiceOpcodes.SessionDescription,
-          d: { mode, secret_key: Array.from(randomBytes(32)), audio_codec: "opus" },
+          d: { mode, secret_key: Array.from(randomBytes(32)), audio_codec: "opus", dave_protocol_version: 0 },
         });
         break;
       }

@@ -58,18 +58,32 @@ export function voiceRoutes(ctx: DiscordRouteContext): void {
     return new Response(null, { status: 204 });
   });
 
-  // Modify another user's voice state (e.g. a moderator suppressing a speaker).
+  // Modify another user's voice state (e.g. a moderator suppressing a speaker). Per the docs the
+  // only JSON params are `channel_id` and `suppress`; `request_to_speak_timestamp` is NOT accepted
+  // here and is instead governed by the suppress caveats below.
   app.patch("/api/v:version/guilds/:guildId/voice-states/:userId", async (c) => {
     const auth = getAuth(c, store);
     if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
     const guildId = c.req.param("guildId");
-    const state = findState(guildId, c.req.param("userId"));
+    const userId = c.req.param("userId");
+    const state = findState(guildId, userId);
     if (!state) return notFound(c);
     const body = (await c.req.json().catch(() => ({}))) as { channel_id?: string; suppress?: boolean };
     const patch: Record<string, unknown> = {};
-    if (body.suppress !== undefined) patch.suppress = body.suppress;
     if (body.channel_id !== undefined) patch.channel_snowflake = body.channel_id;
+    if (body.suppress !== undefined) {
+      patch.suppress = body.suppress;
+      if (body.suppress) {
+        // Caveat: when suppressed, the user's request_to_speak_timestamp is removed.
+        patch.request_to_speak_timestamp = null;
+      } else {
+        // Caveat: when unsuppressed, non-bot users get request_to_speak_timestamp set to the
+        // current time; bot users do not.
+        const target = ds.users.findOneBy("snowflake", userId);
+        patch.request_to_speak_timestamp = target?.bot ? null : new Date().toISOString();
+      }
+    }
     ds.voiceStates.update(state.id, patch);
     const updated = ds.voiceStates.get(state.id)!;
     bus.publish({ t: "VOICE_STATE_UPDATE", guildId, requiredIntents: Intents.GuildVoiceStates, d: toAPIVoiceState(updated, ds) });
