@@ -8,6 +8,7 @@ import { GatewayOpcodes, GatewayCloseCodes, HEARTBEAT_INTERVAL, type GatewayPayl
 import { Intents, hasIntent, intentsAllow } from "./intents.js";
 import { type DiscordEventBus, type GatewayEvent } from "./dispatcher.js";
 import { ZlibCompressor } from "./compression.js";
+import { VoiceGatewayServer } from "./voice.js";
 import { packETF, unpackETF } from "./etf.js";
 import type { GatewaySession, ResumableState } from "./session.js";
 
@@ -25,6 +26,7 @@ const RESUME_TIMEOUT_MS = 120_000;
  */
 export class GatewayServer {
   private readonly wss: WebSocketServer;
+  private readonly voice = new VoiceGatewayServer();
   private readonly sessions = new Set<GatewaySession>();
   /** Disconnected-but-resumable sessions, keyed by Discord session id. */
   private readonly resumable = new Map<string, ResumableState>();
@@ -39,7 +41,14 @@ export class GatewayServer {
   ) {
     this.wss = new WebSocketServer({ noServer: true });
     this.onUpgrade = (req, socket, head) => {
-      this.wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws, req));
+      // Voice connections (advertised at /voice in VOICE_SERVER_UPDATE) get the voice gateway;
+      // everything else is the main gateway.
+      const path = new URL(req.url ?? "/", "http://localhost").pathname;
+      if (path.startsWith("/voice")) {
+        this.voice.handleUpgrade(req, socket, head);
+      } else {
+        this.wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws, req));
+      }
     };
     this.server.on("upgrade", this.onUpgrade);
     this.unsubscribe = bus.subscribe((event) => this.fanOut(event));
@@ -411,8 +420,8 @@ export class GatewayServer {
       requiredIntents: Intents.GuildVoiceStates,
       d: toAPIVoiceState(state, ds),
     });
-    // Endpoint host (no scheme), pointing at this emulator. Audio transport is not emulated.
-    const endpoint = this.baseUrl.replace(/^https?:\/\//, "");
+    // Endpoint host + /voice path (no scheme), pointing at this emulator's voice gateway.
+    const endpoint = `${this.baseUrl.replace(/^https?:\/\//, "")}/voice`;
     this.dispatch(session, "VOICE_SERVER_UPDATE", { token: `voice_${snowflake()}`, guild_id: guildId, endpoint });
   }
 
@@ -542,7 +551,7 @@ export class GatewayServer {
   // Teardown
   // -------------------------------------------------------------------------
 
-  close(): Promise<void> {
+  async close(): Promise<void> {
     this.unsubscribe();
     this.server.off("upgrade", this.onUpgrade);
     for (const session of this.sessions) {
@@ -555,6 +564,7 @@ export class GatewayServer {
     this.sessions.clear();
     for (const state of this.resumable.values()) clearTimeout(state.timer);
     this.resumable.clear();
+    await this.voice.close();
     return new Promise((resolve) => this.wss.close(() => resolve()));
   }
 }
