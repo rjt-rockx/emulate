@@ -156,6 +156,24 @@ describe("OpenAPI conformance (official discord-api-spec oracle)", () => {
         readBack: (id) => `/guilds/${ids.guild}/auto-moderation/rules/${id}`,
       },
       { method: "POST", path: `/channels/${ids.general}/threads`, body: { name: "oracle-thread", type: 11, auto_archive_duration: 1440 }, readBack: (id) => `/channels/${id}` },
+      // A rich message exercises the embed + component + attachment serializers.
+      {
+        method: "POST",
+        path: `/channels/${ids.general}/messages`,
+        body: {
+          content: "rich",
+          embeds: [{ title: "t", description: "d", color: 0xff0000, fields: [{ name: "f", value: "v", inline: true }], footer: { text: "ft" } }],
+          components: [{ type: 1, components: [{ type: 2, style: 1, label: "btn", custom_id: "b1" }] }],
+        },
+        readBack: (id) => `/channels/${ids.general}/messages/${id}`,
+      },
+      // Application command with options exercises the command + option serializers.
+      {
+        method: "POST",
+        path: `/applications/${ids.app}/commands`,
+        body: { name: "oracle-cmd", description: "an oracle command", type: 1, options: [{ type: 3, name: "opt", description: "an option", required: true }] },
+        readBack: (id) => `/applications/${ids.app}/commands/${id}`,
+      },
     ];
 
     const all: Array<{ label: string; status: number; validated: boolean; errors: string[] }> = [];

@@ -772,6 +772,31 @@ export function aggregateReactions(
   }));
 }
 
+/** Embeds require a `type` on the wire; Discord defaults a bot-sent embed to "rich". */
+function normalizeEmbeds(embeds: unknown): unknown[] {
+  if (!Array.isArray(embeds)) return [];
+  return embeds.map((e) => {
+    const embed = (e ?? {}) as { type?: string };
+    return { ...embed, type: embed.type ?? "rich" };
+  });
+}
+
+/**
+ * Discord assigns a sequential integer `id` to every component in a message's tree (the component
+ * id system). Assign them deterministically in pre-order so create and read-back are consistent.
+ */
+function assignComponentIds(components: unknown): unknown[] {
+  if (!Array.isArray(components)) return [];
+  let next = 1;
+  const walk = (c: unknown): unknown => {
+    const node = { ...((c ?? {}) as Record<string, unknown>) };
+    if (node.id === undefined) node.id = next++;
+    if (Array.isArray(node.components)) node.components = node.components.map(walk);
+    return node;
+  };
+  return components.map(walk);
+}
+
 export function toAPIMessage(m: DiscordMessage, ds: DiscordStore, meSnowflake?: string): APIMessage {
   // Webhook messages with a custom username/avatar present a webhook-shaped author.
   const author =
@@ -812,8 +837,8 @@ export function toAPIMessage(m: DiscordMessage, ds: DiscordStore, meSnowflake?: 
     // mention_channels is only present on crossposted messages with qualifying channel
     // mentions; an ordinary message omits the key entirely (per resources/message.mdx).
     attachments: m.attachments,
-    embeds: m.embeds,
-    components: m.components,
+    embeds: normalizeEmbeds(m.embeds),
+    components: assignComponentIds(m.components),
     sticker_items: stickerItems,
     reactions: aggregateReactions(ds, m.snowflake, meSnowflake),
     pinned: m.pinned,
