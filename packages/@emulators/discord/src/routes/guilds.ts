@@ -27,6 +27,7 @@ import {
   createRole,
   addGuildMember,
   createEmoji,
+  type CreateRoleInput,
 } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import { PermissionFlags } from "../permissions.js";
@@ -443,6 +444,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const role = createRole(ds, guildId, {
       name: body.name as string | undefined,
       color: body.color as number | undefined,
+      colors: body.colors as CreateRoleInput["colors"],
       hoist: body.hoist as boolean | undefined,
       permissions: body.permissions != null ? String(body.permissions) : undefined,
       mentionable: body.mentionable as boolean | undefined,
@@ -500,7 +502,6 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     }
     const patch: Record<string, unknown> = {};
     if (body.name !== undefined) patch.name = body.name;
-    if (body.color !== undefined) patch.color = body.color;
     if (body.hoist !== undefined) patch.hoist = body.hoist;
     if (body.permissions !== undefined) patch.permissions = String(body.permissions);
     if (body.mentionable !== undefined) patch.mentionable = body.mentionable;
@@ -508,7 +509,16 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (body.icon !== undefined) patch.icon = body.icon;
     if (body.unicode_emoji !== undefined) patch.unicode_emoji = body.unicode_emoji;
     if (body.flags !== undefined) patch.flags = body.flags;
-    if (body.colors !== undefined) patch.colors = body.colors;
+    // Keep the deprecated `color` and the newer `colors` object consistent regardless of which the
+    // client sent (discord.js sends/reads `colors`).
+    if (body.colors !== undefined) {
+      patch.colors = body.colors;
+      const primary = (body.colors as { primary_color?: number } | null)?.primary_color;
+      patch.color = body.color !== undefined ? body.color : (primary ?? role.color);
+    } else if (body.color !== undefined) {
+      patch.color = body.color;
+      patch.colors = { primary_color: body.color as number, secondary_color: null, tertiary_color: null };
+    }
     const roleChanges = Object.keys(patch).map((key) => ({
       key,
       old_value: (role as unknown as Record<string, unknown>)[key],

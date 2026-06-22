@@ -168,6 +168,7 @@ export function createGuild(ds: DiscordStore, input: CreateGuildInput): DiscordG
 export interface CreateRoleInput {
   name?: string;
   color?: number;
+  colors?: { primary_color: number; secondary_color: number | null; tertiary_color: number | null } | null;
   hoist?: boolean;
   permissions?: string;
   mentionable?: boolean;
@@ -181,11 +182,16 @@ export interface CreateRoleInput {
 
 export function createRole(ds: DiscordStore, guildSnowflake: string, input: CreateRoleInput): DiscordRole {
   const existing = ds.roles.findBy("guild_snowflake", guildSnowflake);
+  // Discord's newer `colors` object supersedes the deprecated `color`; keep them consistent so a
+  // client reading either (discord.js reads colors.primaryColor) sees the value it set.
+  const color = input.color ?? input.colors?.primary_color ?? 0;
+  const colors = input.colors ?? { primary_color: color, secondary_color: null, tertiary_color: null };
   return ds.roles.insert({
     snowflake: snowflake(),
     guild_snowflake: guildSnowflake,
     name: input.name ?? "new role",
-    color: input.color ?? 0,
+    color,
+    colors,
     hoist: input.hoist ?? false,
     position: input.position ?? existing.length,
     permissions: input.permissions ?? "0",
