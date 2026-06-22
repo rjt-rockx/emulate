@@ -8,6 +8,7 @@ import { GatewayOpcodes, GatewayCloseCodes, HEARTBEAT_INTERVAL, type GatewayPayl
 import { Intents, hasIntent, intentsAllow } from "./intents.js";
 import { type DiscordEventBus, type GatewayEvent } from "./dispatcher.js";
 import { ZlibCompressor } from "./compression.js";
+import { packETF, unpackETF } from "./etf.js";
 import type { GatewaySession, ResumableState } from "./session.js";
 
 const API_VERSION = 10;
@@ -70,8 +71,8 @@ export class GatewayServer {
     };
     this.sessions.add(session);
 
-    if (encoding !== "json") {
-      this.closeSession(session, GatewayCloseCodes.UnknownError, "Only JSON encoding is supported");
+    if (encoding !== "json" && encoding !== "etf") {
+      this.closeSession(session, GatewayCloseCodes.UnknownError, "Unsupported encoding");
       return;
     }
 
@@ -89,9 +90,14 @@ export class GatewayServer {
   private onMessage(session: GatewaySession, raw: RawData): void {
     let payload: GatewayPayload;
     try {
-      payload = JSON.parse(raw.toString());
+      if (session.encoding === "etf") {
+        const buf = Array.isArray(raw) ? Buffer.concat(raw) : Buffer.from(raw as Buffer);
+        payload = unpackETF(buf) as GatewayPayload;
+      } else {
+        payload = JSON.parse(raw.toString());
+      }
     } catch {
-      this.closeSession(session, GatewayCloseCodes.DecodeError, "Invalid JSON");
+      this.closeSession(session, GatewayCloseCodes.DecodeError, "Failed to decode payload");
       return;
     }
 
@@ -311,16 +317,16 @@ export class GatewayServer {
 
   private send(session: GatewaySession, payload: GatewayPayload): void {
     if (session.ws.readyState !== session.ws.OPEN) return;
-    const json = JSON.stringify(payload);
+    const encoded: string | Buffer = session.encoding === "etf" ? packETF(payload) : JSON.stringify(payload);
     if (session.compressor) {
       session.compressor
-        .compress(json)
+        .compress(encoded)
         .then((buf) => {
           if (session.ws.readyState === session.ws.OPEN) session.ws.send(buf);
         })
         .catch(() => {});
     } else {
-      session.ws.send(json);
+      session.ws.send(encoded);
     }
   }
 

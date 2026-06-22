@@ -19,7 +19,7 @@ export class ZlibCompressor {
     this.deflate.on("data", (chunk: Buffer) => this.chunks.push(chunk));
   }
 
-  compress(data: string): Promise<Buffer> {
+  compress(data: string | Buffer): Promise<Buffer> {
     this.queue = this.queue.then(
       () =>
         new Promise<Buffer>((resolve) => {
