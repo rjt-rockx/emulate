@@ -125,17 +125,20 @@ function deref(schema: JsonSchema): JsonSchema {
   return schema;
 }
 
+/** Resolve a concrete snowflake for an id-shaped body field (e.g. `recipient_id`, `sku_id`). */
+export type IdResolver = (fieldName: string) => string | undefined;
+
 /** Generate a minimal value satisfying a (subset of) JSON Schema, for synthesizing request bodies. */
-function genFromSchema(raw: JsonSchema | undefined, depth = 0): unknown {
+function genFromSchema(raw: JsonSchema | undefined, depth: number, key: string | undefined, idFor: IdResolver | undefined): unknown {
   if (!raw || depth > 6) return undefined;
   const schema = deref(raw);
   if (Array.isArray(schema.enum)) return schema.enum.find((v) => v !== null);
-  if (Array.isArray(schema.oneOf)) return genFromSchema(schema.oneOf[0] as JsonSchema, depth + 1);
-  if (Array.isArray(schema.anyOf)) return genFromSchema(schema.anyOf[0] as JsonSchema, depth + 1);
+  if (Array.isArray(schema.oneOf)) return genFromSchema(schema.oneOf[0] as JsonSchema, depth + 1, key, idFor);
+  if (Array.isArray(schema.anyOf)) return genFromSchema(schema.anyOf[0] as JsonSchema, depth + 1, key, idFor);
   if (Array.isArray(schema.allOf)) {
     const merged: Record<string, unknown> = {};
     for (const part of schema.allOf as JsonSchema[]) {
-      const v = genFromSchema(part, depth + 1);
+      const v = genFromSchema(part, depth + 1, key, idFor);
       if (v && typeof v === "object") Object.assign(merged, v);
     }
     return merged;
@@ -144,6 +147,11 @@ function genFromSchema(raw: JsonSchema | undefined, depth = 0): unknown {
   if (Array.isArray(type)) type = type.find((t) => t !== "null");
   switch (type) {
     case "string": {
+      // Snowflake-shaped id fields: resolve to a real id when one is available.
+      if (key && /(_id|_ids)$/.test(key) && idFor) {
+        const resolved = idFor(key.replace(/s$/, ""));
+        if (resolved) return resolved;
+      }
       if (schema.format === "date-time") return new Date(Date.now() + 86_400_000).toISOString();
       if (schema.format === "uri") return "https://example.com";
       const min = (schema.minLength as number) ?? 0;
@@ -155,24 +163,24 @@ function genFromSchema(raw: JsonSchema | undefined, depth = 0): unknown {
     case "boolean":
       return false;
     case "array":
-      return (schema.minItems as number) ? [genFromSchema(schema.items as JsonSchema, depth + 1)] : [];
+      return (schema.minItems as number) ? [genFromSchema(schema.items as JsonSchema, depth + 1, key, idFor)] : [];
     case "object": {
       const out: Record<string, unknown> = {};
       const props = (schema.properties as Record<string, JsonSchema>) ?? {};
-      for (const key of (schema.required as string[]) ?? []) out[key] = genFromSchema(props[key], depth + 1);
+      for (const k of (schema.required as string[]) ?? []) out[k] = genFromSchema(props[k], depth + 1, k, idFor);
       return out;
     }
     default:
-      return type === undefined && schema.properties ? genFromSchema({ ...schema, type: "object" }, depth) : undefined;
+      return type === undefined && schema.properties ? genFromSchema({ ...schema, type: "object" }, depth, key, idFor) : undefined;
   }
 }
 
 /** Synthesize a minimal valid JSON request body for an operation, or null when it has none. */
-export function generateRequestBody(specPath: string, method: string): unknown {
+export function generateRequestBody(specPath: string, method: string, idFor?: IdResolver): unknown {
   const op = spec.paths[specPath]?.[method.toLowerCase()] as { requestBody?: { content?: Record<string, { schema?: JsonSchema }> } } | undefined;
   const schema = op?.requestBody?.content?.["application/json"]?.schema;
   if (!schema) return null;
-  return genFromSchema(schema);
+  return genFromSchema(schema, 0, undefined, idFor);
 }
 
 /** Spec operations (method + path) the spec defines, for coverage reporting. */

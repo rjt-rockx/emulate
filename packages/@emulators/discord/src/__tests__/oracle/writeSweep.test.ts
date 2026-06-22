@@ -31,10 +31,14 @@ describe("OpenAPI WRITE sweep (POST/PATCH responses)", () => {
       channel_id: ids.general,
       application_id: ids.app,
       user_id: ids.developer,
+      recipient_id: ids.developer,
+      sku_id: await postId(`/applications/${ids.app}/skus`, {}), // likely unimplemented; ok if undefined
       role_id: await postId(`/guilds/${ids.guild}/roles`, { name: "ws-role" }),
       message_id: await postId(`/channels/${ids.general}/messages`, { content: "ws" }),
       command_id: await postId(`/applications/${ids.app}/commands`, { name: "ws-cmd", description: "d", type: 1 }),
     };
+    // Resolve id-shaped body fields (recipient_id, channel_id, ...) to real ids when we have them.
+    const idFor = (field: string): string | undefined => map[field];
 
     const ops = specOperations().filter((o) => o.method === "POST" || o.method === "PATCH");
     const results: Array<{ op: string; status: number; validated: boolean; errors: string[] }> = [];
@@ -47,7 +51,7 @@ describe("OpenAPI WRITE sweep (POST/PATCH responses)", () => {
         continue;
       }
       const concrete = op.path.replace(/\{(\w+)\}/g, (_, p) => map[p]!);
-      const body = generateRequestBody(op.path, op.method);
+      const body = generateRequestBody(op.path, op.method, idFor);
       const res = await app.request(api(concrete), {
         method: op.method,
         headers: botHeaders(),
