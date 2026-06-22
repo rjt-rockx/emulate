@@ -1,14 +1,17 @@
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { randomBytes } from "node:crypto";
+import dgram from "node:dgram";
 import { WebSocketServer, type WebSocket, type RawData } from "ws";
 
 /**
  * Voice connection (voice gateway) opcodes, per the Discord voice documentation. This server
- * implements the control plane of a voice connection — the WebSocket handshake and heartbeat —
- * which the bot reaches after VOICE_SERVER_UPDATE. The media plane (UDP/RTP Opus audio) is the
- * documented transport boundary and is not emulated: there is no real audio, but a client can
- * complete the documented Identify -> Ready -> Select Protocol -> Session Description handshake.
+ * implements a full voice connection: the WebSocket control plane (Identify -> Ready -> Select
+ * Protocol -> Session Description -> Heartbeat) AND the UDP media plane — IP discovery (the
+ * 74-byte request/response handshake) and reception of the RTP-encapsulated, encrypted Opus
+ * packets a bot streams. The one thing that does not happen is relaying that audio to other
+ * participants, because in the emulator there are none; a bot can otherwise establish a complete
+ * voice connection and send audio that the server receives.
  */
 export const VoiceOpcodes = {
   Identify: 0,
@@ -43,6 +46,19 @@ interface VoicePayload {
 export class VoiceGatewayServer {
   private readonly wss = new WebSocketServer({ noServer: true });
   private readonly sockets = new Set<WebSocket>();
+  private readonly udp = dgram.createSocket("udp4");
+  private udpPort = 0;
+  /** Count of RTP audio packets received (visible to tests/inspector). */
+  rtpPacketsReceived = 0;
+
+  constructor() {
+    this.udp.on("message", (msg, rinfo) => this.onUdpMessage(msg, rinfo));
+    this.udp.on("error", () => {});
+    this.udp.bind(0, "127.0.0.1", () => {
+      this.udpPort = this.udp.address().port;
+    });
+    if (typeof this.udp.unref === "function") this.udp.unref();
+  }
 
   handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
     this.wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws));
@@ -57,6 +73,26 @@ export class VoiceGatewayServer {
     ws.on("error", () => this.sockets.delete(ws));
   }
 
+  /**
+   * Handle a UDP datagram: the 74-byte IP-discovery request (type 0x1) is answered with a
+   * discovery response (type 0x2) echoing the sender's external address/port; anything else is
+   * treated as an RTP audio packet and accepted (received, not relayed).
+   */
+  private onUdpMessage(msg: Buffer, rinfo: dgram.RemoteInfo): void {
+    if (msg.length >= 74 && msg.readUInt16BE(0) === 0x0001) {
+      const ssrc = msg.readUInt32BE(4);
+      const response = Buffer.alloc(74);
+      response.writeUInt16BE(0x0002, 0); // response type
+      response.writeUInt16BE(70, 2); // message length
+      response.writeUInt32BE(ssrc, 4);
+      response.write(rinfo.address, 8, "ascii"); // null-padded external address
+      response.writeUInt16BE(rinfo.port, 72); // external port
+      this.udp.send(response, rinfo.port, rinfo.address);
+      return;
+    }
+    this.rtpPacketsReceived += 1;
+  }
+
   private onMessage(ws: WebSocket, raw: RawData, ssrc: number): void {
     let payload: VoicePayload;
     try {
@@ -66,10 +102,10 @@ export class VoiceGatewayServer {
     }
     switch (payload.op) {
       case VoiceOpcodes.Identify:
-        // Ready advertises the SSRC, the (unused) UDP endpoint, and supported encryption modes.
+        // Ready advertises the SSRC, the UDP media endpoint, and supported encryption modes.
         this.send(ws, {
           op: VoiceOpcodes.Ready,
-          d: { ssrc, ip: "127.0.0.1", port: 0, modes: VOICE_ENCRYPTION_MODES, experiments: [] },
+          d: { ssrc, ip: "127.0.0.1", port: this.udpPort, modes: VOICE_ENCRYPTION_MODES, experiments: [] },
         });
         break;
       case VoiceOpcodes.SelectProtocol: {
@@ -111,6 +147,11 @@ export class VoiceGatewayServer {
       }
     }
     this.sockets.clear();
+    try {
+      this.udp.close();
+    } catch {
+      // ignore
+    }
     return new Promise((resolve) => this.wss.close(() => resolve()));
   }
 }
