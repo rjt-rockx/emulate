@@ -29,24 +29,45 @@ export function commandPermissionsRoutes(ctx: DiscordRouteContext): void {
   // Registered as middleware to take precedence over the existing dynamic
   // applicationCommands route /:commandId that was registered before us.
   app.use(async (c, next) => {
-    if (c.req.method !== "GET") return next();
     const m = GUILD_PERMISSIONS_RE.exec(c.req.path);
     if (!m) return next();
     const appId = m[1];
     const guildId = m[2];
-    const auth = getAuth(c, store);
-    if (!auth || auth.type !== "bot") return unauthorized(c);
     const ds = getDiscordStore(store);
-    const rows = ds.commandPermissions
-      .findBy("application_snowflake", appId)
-      .filter((row) => row.guild_snowflake === guildId);
-    const result = rows.map((row) => ({
-      id: row.command_snowflake,
-      application_id: appId,
-      guild_id: guildId,
-      permissions: row.permissions,
-    }));
-    return c.json(result);
+
+    if (c.req.method === "GET") {
+      const auth = getAuth(c, store);
+      if (!auth || auth.type !== "bot") return unauthorized(c);
+      const rows = ds.commandPermissions
+        .findBy("application_snowflake", appId)
+        .filter((row) => row.guild_snowflake === guildId);
+      return c.json(
+        rows.map((row) => ({ id: row.command_snowflake, application_id: appId, guild_id: guildId, permissions: row.permissions })),
+      );
+    }
+
+    // PUT: deprecated batch edit of every command's permissions in the guild.
+    if (c.req.method === "PUT") {
+      const auth = getAuth(c, store);
+      if (!auth) return unauthorized(c);
+      const body = (await c.req.json().catch(() => [])) as Array<{
+        id: string;
+        permissions: Array<{ id: string; type: number; permission: boolean }>;
+      }>;
+      const result: Array<Record<string, unknown>> = [];
+      for (const entry of Array.isArray(body) ? body : []) {
+        const permissions = entry.permissions ?? [];
+        const existing = ds.commandPermissions
+          .findBy("application_snowflake", appId)
+          .find((r) => r.guild_snowflake === guildId && r.command_snowflake === entry.id);
+        if (existing) ds.commandPermissions.update(existing.id, { permissions });
+        else ds.commandPermissions.insert({ application_snowflake: appId, guild_snowflake: guildId, command_snowflake: entry.id, permissions });
+        result.push({ id: entry.id, application_id: appId, guild_id: guildId, permissions });
+      }
+      return c.json(result);
+    }
+
+    return next();
   });
 
   // GET /api/v:version/applications/:appId/guilds/:guildId/commands/:commandId/permissions

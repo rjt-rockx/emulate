@@ -197,4 +197,26 @@ describe("discord application command permissions", () => {
     );
     expect(res.status).toBe(401);
   });
+
+  it("batch PUT upserts permissions for multiple commands", async () => {
+    const { app, store } = build();
+    const ds = getDiscordStore(store);
+    const appId = ds.applications.all()[0].snowflake;
+    const guildId = ds.guilds.findOneBy("name", "Emulate Server")!.snowflake;
+
+    const res = await app.request(api(`/applications/${appId}/guilds/${guildId}/commands/permissions`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify([
+        { id: "111", permissions: [{ id: guildId, type: 1, permission: true }] },
+        { id: "222", permissions: [{ id: guildId, type: 1, permission: false }] },
+      ]),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<{ id: string }>;
+    expect(body.map((r) => r.id).sort()).toEqual(["111", "222"]);
+
+    const list = (await (await app.request(api(`/applications/${appId}/guilds/${guildId}/commands/permissions`), { headers: botHeaders() })).json()) as Array<{ id: string }>;
+    expect(list.length).toBe(2);
+  });
 });
