@@ -101,3 +101,47 @@ default ON.
 - **Tests to correct (T8):** 6 files assert non-Discord behavior.
 - **Design call (T1):** permission enforcement wiring + default.
 - **Document-as-known-divergence:** the items above.
+
+## Remediation outcome (shipped)
+
+Full-pass remediation completed: a shared-foundation wave plus six disjoint route waves, all merged
+green. **+152 tests (1452 -> 1604), type-check + lint clean.** Decision on T1: wire the missing
+`requirePermission` calls everywhere they were absent but KEEP the opt-in default (off), so the
+emulator returns 50013 once `discord.enforce_permissions` is enabled and stays lenient otherwise.
+
+### Wave A — shared foundation (serializers, pagination, gateway, ratelimit, permissions)
+mention_channels omit; referenced_message null for reply types; scheduled-event description null;
+default_forum_layout forum-only; thread total_message_sent separate from message_count;
+recipients as user objects; toAPIEmoji/Sticker/Sound gained an includeUser gate; parsePagination
+clamps limit>=1 and sliceBySnowflake windows from the cursor; 429 body drops code:0;
+X-RateLimit-Bucket is non-inclusive of the major resource; IDENTIFY rejects out-of-range intent
+bits (4013) and >4096-byte frames (4002); unknown channel yields no permissions (not ALL);
+ENTITLEMENT_DELETE reports deleted:true. (permissions.spec + rate-limits.spec corrected.)
+
+### Wave B — route-local validation + permission wiring + per-resource tests (T8 corrected)
+- guild/audit-log: modify-guild enum/range/name validation, dropped undocumented mfa_level/nsfw_level,
+  MANAGE_GUILD/VIEW_AUDIT_LOG wiring, audit entries omit empty changes + use canonical serializers.
+- scheduled-events/stickers/templates: required-field/cap/channel-type validation, recurrence strip,
+  sticker user-gating/Lottie/slots, full template-snapshot materialization, is_dirty/updated_at,
+  MANAGE_GUILD wiring.
+- components/messages/polls: action-row/select/custom_id/premium validation, integer nonce preserved,
+  fail_if_not_exists, distinct bulk-delete age error, thread counter increment, poll author/limit/channel.
+- channels/threads: MANAGE_CHANNELS/ROLES/THREADS wiring, auto_archive_duration + thread-type
+  validation, forum message_count=0/total=1, archived-announcement threads, REQUIRE_TAG/5-tag cap,
+  thread-member archived/type guards.
+- oauth/users/roleConnections/invites/lobbies: OAuth client-auth + authorized-guild + refresh binding,
+  roleConnections foreign-appId 404, invite target_type companion validation, ban limit=0, INVITE_CREATE
+  fields, pin timestamp, lobby metadata/idle/flags-preserve/bulk-404/invite-shape, group-DM CHANNEL_CREATE,
+  username case-insensitive/whitespace, email-scope gating.
+- automod/stage/voice/soundboard/monetization/app-emoji/search: MANAGE_GUILD(+MODERATE_MEMBERS) wiring,
+  actions/name/trigger_metadata required, stage channel-type + moderator perm + single-instance,
+  voice stage-channel + perms, soundboard perms + sound_id/sound required + user-gating, subscription
+  user_id required, app-emoji name/image validation + :appId scoping, event_webhooks_status 1|2,
+  guild-message-search strips reactions + adds doing_deep_historical_index + limit.
+
+### Intentionally NOT changed (documented known divergences)
+Rate-limit generous defaults (500/s vs 50/s) and per-store (not per-token) scoping; microsecond/offset
+timestamp format; approximate_presence_count == member_count; static session_start_limit / always-1
+shards; invalidFormBody always BASE_TYPE_BAD_LENGTH sub-code; lobby/dev rate limits; scheduled-event
+status auto-transitions; team-management endpoints; app event-webhooks auto-firing (W1/W2 — the manual
+control endpoint remains); and the assorted Low/Nit items each group marked skip.

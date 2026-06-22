@@ -561,7 +561,7 @@ describe("oauth2.mdx — Client Authentication (O1/O2/O5 conformance)", () => {
   // O2: bot scope token response must use the guild_id parameter when provided.
   it("O2: bot scope with guild_id returns the matching guild object", async () => {
     const ctx = createDiscordTestApp(seed);
-    const { store, app } = ctx;
+    const { store } = ctx;
     const ds = getDiscordStore(store);
     const guild = ds.guilds.all()[0];
     if (!guild) return; // no guild seeded, skip
