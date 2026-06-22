@@ -45,7 +45,13 @@ describe("discord scheduled events", () => {
       await app.request(api(`/guilds/${gid}/scheduled-events`), {
         method: "POST",
         headers: botHeaders(),
-        body: JSON.stringify({ name: "Launch Party", scheduled_start_time: "2030-01-01T00:00:00.000Z", entity_type: 3 }),
+        body: JSON.stringify({
+          name: "Launch Party",
+          scheduled_start_time: "2030-01-01T00:00:00.000Z",
+          scheduled_end_time: "2030-01-01T02:00:00.000Z",
+          entity_type: 3,
+          entity_metadata: { location: "The Internet" },
+        }),
       })
     ).json()) as { id: string; name: string; status: number };
     expect(created.name).toBe("Launch Party");
