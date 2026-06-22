@@ -195,7 +195,32 @@ function toAPIAppEmoji(e: DiscordApplicationEmoji, ds: ReturnType<typeof getDisc
 }
 
 export function applicationManagementRoutes(ctx: DiscordRouteContext): void {
-  const { app, store } = ctx;
+  const { app, store, baseUrl } = ctx;
+
+  // POST /api/v:version/applications/:appId/attachment (upload_application_attachment)
+  // Multipart file upload used by Activities to host an external asset; returns an ephemeral
+  // attachment object pointing at a synthetic CDN-style URL.
+  app.post("/api/v:version/applications/:appId/attachment", async (c) => {
+    const g = requireBot(c, store);
+    if (g instanceof Response) return g;
+    const body = (await c.req.parseBody().catch(() => ({}))) as Record<string, unknown>;
+    const file = body.file;
+    if (!(file instanceof File)) return invalidFormBody(c, { file: "This field is required." });
+    const id = snowflake();
+    const filename = file.name || "file";
+    const url = `${baseUrl}/attachments/${c.req.param("appId")}/${id}/${encodeURIComponent(filename)}`;
+    return c.json({
+      attachment: {
+        id,
+        filename,
+        size: file.size ?? 0,
+        url,
+        proxy_url: url,
+        content_type: file.type || undefined,
+        ephemeral: true,
+      },
+    });
+  });
 
   // GET /api/v:version/applications/@me
   app.get("/api/v:version/applications/@me", (c) => {

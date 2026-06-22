@@ -173,6 +173,14 @@ describe("OpenAPI WRITE sweep (POST/PATCH responses)", () => {
       "PATCH /guilds/{guild_id}/requests/{request_id}": { action: "APPROVED" },
       "POST /interactions/{interaction_id}/{interaction_token}/callback": { type: 1 },
     };
+    // Operations that take multipart/form-data rather than JSON.
+    const MULTIPART_OPS: Record<string, () => FormData> = {
+      "POST /applications/{application_id}/attachment": () => {
+        const fd = new FormData();
+        fd.set("file", new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "asset.png", { type: "image/png" }));
+        return fd;
+      },
+    };
 
     const ops = specOperations().filter((o) => o.method === "POST" || o.method === "PATCH");
     const results: Array<{ op: string; status: number; validated: boolean; errors: string[] }> = [];
@@ -187,12 +195,20 @@ describe("OpenAPI WRITE sweep (POST/PATCH responses)", () => {
       }
       const concrete = op.path.replace(/\{(\w+)\}/g, (_, p) => map[p]!);
       const overrideKey = `${op.method} ${op.path}`;
-      const body = overrideKey in BODY_OVERRIDES ? BODY_OVERRIDES[overrideKey] : generateRequestBody(op.path, op.method, idFor);
-      const res = await app.request(api(concrete), {
-        method: op.method,
-        headers: botHeaders(),
-        body: body == null ? undefined : JSON.stringify(body),
-      });
+      const res = MULTIPART_OPS[overrideKey]
+        ? await app.request(api(concrete), {
+            method: op.method,
+            headers: { Authorization: botHeaders().Authorization },
+            body: MULTIPART_OPS[overrideKey](),
+          })
+        : await (async () => {
+            const body = overrideKey in BODY_OVERRIDES ? BODY_OVERRIDES[overrideKey] : generateRequestBody(op.path, op.method, idFor);
+            return app.request(api(concrete), {
+              method: op.method,
+              headers: botHeaders(),
+              body: body == null ? undefined : JSON.stringify(body),
+            });
+          })();
       if (res.status >= 400) {
         needsBodyOps.push({ op: `${op.method} ${op.path}`, status: res.status });
         continue; // generated body insufficient for the emulator's semantic validation

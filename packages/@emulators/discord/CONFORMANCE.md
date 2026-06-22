@@ -86,6 +86,13 @@ wire-shape divergence throws in the client rather than passing a hand-written as
 
 Next: point one or two representative open-source bots' own test suites at the emulator.
 
+## Scope boundary: Partner / Social SDK
+
+The 5 `/partner-sdk/*` paths (provisional-account merge/unmerge and token exchange for Discord's
+embedded Social SDK) are intentionally **out of scope**: they serve game developers integrating the
+Social SDK, not bots or apps, and provisional accounts are minted by that SDK rather than these
+endpoints in isolation. They are excluded from the sweep totals rather than left as silent gaps.
+
 ## Phase 4 (deferred — needs a token): record/replay cassettes
 
 Capture real Discord API responses once against a throwaway bot token + test guild, commit redacted
