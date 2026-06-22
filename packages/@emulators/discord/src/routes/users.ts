@@ -92,8 +92,8 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
         requiredIntents: Intents.GuildMembers,
         d: { guild_id: guildId, user: toAPIUser(auth.user) },
       });
-      // The leaving user/bot sees the guild become unavailable.
-      bus.publish({ t: "GUILD_DELETE", guildId, requiredIntents: Intents.Guilds, d: { id: guildId, unavailable: false } });
+      // The leaving user/bot sees the guild become unavailable (targeted: only it leaves).
+      bus.publish({ t: "GUILD_DELETE", guildId, requiredIntents: 0, targetUserId: auth.user.snowflake, d: { id: guildId, unavailable: false } });
     }
     return new Response(null, { status: 204 });
   });

@@ -17,6 +17,12 @@ export interface GatewayEvent {
   /** When set, only deliver to sessions whose bot belongs to this application (e.g. INTERACTION_CREATE). */
   applicationId?: string;
   /**
+   * When set, deliver only to sessions whose bot is this user, bypassing the guild-membership
+   * filter. Used for membership transitions: a GUILD_CREATE when a bot is added to a guild
+   * mid-session (the session is not yet "in" the guild), or a GUILD_DELETE when it leaves.
+   */
+  targetUserId?: string;
+  /**
    * Optional alternate payload delivered to sessions that lack the MESSAGE_CONTENT
    * intent (used by MESSAGE_CREATE/UPDATE to strip content/embeds/components/attachments).
    * Discord still sends full content to a bot for its own messages, DMs, and messages

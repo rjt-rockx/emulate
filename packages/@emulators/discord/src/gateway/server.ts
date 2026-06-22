@@ -353,20 +353,44 @@ export class GatewayServer {
     for (const session of this.sessions) {
       if (!session.identified) continue;
       if (event.applicationId && session.applicationSnowflake !== event.applicationId) continue;
+
+      // Membership transition targeted at one bot, bypassing the guild-membership filter:
+      // a bot added to a guild mid-session (GUILD_CREATE) is not yet "in" the guild, and a
+      // leaving bot (GUILD_DELETE) must still receive the event before we drop the guild.
+      if (event.targetUserId) {
+        if (session.botUserSnowflake !== event.targetUserId) continue;
+        if (event.t === "GUILD_CREATE" && event.guildId) session.guildIds.add(event.guildId);
+        this.dispatch(session, event.t, event.d);
+        if (event.t === "GUILD_DELETE" && event.guildId) session.guildIds.delete(event.guildId);
+        continue;
+      }
+
       if (!intentsAllow(session.intents, event.requiredIntents)) continue;
       if (event.guildId != null && !session.guildIds.has(event.guildId)) continue;
       this.dispatch(session, event.t, this.dataFor(session.intents, session.botUserSnowflake, event));
+      // A whole-guild delete (broadcast, untargeted) drops it from every recipient's set.
+      if (event.t === "GUILD_DELETE" && event.guildId) session.guildIds.delete(event.guildId);
     }
 
     // Buffer matching events for disconnected-but-resumable sessions so a RESUME can replay
     // what arrived during the gap, exactly as the real Gateway does.
     for (const state of this.resumable.values()) {
       if (event.applicationId && state.applicationSnowflake !== event.applicationId) continue;
+      if (event.targetUserId) {
+        if (state.botUserSnowflake !== event.targetUserId) continue;
+        if (event.t === "GUILD_CREATE" && event.guildId) state.guildIds.add(event.guildId);
+        state.seq += 1;
+        state.buffer.push({ seq: state.seq, t: event.t, d: event.d });
+        if (state.buffer.length > MAX_BUFFER) state.buffer.shift();
+        if (event.t === "GUILD_DELETE" && event.guildId) state.guildIds.delete(event.guildId);
+        continue;
+      }
       if (!intentsAllow(state.intents, event.requiredIntents)) continue;
       if (event.guildId != null && !state.guildIds.has(event.guildId)) continue;
       state.seq += 1;
       state.buffer.push({ seq: state.seq, t: event.t, d: this.dataFor(state.intents, state.botUserSnowflake, event) });
       if (state.buffer.length > MAX_BUFFER) state.buffer.shift();
+      if (event.t === "GUILD_DELETE" && event.guildId) state.guildIds.delete(event.guildId);
     }
   }
 

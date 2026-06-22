@@ -164,7 +164,12 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       icon: (body.icon as string | null | undefined) ?? null,
       description: (body.description as string | null | undefined) ?? null,
     });
-    return c.json(toAPIGuild(guild, ds, { full: true }), 201);
+    const fullGuild = toAPIGuild(guild, ds, { full: true });
+    // The creating bot is now in the guild: deliver GUILD_CREATE to its live session.
+    if (auth.user) {
+      bus.publish({ t: "GUILD_CREATE", guildId: guild.snowflake, requiredIntents: 0, targetUserId: auth.user.snowflake, d: fullGuild });
+    }
+    return c.json(fullGuild, 201);
   });
 
   app.patch("/api/v:version/guilds/:guildId", async (c) => {
@@ -460,6 +465,16 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       requiredIntents: Intents.GuildMembers,
       d: { ...apiMember, guild_id: guildId },
     });
+    // If the added member is a bot, its own session learns it joined via GUILD_CREATE.
+    if (user.bot) {
+      bus.publish({
+        t: "GUILD_CREATE",
+        guildId,
+        requiredIntents: 0,
+        targetUserId: user.snowflake,
+        d: toAPIGuild(guild, ds, { full: true }),
+      });
+    }
     return c.json(apiMember, 201);
   });
 
