@@ -10,7 +10,7 @@
  * the implementation is built/fixed until this is green.
  */
 import { describe, it, expect } from "vitest";
-import { createDiscordTestApp, api, botHeaders } from "../helpers.js";
+import { createDiscordTestApp, api, botHeaders, bearerHeaders } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 
 function appId(store: ReturnType<typeof createDiscordTestApp>["store"]): string {
@@ -421,25 +421,57 @@ describe("application-commands.mdx — command count limits", () => {
     expect(overflow.status).toBe(400);
   });
 
-  it("rejects the 6th global USER command", async () => {
+  // AC1: doc says 15 global USER commands (application-commands.mdx:167)
+  it("allows up to 15 global USER commands and rejects the 16th", async () => {
     const { app, store } = createDiscordTestApp();
     const aid = appId(store);
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 15; i++) {
       const res = await createGlobal(app, aid, { name: `User Cmd ${i}`, type: 2 });
       expect(res.status).toBe(201);
     }
-    const overflow = await createGlobal(app, aid, { name: "User Cmd 6", type: 2 });
+    const overflow = await createGlobal(app, aid, { name: "User Cmd 15", type: 2 });
     expect(overflow.status).toBe(400);
   });
 
-  it("rejects the 6th global MESSAGE command", async () => {
+  // AC1: doc says 15 global MESSAGE commands (application-commands.mdx:168)
+  it("allows up to 15 global MESSAGE commands and rejects the 16th", async () => {
     const { app, store } = createDiscordTestApp();
     const aid = appId(store);
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 15; i++) {
       const res = await createGlobal(app, aid, { name: `Msg Cmd ${i}`, type: 3 });
       expect(res.status).toBe(201);
     }
-    const overflow = await createGlobal(app, aid, { name: "Msg Cmd 6", type: 3 });
+    const overflow = await createGlobal(app, aid, { name: "Msg Cmd 15", type: 3 });
+    expect(overflow.status).toBe(400);
+  });
+
+  // AC2: doc says 1 global PRIMARY_ENTRY_POINT command (application-commands.mdx:169)
+  it("allows exactly 1 global PRIMARY_ENTRY_POINT command and rejects a second", async () => {
+    const { app, store } = createDiscordTestApp();
+    const aid = appId(store);
+    const first = await createGlobal(app, aid, { name: "launch", description: "Launch the activity", type: 4, handler: 2 });
+    expect(first.status).toBe(201);
+    const second = await createGlobal(app, aid, { name: "open", description: "Open the activity", type: 4, handler: 2 });
+    expect(second.status).toBe(400);
+  });
+
+  it("per-guild USER/MESSAGE caps also apply (15 each)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const aid = appId(store);
+    const gid = guildId(store);
+    for (let i = 0; i < 15; i++) {
+      const res = await app.request(api(`/applications/${aid}/guilds/${gid}/commands`), {
+        method: "POST",
+        headers: botHeaders(),
+        body: JSON.stringify({ name: `Guild Usr ${i}`, type: 2 }),
+      });
+      expect(res.status).toBe(201);
+    }
+    const overflow = await app.request(api(`/applications/${aid}/guilds/${gid}/commands`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "Guild Usr 15", type: 2 }),
+    });
     expect(overflow.status).toBe(400);
   });
 });
@@ -629,5 +661,238 @@ describe("application-commands.mdx — authorization", () => {
     const { app, store } = createDiscordTestApp();
     const res = await app.request(api(`/applications/${appId(store)}/commands`));
     expect(res.status).toBe(401);
+  });
+});
+
+// AC7: upsert key includes type; same-name different-type commands must coexist (application-commands.mdx:158,162)
+describe("application-commands.mdx — upsert key includes type (AC7)", () => {
+  it("a global CHAT_INPUT and USER command with the same name both survive", async () => {
+    const { app, store } = createDiscordTestApp();
+    const aid = appId(store);
+    const chat = await createGlobal(app, aid, { name: "doublename", type: 1, description: "slash version" });
+    expect(chat.status).toBe(201);
+    const user = await createGlobal(app, aid, { name: "Doublename", type: 2 });
+    expect(user.status).toBe(201);
+    // Both commands must now exist (different types, same-ish name)
+    const list = (await (
+      await app.request(api(`/applications/${aid}/commands`), { headers: botHeaders() })
+    ).json()) as Array<{ type: number; name: string }>;
+    expect(list.some((c) => c.type === 1 && c.name === "doublename")).toBe(true);
+    expect(list.some((c) => c.type === 2 && c.name === "Doublename")).toBe(true);
+  });
+
+  it("upserting (same name, same type) updates the existing command — returns 200", async () => {
+    const { app, store } = createDiscordTestApp();
+    const aid = appId(store);
+    const first = await createGlobal(app, aid, { name: "upsertme", type: 1, description: "original" });
+    expect(first.status).toBe(201);
+    // Same name, same type -> upsert
+    const second = await createGlobal(app, aid, { name: "upsertme", type: 1, description: "updated" });
+    expect(second.status).toBe(200);
+    expect(((await second.json()) as { description: string }).description).toBe("updated");
+  });
+
+  it("creating a USER command with a name already used by a CHAT_INPUT command is NOT an upsert", async () => {
+    const { app, store } = createDiscordTestApp();
+    const aid = appId(store);
+    const chat = await createGlobal(app, aid, { name: "multi", type: 1, description: "slash" });
+    expect(chat.status).toBe(201);
+    // Same name, different type -> new command, not an update
+    const user = await createGlobal(app, aid, { name: "Multi", type: 2 });
+    expect(user.status).toBe(201);
+    // The CHAT_INPUT command's description must be unchanged
+    const chatId = ((await chat.json()) as { id: string }).id;
+    const fetched = (await (
+      await app.request(api(`/applications/${aid}/commands/${chatId}`), { headers: botHeaders() })
+    ).json()) as { description: string };
+    expect(fetched.description).toBe("slash");
+  });
+});
+
+// AC3 + AC4: Application Command Permissions endpoints (application-commands.mdx:1372-1408)
+describe("application-commands.mdx — Application Command Permissions endpoints (AC3 / AC4)", () => {
+  /** Seed a bearer token into the store so we can call the PUT permissions endpoint. */
+  function seedBearerToken(store: ReturnType<typeof createDiscordTestApp>["store"], token: string): void {
+    const ds = getDiscordStore(store);
+    const app = ds.applications.all()[0]!;
+    const botUser = ds.users.findOneBy("snowflake", app.bot_user_snowflake)!;
+    ds.tokens.insert({
+      token,
+      type: "bearer",
+      user_snowflake: botUser.snowflake,
+      application_snowflake: app.snowflake,
+      scopes: ["applications.commands.permissions.update"],
+      expires_at: null,
+      refresh_token: null,
+    });
+  }
+
+  it("GET guild command permissions list returns an array (empty when none set)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const aid = appId(store);
+    const gid = guildId(store);
+    const res = await app.request(
+      api(`/applications/${aid}/guilds/${gid}/commands/permissions`),
+      { headers: botHeaders() },
+    );
+    expect(res.status).toBe(200);
+    expect(Array.isArray(await res.json())).toBe(true);
+  });
+
+  it("GET single command permissions returns 404 (10066) when none set", async () => {
+    const { app, store } = createDiscordTestApp();
+    const aid = appId(store);
+    const gid = guildId(store);
+    // Create a command first so we have a valid command id
+    const cmd = (await (
+      await createGlobal(app, aid, { name: "permcmd", type: 1, description: "d" })
+    ).json()) as { id: string };
+    const res = await app.request(
+      api(`/applications/${aid}/guilds/${gid}/commands/${cmd.id}/permissions`),
+      { headers: botHeaders() },
+    );
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { code: number }).code).toBe(10066);
+  });
+
+  it("PUT command permissions requires a Bearer token; bot token -> 403 (AC4)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const aid = appId(store);
+    const gid = guildId(store);
+    const cmd = (await (
+      await createGlobal(app, aid, { name: "gatedcmd", type: 1, description: "d" })
+    ).json()) as { id: string };
+    const res = await app.request(
+      api(`/applications/${aid}/guilds/${gid}/commands/${cmd.id}/permissions`),
+      {
+        method: "PUT",
+        headers: botHeaders(),
+        body: JSON.stringify({ permissions: [] }),
+      },
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("PUT command permissions with a Bearer token succeeds and returns the updated object", async () => {
+    const { app, store } = createDiscordTestApp();
+    const aid = appId(store);
+    const gid = guildId(store);
+    const BEARER = "test_bearer_perms_token";
+    seedBearerToken(store, BEARER);
+    const cmd = (await (
+      await createGlobal(app, aid, { name: "writeperm", type: 1, description: "d" })
+    ).json()) as { id: string };
+    const permission = { id: gid, type: 1, permission: true };
+    const res = await app.request(
+      api(`/applications/${aid}/guilds/${gid}/commands/${cmd.id}/permissions`),
+      {
+        method: "PUT",
+        headers: bearerHeaders(BEARER),
+        body: JSON.stringify({ permissions: [permission] }),
+      },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string; application_id: string; guild_id: string; permissions: unknown[] };
+    expect(body.id).toBe(cmd.id);
+    expect(body.application_id).toBe(aid);
+    expect(body.guild_id).toBe(gid);
+    expect(body.permissions).toHaveLength(1);
+  });
+
+  it("GET single command permissions returns the object after a PUT", async () => {
+    const { app, store } = createDiscordTestApp();
+    const aid = appId(store);
+    const gid = guildId(store);
+    const BEARER = "test_bearer_get_after_put";
+    seedBearerToken(store, BEARER);
+    const cmd = (await (
+      await createGlobal(app, aid, { name: "roundtrip", type: 1, description: "d" })
+    ).json()) as { id: string };
+    const permission = { id: gid, type: 2, permission: false };
+    await app.request(
+      api(`/applications/${aid}/guilds/${gid}/commands/${cmd.id}/permissions`),
+      {
+        method: "PUT",
+        headers: bearerHeaders(BEARER),
+        body: JSON.stringify({ permissions: [permission] }),
+      },
+    );
+    const res = await app.request(
+      api(`/applications/${aid}/guilds/${gid}/commands/${cmd.id}/permissions`),
+      { headers: botHeaders() },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string; permissions: Array<{ type: number; permission: boolean }> };
+    expect(body.id).toBe(cmd.id);
+    expect(body.permissions[0]?.type).toBe(2);
+    expect(body.permissions[0]?.permission).toBe(false);
+  });
+
+  it("GET guild permissions list includes the command after its permissions are set", async () => {
+    const { app, store } = createDiscordTestApp();
+    const aid = appId(store);
+    const gid = guildId(store);
+    const BEARER = "test_bearer_guild_list";
+    seedBearerToken(store, BEARER);
+    const cmd = (await (
+      await createGlobal(app, aid, { name: "listperm", type: 1, description: "d" })
+    ).json()) as { id: string };
+    await app.request(
+      api(`/applications/${aid}/guilds/${gid}/commands/${cmd.id}/permissions`),
+      {
+        method: "PUT",
+        headers: bearerHeaders(BEARER),
+        body: JSON.stringify({ permissions: [{ id: gid, type: 1, permission: true }] }),
+      },
+    );
+    const res = await app.request(
+      api(`/applications/${aid}/guilds/${gid}/commands/permissions`),
+      { headers: botHeaders() },
+    );
+    expect(res.status).toBe(200);
+    const list = (await res.json()) as Array<{ id: string }>;
+    expect(list.some((entry) => entry.id === cmd.id)).toBe(true);
+  });
+
+  it("bulk PUT guild permissions unauthenticated returns 401", async () => {
+    const { app, store } = createDiscordTestApp();
+    const aid = appId(store);
+    const gid = guildId(store);
+    const res = await app.request(
+      api(`/applications/${aid}/guilds/${gid}/commands/permissions`),
+      { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify([]) },
+    );
+    expect(res.status).toBe(401);
+  });
+});
+
+// AC12: guild bulk-overwrite returns 200 (application-commands.mdx:1345-1348)
+describe("application-commands.mdx — Guild Bulk Overwrite Application Commands (AC12)", () => {
+  it("returns 200 and overwrites the whole guild command list", async () => {
+    const { app, store } = createDiscordTestApp();
+    const aid = appId(store);
+    const gid = guildId(store);
+    // Seed an existing guild command
+    await app.request(api(`/applications/${aid}/guilds/${gid}/commands`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "oldguildcmd", type: 1, description: "old" }),
+    });
+    const res = await app.request(api(`/applications/${aid}/guilds/${gid}/commands`), {
+      method: "PUT",
+      headers: botHeaders(),
+      body: JSON.stringify([
+        { name: "newguild1", type: 1, description: "a" },
+        { name: "newguild2", type: 1, description: "b" },
+      ]),
+    });
+    expect(res.status).toBe(200);
+    const list = (await res.json()) as Array<{ name: string }>;
+    expect(list.map((c) => c.name).sort()).toEqual(["newguild1", "newguild2"]);
+    // Old command gone
+    const all = (await (
+      await app.request(api(`/applications/${aid}/guilds/${gid}/commands`), { headers: botHeaders() })
+    ).json()) as Array<{ name: string }>;
+    expect(all.some((c) => c.name === "oldguildcmd")).toBe(false);
   });
 });

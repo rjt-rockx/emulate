@@ -200,10 +200,12 @@ function upsertCommand(
   guildId: string | null,
   body: CommandInput,
 ): { cmd: DiscordApplicationCommand; isNew: boolean } {
-  // Discord upserts global/guild commands by (application, guild, name).
+  // Discord upserts global/guild commands by (application, guild, type, name).
+  // A CHAT_INPUT and a USER command may share the same name — they are distinct.
+  const cmdType = body.type ?? 1;
   const existing = ds.commands
     .findBy("application_snowflake", appId)
-    .find((cmd) => cmd.guild_snowflake === guildId && cmd.name === body.name);
+    .find((cmd) => cmd.guild_snowflake === guildId && cmd.type === cmdType && cmd.name === body.name);
   if (existing) {
     ds.commands.update(existing.id, {
       description: body.description ?? existing.description,
@@ -245,8 +247,14 @@ function upsertCommand(
   return { cmd, isNew: true };
 }
 
-/** Per-type global command caps: CHAT_INPUT = 100, USER = 5, MESSAGE = 5. */
-const GLOBAL_CMD_CAPS: Record<number, number> = { 1: 100, 4: 100, 2: 5, 3: 5 };
+/**
+ * Per-type global command caps per Discord docs (application-commands.mdx:166-169):
+ *   CHAT_INPUT (1)           = 100
+ *   USER (2)                 = 15
+ *   MESSAGE (3)              = 15
+ *   PRIMARY_ENTRY_POINT (4)  = 1
+ */
+const GLOBAL_CMD_CAPS: Record<number, number> = { 1: 100, 2: 15, 3: 15, 4: 1 };
 
 function checkCommandCap(
   c: Context<AppEnv>,
@@ -264,7 +272,7 @@ function checkCommandCap(
     .findBy("application_snowflake", appId)
     .filter((cmd) => cmd.guild_snowflake === guildId && cmd.type === type);
 
-  // If a command with the same name already exists, this is an upsert — no cap concern.
+  // If a command with the same name+type already exists, this is an upsert — no cap concern.
   const nameExists = existing.some((cmd) => cmd.name === body.name);
   if (nameExists) return null;
 

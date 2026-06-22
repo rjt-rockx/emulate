@@ -4,7 +4,9 @@ import { discordPlugin } from "../index.js";
 import { getDiscordRuntime } from "../runtime.js";
 import { getDiscordStore } from "../store.js";
 import { commandPermissionsRoutes } from "../routes/commandPermissions.js";
-import { api, botHeaders, TEST_BASE_URL } from "./helpers.js";
+import { api, botHeaders, bearerHeaders, TEST_BASE_URL } from "./helpers.js";
+
+const TEST_BEARER = "test_cmd_perms_bearer";
 
 function build() {
   const store = new Store();
@@ -14,6 +16,23 @@ function build() {
   const runtime = getDiscordRuntime(store, TEST_BASE_URL);
   commandPermissionsRoutes({ app, store, webhooks, baseUrl: TEST_BASE_URL, bus: runtime.bus });
   discordPlugin.seed?.(store, TEST_BASE_URL);
+
+  // Seed a bearer token for PUT permission tests.
+  // The doc mandates Bearer token for the PUT /commands/:id/permissions endpoint
+  // (application-commands.mdx:311-313: "Authenticating with a bot token will result in an error.").
+  const ds = getDiscordStore(store);
+  const application = ds.applications.all()[0]!;
+  const botUser = ds.users.findOneBy("snowflake", application.bot_user_snowflake)!;
+  ds.tokens.insert({
+    token: TEST_BEARER,
+    type: "bearer",
+    user_snowflake: botUser.snowflake,
+    application_snowflake: application.snowflake,
+    scopes: ["applications.commands.permissions.update"],
+    expires_at: null,
+    refresh_token: null,
+  });
+
   return { app, store };
 }
 
@@ -35,6 +54,24 @@ describe("discord application command permissions", () => {
     expect(body.message).toBe("Unknown application command permissions");
   });
 
+  it("PUT with a bot token is rejected with 403 (doc: only Bearer allowed)", async () => {
+    const { app, store } = build();
+    const ds = getDiscordStore(store);
+    const appId = ds.applications.all()[0].snowflake;
+    const guildId = ds.guilds.findOneBy("name", "Emulate Server")!.snowflake;
+    const commandId = "555";
+
+    const res = await app.request(
+      api(`/applications/${appId}/guilds/${guildId}/commands/${commandId}/permissions`),
+      {
+        method: "PUT",
+        headers: botHeaders(),
+        body: JSON.stringify({ permissions: [] }),
+      },
+    );
+    expect(res.status).toBe(403);
+  });
+
   it("PUT sets permissions and returns 200 with the stored object", async () => {
     const { app, store } = build();
     const ds = getDiscordStore(store);
@@ -47,7 +84,7 @@ describe("discord application command permissions", () => {
       api(`/applications/${appId}/guilds/${guildId}/commands/${commandId}/permissions`),
       {
         method: "PUT",
-        headers: botHeaders(),
+        headers: bearerHeaders(TEST_BEARER),
         body: JSON.stringify({ permissions }),
       },
     );
@@ -76,7 +113,7 @@ describe("discord application command permissions", () => {
       api(`/applications/${appId}/guilds/${guildId}/commands/${commandId}/permissions`),
       {
         method: "PUT",
-        headers: botHeaders(),
+        headers: bearerHeaders(TEST_BEARER),
         body: JSON.stringify({ permissions }),
       },
     );
@@ -106,7 +143,7 @@ describe("discord application command permissions", () => {
       api(`/applications/${appId}/guilds/${guildId}/commands/${commandId}/permissions`),
       {
         method: "PUT",
-        headers: botHeaders(),
+        headers: bearerHeaders(TEST_BEARER),
         body: JSON.stringify({ permissions }),
       },
     );
@@ -140,7 +177,7 @@ describe("discord application command permissions", () => {
       api(`/applications/${appId}/guilds/${guildId}/commands/${commandId}/permissions`),
       {
         method: "PUT",
-        headers: botHeaders(),
+        headers: bearerHeaders(TEST_BEARER),
         body: JSON.stringify({ permissions: firstPerms }),
       },
     );
@@ -149,7 +186,7 @@ describe("discord application command permissions", () => {
       api(`/applications/${appId}/guilds/${guildId}/commands/${commandId}/permissions`),
       {
         method: "PUT",
-        headers: botHeaders(),
+        headers: bearerHeaders(TEST_BEARER),
         body: JSON.stringify({ permissions: secondPerms }),
       },
     );

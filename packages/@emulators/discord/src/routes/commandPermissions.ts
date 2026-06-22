@@ -106,10 +106,14 @@ export function commandPermissionsRoutes(ctx: DiscordRouteContext): void {
 
   // PUT /api/v:version/applications/:appId/guilds/:guildId/commands/:commandId/permissions
   // Upserts and returns the stored command-permission object.
-  // Accepts both bot and bearer tokens (lenient auth).
+  // Requires a Bearer token per Discord docs (application-commands.mdx:311-313):
+  //   "Authenticating with a bot token will result in an error."
   app.put("/api/v:version/applications/:appId/guilds/:guildId/commands/:commandId/permissions", async (c) => {
     const auth = getAuth(c, store);
     if (!auth) return unauthorized(c);
+    if (auth.type !== "bearer") {
+      return discordError(c, 403, "You are not authorized to perform this action on this resource", 50013);
+    }
     const ds = getDiscordStore(store);
     const appId = c.req.param("appId");
     const guildId = c.req.param("guildId");
