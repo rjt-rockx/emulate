@@ -12,7 +12,7 @@ import { checkResponse, specOperations, findOverEmission } from "./specValidator
  */
 
 const KNOWN: Array<{ path: RegExp; error: string }> = [
-  // Preview spec types deprecated guild.region as string; real Discord returns null (see CONFORMANCE.md).
+  // Preview spec types deprecated guild.region as string; real Discord returns null.
   { path: /\/guilds\/\d+/, error: "/region must be string" },
   // Preview spec types role-connection platform_name non-null; the docs/real Discord return null
   // when the user has no connection.

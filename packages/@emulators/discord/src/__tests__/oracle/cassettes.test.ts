@@ -15,8 +15,8 @@ import { snowflake } from "../../helpers.js";
  * (ids, timestamps, null-vs-populated) are ignored — only field presence + shape matter. When the
  * emulator legitimately cannot carry a field, it is recorded in KNOWN_MISSING with a rationale.
  *
- * Refresh: re-clone discord-api-docs and re-run the extraction noted in CONFORMANCE.md. Swapping
- * these for live-recorded cassettes (when a bot token is available) is a drop-in: same format.
+ * Refresh: re-extract the example responses from a fresh discord-api-docs clone. Swapping these for
+ * live-recorded cassettes (when a bot token is available) is a drop-in: same format (see live/).
  */
 
 interface Cassette {

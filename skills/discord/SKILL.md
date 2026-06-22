@@ -182,8 +182,8 @@ curl -X POST http://localhost:4000/__emulate/interactions \
 
 The emulator targets behavioral parity with the documented REST + Gateway contract: object
 shapes, enums/flags, validation and error codes, permission-gated responses, state
-transitions, and event dispatch. JSON **and ETF** encodings are supported, as is
-`zlib-stream` compression (`zstd-stream` is not). Voice (gateway + UDP/RTP relay), threads,
+transitions, and event dispatch. JSON **and ETF** encodings are supported, as are
+`zlib-stream` and `zstd-stream` transport compression. Voice state/signaling, threads,
 stickers, soundboard, scheduled events, invites, audit logs, polls, monetization,
 gateway resume with a replay buffer, opt-in permission enforcement (403/50013), and
 per-route + global rate limiting with `X-RateLimit-*` headers are all implemented.
