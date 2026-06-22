@@ -3,7 +3,6 @@ import { getDiscordStore } from "../store.js";
 import {
   getAuth,
   unauthorized,
-  notFound,
   unknownGuild,
   unknownMember,
   unknownRole,
@@ -18,6 +17,9 @@ import {
   AuditLogEvent,
   auditReason,
   requirePermission,
+  permissionsEnforced,
+  discordError,
+  invalidFormBody,
 } from "../helpers.js";
 import {
   createGuild,
@@ -27,6 +29,52 @@ import {
 } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import { PermissionFlags } from "../permissions.js";
+import type { DiscordStore } from "../store.js";
+
+/** Discord caps a guild at 250 roles (the @everyone role counts toward the total). */
+const MAX_GUILD_ROLES = 250;
+
+/**
+ * Validate a Create/Modify Role body, returning a field-error map (for 50035) or null when valid.
+ * Mirrors the documented limits: role name 1-100 chars, color a 24-bit RGB integer, and
+ * `permissions` a base-10 bitfield string.
+ */
+function validateRolePayload(body: Record<string, unknown>): Record<string, string> | null {
+  const errors: Record<string, string> = {};
+  if (typeof body.name === "string" && body.name.length > 100) {
+    errors.name = "Must be 100 or fewer in length.";
+  }
+  if (body.color !== undefined && body.color !== null) {
+    const color = body.color;
+    if (typeof color !== "number" || !Number.isInteger(color) || color < 0 || color > 0xffffff) {
+      errors.color = "int value should be between 0 and 16777215.";
+    }
+  }
+  if (body.permissions !== undefined && body.permissions !== null) {
+    try {
+      BigInt(String(body.permissions));
+    } catch {
+      errors.permissions = "Value is not a valid bitfield.";
+    }
+  }
+  if (typeof body.unicode_emoji === "string" && body.unicode_emoji.length > 0 && body.unicode_emoji.length > 100) {
+    errors.unicode_emoji = "Must be a valid emoji.";
+  }
+  return Object.keys(errors).length > 0 ? errors : null;
+}
+
+/** The position of the acting user's highest role in a guild (0 if they have none / @everyone only). */
+function highestRolePosition(ds: DiscordStore, guildId: string, userSnowflake: string | undefined): number {
+  if (!userSnowflake) return 0;
+  const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userSnowflake);
+  if (!member) return 0;
+  let highest = 0;
+  for (const roleId of member.role_snowflakes) {
+    const role = ds.roles.findOneBy("snowflake", roleId);
+    if (role && role.position > highest) highest = role.position;
+  }
+  return highest;
+}
 
 export function guildsRoutes(ctx: DiscordRouteContext): void {
   const { app, store, bus } = ctx;
@@ -324,14 +372,20 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     } catch {
       // no-op
     }
+    const errors = validateRolePayload(body);
+    if (errors) return invalidFormBody(c, errors);
+    if (ds.roles.findBy("guild_snowflake", guildId).length >= MAX_GUILD_ROLES) {
+      return discordError(c, 400, "Maximum number of guild roles reached (250)", 30005);
+    }
     const role = createRole(ds, guildId, {
       name: body.name as string | undefined,
       color: body.color as number | undefined,
       hoist: body.hoist as boolean | undefined,
-      permissions: body.permissions as string | undefined,
+      permissions: body.permissions != null ? String(body.permissions) : undefined,
       mentionable: body.mentionable as boolean | undefined,
       position: body.position as number | undefined,
       icon: body.icon as string | null | undefined,
+      unicodeEmoji: body.unicode_emoji as string | null | undefined,
     });
     const apiRole = toAPIRole(role);
     bus.publish({
@@ -345,7 +399,14 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       actionType: AuditLogEvent.RoleCreate,
       actorSnowflake: auth.user?.snowflake ?? null,
       targetSnowflake: role.snowflake,
-      changes: [{ key: "name", new_value: role.name }],
+      changes: [
+        { key: "name", new_value: role.name },
+        { key: "permissions", new_value: role.permissions },
+        { key: "color", new_value: role.color },
+        { key: "hoist", new_value: role.hoist },
+        { key: "mentionable", new_value: role.mentionable },
+      ],
+      reason: auditReason(c),
     });
     return c.json(apiRole, 200);
   });
@@ -360,20 +421,33 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (!guild) return unknownGuild(c);
     const role = ds.roles.findOneBy("snowflake", roleId);
     if (!role || role.guild_snowflake !== guildId) return unknownRole(c);
+    const denied = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageRoles, { guildId });
+    if (denied) return denied;
     let body: Record<string, unknown> = {};
     try {
       body = await c.req.json();
     } catch {
       // no-op
     }
+    const errors = validateRolePayload(body);
+    if (errors) return invalidFormBody(c, errors);
+    // Role hierarchy: a bot cannot edit a role positioned at or above its own highest role
+    // (guild owner bypasses). Only enforced when permission enforcement is enabled.
+    if (permissionsEnforced(store) && guild.owner_snowflake !== auth.user?.snowflake) {
+      if (role.position >= highestRolePosition(ds, guildId, auth.user?.snowflake)) {
+        return discordError(c, 403, "Missing Permissions", 50013);
+      }
+    }
     const patch: Record<string, unknown> = {};
     if (body.name !== undefined) patch.name = body.name;
     if (body.color !== undefined) patch.color = body.color;
     if (body.hoist !== undefined) patch.hoist = body.hoist;
-    if (body.permissions !== undefined) patch.permissions = body.permissions;
+    if (body.permissions !== undefined) patch.permissions = String(body.permissions);
     if (body.mentionable !== undefined) patch.mentionable = body.mentionable;
     if (body.position !== undefined) patch.position = body.position;
     if (body.icon !== undefined) patch.icon = body.icon;
+    if (body.unicode_emoji !== undefined) patch.unicode_emoji = body.unicode_emoji;
+    if (body.flags !== undefined) patch.flags = body.flags;
     const roleChanges = Object.keys(patch).map((key) => ({
       key,
       old_value: (role as unknown as Record<string, unknown>)[key],
@@ -395,6 +469,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
         actorSnowflake: auth.user?.snowflake ?? null,
         targetSnowflake: roleId,
         changes: roleChanges,
+        reason: auditReason(c),
       });
     }
     return c.json(apiRole);
@@ -412,6 +487,16 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (!role || role.guild_snowflake !== guildId) return unknownRole(c);
     const denied = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageRoles, { guildId });
     if (denied) return denied;
+    // The @everyone role (id == guild id) cannot be deleted, and managed roles are owned by
+    // their integration.
+    if (roleId === guildId) return discordError(c, 400, "Cannot delete the @everyone role", 50028);
+    if (role.managed) return discordError(c, 400, "Cannot modify a managed role", 50028);
+    // Strip the role from every member that held it.
+    for (const member of ds.members.findBy("guild_snowflake", guildId)) {
+      if (member.role_snowflakes.includes(roleId)) {
+        ds.members.update(member.id, { role_snowflakes: member.role_snowflakes.filter((r) => r !== roleId) });
+      }
+    }
     ds.roles.delete(role.id);
     bus.publish({
       t: "GUILD_ROLE_DELETE",
@@ -425,6 +510,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       actorSnowflake: auth.user?.snowflake ?? null,
       targetSnowflake: roleId,
       changes: [{ key: "name", old_value: role.name }],
+      reason: auditReason(c),
     });
     return new Response(null, { status: 204 });
   });
@@ -524,6 +610,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     if (body.deaf !== undefined) patch.deaf = body.deaf;
     if (body.mute !== undefined) patch.mute = body.mute;
     if (body.communication_disabled_until !== undefined) patch.communication_disabled_until = body.communication_disabled_until;
+    if (body.flags !== undefined) patch.flags = body.flags;
     const previousRoles = member.role_snowflakes;
     if (Object.keys(patch).length > 0) ds.members.update(member.id, patch);
     const updated = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId)!;
@@ -560,9 +647,12 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       const nextRoles = updated.role_snowflakes;
       const added = nextRoles.filter((r) => !previousRoles.includes(r));
       const removed = previousRoles.filter((r) => !nextRoles.includes(r));
+      const roleName = (id: string) => ds.roles.findOneBy("snowflake", id)?.name;
       const roleChanges: unknown[] = [];
-      if (added.length > 0) roleChanges.push({ key: "$add", new_value: added.map((id) => ({ id })) });
-      if (removed.length > 0) roleChanges.push({ key: "$remove", new_value: removed.map((id) => ({ id })) });
+      if (added.length > 0)
+        roleChanges.push({ key: "$add", new_value: added.map((id) => ({ id, name: roleName(id) })) });
+      if (removed.length > 0)
+        roleChanges.push({ key: "$remove", new_value: removed.map((id) => ({ id, name: roleName(id) })) });
       if (roleChanges.length > 0) {
         recordAudit(ds, bus, {
           guildSnowflake: guildId,
@@ -570,6 +660,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
           actorSnowflake: auth.user?.snowflake ?? null,
           targetSnowflake: userId,
           changes: roleChanges,
+          reason: auditReason(c),
         });
       }
     }
@@ -618,9 +709,21 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
     const guildId = c.req.param("guildId");
     const userId = c.req.param("userId");
     const roleId = c.req.param("roleId");
+    const guild = ds.guilds.findOneBy("snowflake", guildId);
+    if (!guild) return unknownGuild(c);
     const member = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId);
+    if (!member) return unknownMember(c);
     const role = ds.roles.findOneBy("snowflake", roleId);
-    if (!member || !role || role.guild_snowflake !== guildId) return notFound(c);
+    if (!role || role.guild_snowflake !== guildId) return unknownRole(c);
+    const denied = requirePermission(c, store, auth.user?.snowflake, PermissionFlags.ManageRoles, { guildId });
+    if (denied) return denied;
+    // Cannot assign a managed (integration-owned) role, nor a role at/above the bot's highest.
+    if (role.managed) return discordError(c, 400, "Cannot modify a managed role", 50028);
+    if (permissionsEnforced(store) && guild.owner_snowflake !== auth.user?.snowflake) {
+      if (role.position >= highestRolePosition(ds, guildId, auth.user?.snowflake)) {
+        return discordError(c, 403, "Missing Permissions", 50013);
+      }
+    }
     if (!member.role_snowflakes.includes(roleId)) {
       ds.members.update(member.id, { role_snowflakes: [...member.role_snowflakes, roleId] });
       const updated = ds.members.findBy("guild_snowflake", guildId).find((m) => m.user_snowflake === userId)!;
@@ -636,6 +739,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
         actorSnowflake: auth.user?.snowflake ?? null,
         targetSnowflake: userId,
         changes: [{ key: "$add", new_value: [{ id: roleId, name: role.name }] }],
+        reason: auditReason(c),
       });
     }
     return new Response(null, { status: 204 });
@@ -667,6 +771,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
         actorSnowflake: auth.user?.snowflake ?? null,
         targetSnowflake: userId,
         changes: [{ key: "$remove", new_value: [{ id: roleId, name: role?.name }] }],
+        reason: auditReason(c),
       });
     }
     return new Response(null, { status: 204 });

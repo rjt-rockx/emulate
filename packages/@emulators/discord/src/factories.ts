@@ -173,6 +173,10 @@ export interface CreateRoleInput {
   mentionable?: boolean;
   position?: number;
   icon?: string | null;
+  unicodeEmoji?: string | null;
+  flags?: number;
+  managed?: boolean;
+  tags?: Record<string, unknown> | null;
 }
 
 export function createRole(ds: DiscordStore, guildSnowflake: string, input: CreateRoleInput): DiscordRole {
@@ -185,9 +189,12 @@ export function createRole(ds: DiscordStore, guildSnowflake: string, input: Crea
     hoist: input.hoist ?? false,
     position: input.position ?? existing.length,
     permissions: input.permissions ?? "0",
-    managed: false,
+    managed: input.managed ?? false,
     mentionable: input.mentionable ?? false,
     icon: input.icon ?? null,
+    unicode_emoji: input.unicodeEmoji ?? null,
+    flags: input.flags ?? 0,
+    tags: input.tags ?? null,
   });
 }
 
@@ -229,11 +236,22 @@ export interface CreateChannelInput {
   position?: number;
   bitrate?: number | null;
   userLimit?: number | null;
+  rateLimitPerUser?: number;
+  permissionOverwrites?: DiscordChannel["permission_overwrites"];
+  rtcRegion?: string | null;
+  videoQualityMode?: number;
+  defaultAutoArchiveDuration?: number;
+  availableTags?: unknown[];
+  defaultReactionEmoji?: unknown | null;
+  defaultSortOrder?: number | null;
+  defaultForumLayout?: number;
+  defaultThreadRateLimitPerUser?: number;
 }
 
 export function createChannel(ds: DiscordStore, input: CreateChannelInput): DiscordChannel {
   const type = input.type ?? 0;
   const isVoice = type === 2 || type === 13;
+  const isForum = type === 15 || type === 16;
   const guildChannels = input.guildSnowflake ? ds.channels.findBy("guild_snowflake", input.guildSnowflake) : [];
   return ds.channels.insert({
     snowflake: snowflake(),
@@ -245,11 +263,25 @@ export function createChannel(ds: DiscordStore, input: CreateChannelInput): Disc
     nsfw: input.nsfw ?? false,
     last_message_snowflake: null,
     parent_snowflake: input.parentSnowflake ?? null,
-    rate_limit_per_user: 0,
+    rate_limit_per_user: input.rateLimitPerUser ?? 0,
     bitrate: isVoice ? (input.bitrate ?? 64000) : null,
     user_limit: isVoice ? (input.userLimit ?? 0) : null,
-    permission_overwrites: [],
+    permission_overwrites: input.permissionOverwrites ?? [],
     recipient_snowflakes: [],
+    flags: 0,
+    ...(isVoice ? { rtc_region: input.rtcRegion ?? null, video_quality_mode: input.videoQualityMode ?? 1 } : {}),
+    ...(input.defaultAutoArchiveDuration != null
+      ? { default_auto_archive_duration: input.defaultAutoArchiveDuration }
+      : {}),
+    ...(isForum
+      ? {
+          available_tags: input.availableTags ?? [],
+          default_reaction_emoji: input.defaultReactionEmoji ?? null,
+          default_sort_order: input.defaultSortOrder ?? null,
+          default_forum_layout: input.defaultForumLayout ?? 0,
+          default_thread_rate_limit_per_user: input.defaultThreadRateLimitPerUser ?? 0,
+        }
+      : {}),
   });
 }
 
@@ -273,6 +305,8 @@ export interface CreateMessageInput {
   mentionEveryone?: boolean;
   messageReference?: DiscordMessage["message_reference"];
   referencedMessageSnowflake?: string | null;
+  stickerSnowflakes?: string[];
+  messageSnapshots?: unknown[];
   poll?: DiscordMessage["poll"];
 }
 
@@ -301,6 +335,8 @@ export function createMessage(ds: DiscordStore, input: CreateMessageInput): Disc
     nonce: input.nonce ?? null,
     message_reference: input.messageReference ?? null,
     referenced_message_snowflake: input.referencedMessageSnowflake ?? null,
+    sticker_snowflakes: input.stickerSnowflakes ?? [],
+    message_snapshots: input.messageSnapshots,
     poll: input.poll ?? null,
     poll_finalized: false,
   });
