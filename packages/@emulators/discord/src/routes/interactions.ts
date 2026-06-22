@@ -1,6 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, discordError, toAPIMessage, redactMessageContent } from "../helpers.js";
+import { getAuth, unauthorized, notFound, discordError, invalidFormBody, toAPIMessage, redactMessageContent } from "../helpers.js";
 import { Intents } from "../gateway/intents.js";
 import { buildInteraction, type TriggerInput } from "../interactions/trigger.js";
 import {
@@ -45,6 +45,31 @@ export function interactionsRoutes(ctx: DiscordRouteContext): void {
       }
     }
 
+    // Validate autocomplete result (type 8): choices max 25.
+    if (callbackType === 8) {
+      const choices = response.data?.choices;
+      if (Array.isArray(choices) && choices.length > 25) {
+        return invalidFormBody(c, { "data.choices": "Must be 25 or fewer in length." });
+      }
+    }
+
+    // Validate modal response (type 9): custom_id 1-100, title <=45, components 1-5.
+    if (callbackType === 9) {
+      const data = response.data ?? {};
+      const customId = typeof data.custom_id === "string" ? data.custom_id : "";
+      const title = typeof data.title === "string" ? data.title : "";
+      const components = Array.isArray(data.components) ? data.components : [];
+      if (customId.length < 1 || customId.length > 100) {
+        return invalidFormBody(c, { "data.custom_id": "Must be between 1 and 100 in length." });
+      }
+      if (title.length < 1 || title.length > 45) {
+        return invalidFormBody(c, { "data.title": "Must be 45 or fewer in length." });
+      }
+      if (components.length < 1 || components.length > 5) {
+        return invalidFormBody(c, { "data.components": "Must be between 1 and 5 in length." });
+      }
+    }
+
     const result = applyInteractionResponse(ds, bus, store, interaction, response);
 
     if (c.req.query("with_response") === "true") {
@@ -52,6 +77,25 @@ export function interactionsRoutes(ctx: DiscordRouteContext): void {
       const msgFlags = result.message?.flags ?? 0;
       const isEph = (msgFlags & 64) !== 0;
       const message = msgSnowflake ? ds.messages.findOneBy("snowflake", msgSnowflake) : undefined;
+
+      // Build the resource object per doc:
+      // - `message` only for CHANNEL_MESSAGE_WITH_SOURCE (4) and UPDATE_MESSAGE (7)
+      // - `activity_instance` only for LAUNCH_ACTIVITY (12)
+      // - `response_message_loading` is true on a DEFERRED callback
+      const resourceExtra: Record<string, unknown> = {};
+      if (
+        (callbackType === 4 || callbackType === 7) &&
+        message
+      ) {
+        resourceExtra.message = toAPIMessage(message, ds);
+      }
+      if (callbackType === 12) {
+        resourceExtra.activity_instance = {};
+      }
+      if (result.isDeferred) {
+        resourceExtra.response_message_loading = true;
+      }
+
       return c.json({
         interaction: {
           id: interaction.snowflake,
@@ -60,7 +104,7 @@ export function interactionsRoutes(ctx: DiscordRouteContext): void {
         },
         resource: {
           type: callbackType,
-          ...(message ? { message: toAPIMessage(message, ds) } : {}),
+          ...resourceExtra,
         },
       });
     }

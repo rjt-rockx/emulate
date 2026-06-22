@@ -173,6 +173,155 @@ describe("webhook.mdx — Webhook endpoints", () => {
   });
 });
 
+describe("webhook.mdx — Create Webhook name validation", () => {
+  it("webhook name containing 'clyde' (case-insensitive) is rejected with 400 / 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await app.request(api(`/channels/${channel}/webhooks`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "ClydeBot" }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("webhook name containing 'discord' (case-insensitive) is rejected with 400 / 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await app.request(api(`/channels/${channel}/webhooks`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "MyDiscordBot" }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("webhook name over 80 chars is rejected with 400 / 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await app.request(api(`/channels/${channel}/webhooks`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "a".repeat(81) }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("webhook name of exactly 80 chars is accepted", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await app.request(api(`/channels/${channel}/webhooks`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "a".repeat(80) }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("webhook name of 1 char is accepted", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const res = await app.request(api(`/channels/${channel}/webhooks`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "X" }),
+    });
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("webhook.mdx — Execute Webhook IS_COMPONENTS_V2 and with_components", () => {
+  it("Execute with IS_COMPONENTS_V2 flag and content returns 400 (50035)", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const wh = await createWebhook(app, channel);
+    const IS_COMPONENTS_V2 = 1 << 15;
+    const res = await app.request(api(`/webhooks/${wh.id}/${wh.token}`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "hello", flags: IS_COMPONENTS_V2 }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("Execute with IS_COMPONENTS_V2 flag and only components succeeds", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const wh = await createWebhook(app, channel);
+    const IS_COMPONENTS_V2 = 1 << 15;
+    const res = await app.request(api(`/webhooks/${wh.id}/${wh.token}?wait=true`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        components: [{ type: 10, content: "Hello world" }],
+        flags: IS_COMPONENTS_V2,
+      }),
+    });
+    expect(res.status).toBe(200);
+    const msg = (await res.json()) as { flags: number };
+    expect((msg.flags & IS_COMPONENTS_V2) !== 0).toBe(true);
+  });
+
+  it("Execute without with_components ignores components for non-app-owned webhooks", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    // Create a webhook that is NOT app-owned (application_snowflake=null).
+    // The standard createWebhook uses a bot auth which sets application_snowflake.
+    // Manually insert a non-app-owned webhook.
+    const ds = getDiscordStore(store);
+    const guildId = ds.guilds.findOneBy("name", "Emulate Server")!.snowflake;
+    const wh = ds.webhooks.insert({
+      snowflake: "800000000000000001",
+      type: 1,
+      guild_snowflake: guildId,
+      channel_snowflake: channel,
+      user_snowflake: null,
+      name: "NonAppWebhook",
+      avatar: null,
+      token: "nonapp_token_12345",
+      application_snowflake: null,
+    });
+    // Without with_components, components are stripped -> empty message -> 50006.
+    const res = await app.request(api(`/webhooks/${wh.snowflake}/${wh.token}`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ components: [{ type: 10, content: "Hello" }] }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50006);
+  });
+
+  it("Execute with with_components=true allows components for non-app-owned webhooks", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ids(store);
+    const ds = getDiscordStore(store);
+    const guildId = ds.guilds.findOneBy("name", "Emulate Server")!.snowflake;
+    const wh = ds.webhooks.insert({
+      snowflake: "800000000000000002",
+      type: 1,
+      guild_snowflake: guildId,
+      channel_snowflake: channel,
+      user_snowflake: null,
+      name: "NonAppWebhook2",
+      avatar: null,
+      token: "nonapp_token_67890",
+      application_snowflake: null,
+    });
+    const res = await app.request(api(`/webhooks/${wh.snowflake}/${wh.token}?wait=true&with_components=true`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ components: [{ type: 10, content: "Hello" }] }),
+    });
+    expect(res.status).toBe(200);
+    const msg = (await res.json()) as { components: unknown[] };
+    expect(msg.components.length).toBeGreaterThan(0);
+  });
+});
+
 describe("webhook.mdx — Execute Webhook", () => {
   it("Execute with content returns 204 by default (wait=false)", async () => {
     const { app, store } = createDiscordTestApp();

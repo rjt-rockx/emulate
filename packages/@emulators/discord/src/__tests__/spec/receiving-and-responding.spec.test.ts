@@ -297,6 +297,143 @@ describe("receiving-and-responding.mdx — Create Interaction Response (callback
   });
 });
 
+describe("receiving-and-responding.mdx — autocomplete and modal validation", () => {
+  it("AUTOCOMPLETE_RESULT (8) with more than 25 choices is rejected with 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { appId, channel } = ctx(store);
+    await app.request(api(`/applications/${appId}/commands`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "search2", description: "x" }),
+    });
+    const t = await trigger(app, {
+      type: 4,
+      commandName: "search2",
+      channelSnowflake: channel,
+      commandOptions: [{ name: "q", type: 3, value: "a", focused: true }],
+    });
+    const tooManyChoices = Array.from({ length: 26 }, (_, i) => ({ name: `opt${i}`, value: `v${i}` }));
+    const res = await callback(app, t.id, t.token, { type: 8, data: { choices: tooManyChoices } });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("AUTOCOMPLETE_RESULT (8) with exactly 25 choices is accepted", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { appId, channel } = ctx(store);
+    await app.request(api(`/applications/${appId}/commands`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ name: "search3", description: "x" }),
+    });
+    const t = await trigger(app, {
+      type: 4,
+      commandName: "search3",
+      channelSnowflake: channel,
+      commandOptions: [{ name: "q", type: 3, value: "a", focused: true }],
+    });
+    const maxChoices = Array.from({ length: 25 }, (_, i) => ({ name: `opt${i}`, value: `v${i}` }));
+    const res = await callback(app, t.id, t.token, { type: 8, data: { choices: maxChoices } });
+    expect(res.status).toBe(204);
+  });
+
+  it("MODAL (9) with custom_id over 100 chars is rejected with 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ctx(store);
+    const t = await trigger(app, { type: 2, commandName: "ping", channelSnowflake: channel });
+    const res = await callback(app, t.id, t.token, {
+      type: 9,
+      data: {
+        custom_id: "a".repeat(101),
+        title: "Hi",
+        components: [{ type: 18, label: "Name", component: { type: 4, custom_id: "n" } }],
+      },
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("MODAL (9) with empty custom_id is rejected with 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ctx(store);
+    const t = await trigger(app, { type: 2, commandName: "ping", channelSnowflake: channel });
+    const res = await callback(app, t.id, t.token, {
+      type: 9,
+      data: {
+        custom_id: "",
+        title: "Hi",
+        components: [{ type: 18, label: "Name", component: { type: 4, custom_id: "n" } }],
+      },
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("MODAL (9) with title over 45 chars is rejected with 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ctx(store);
+    const t = await trigger(app, { type: 2, commandName: "ping", channelSnowflake: channel });
+    const res = await callback(app, t.id, t.token, {
+      type: 9,
+      data: {
+        custom_id: "modal_id",
+        title: "a".repeat(46),
+        components: [{ type: 18, label: "Name", component: { type: 4, custom_id: "n" } }],
+      },
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("MODAL (9) with 0 components is rejected with 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ctx(store);
+    const t = await trigger(app, { type: 2, commandName: "ping", channelSnowflake: channel });
+    const res = await callback(app, t.id, t.token, {
+      type: 9,
+      data: { custom_id: "modal_id", title: "Hi", components: [] },
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("MODAL (9) with 6 components is rejected with 50035", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ctx(store);
+    const t = await trigger(app, { type: 2, commandName: "ping", channelSnowflake: channel });
+    const sixComponents = Array.from({ length: 6 }, (_, i) => ({
+      type: 18,
+      label: `Field ${i}`,
+      component: { type: 4, custom_id: `f${i}` },
+    }));
+    const res = await callback(app, t.id, t.token, {
+      type: 9,
+      data: { custom_id: "modal_id", title: "Hi", components: sixComponents },
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: number }).code).toBe(50035);
+  });
+
+  it("MODAL (9) with valid custom_id/title/components (1-5) is accepted", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ctx(store);
+    const t = await trigger(app, { type: 2, commandName: "ping", channelSnowflake: channel });
+    const res = await callback(app, t.id, t.token, {
+      type: 9,
+      data: {
+        custom_id: "a".repeat(100),
+        title: "a".repeat(45),
+        components: Array.from({ length: 5 }, (_, i) => ({
+          type: 18,
+          label: `F${i}`,
+          component: { type: 4, custom_id: `f${i}` },
+        })),
+      },
+    });
+    expect(res.status).toBe(204);
+  });
+});
+
 describe("receiving-and-responding.mdx — callback data passthrough & validation", () => {
   it("passes through attachments on a CHANNEL_MESSAGE_WITH_SOURCE response", async () => {
     const { app, store } = createDiscordTestApp();
@@ -347,6 +484,19 @@ describe("receiving-and-responding.mdx — Interaction Callback errors", () => {
     expect(((await res.json()) as { code: number }).code).toBe(10062);
   });
 
+  it("an expired interaction token (past 15-minute window) returns 10062", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ctx(store);
+    const t = await trigger(app, { type: 2, commandName: "ping", channelSnowflake: channel });
+    // Manually expire the interaction by setting expires_at to the past.
+    const ds = getDiscordStore(store);
+    const interaction = ds.interactions.findOneBy("snowflake", t.id)!;
+    ds.interactions.update(interaction.id, { expires_at: new Date(Date.now() - 1000).toISOString() });
+    const res = await callback(app, t.id, t.token, { type: 4, data: { content: "too late" } });
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { code: number }).code).toBe(10062);
+  });
+
   it("a second callback is rejected as already acknowledged (40060)", async () => {
     const { app, store } = createDiscordTestApp();
     const { channel } = ctx(store);
@@ -355,6 +505,43 @@ describe("receiving-and-responding.mdx — Interaction Callback errors", () => {
     const second = await callback(app, t.id, t.token, { type: 4, data: { content: "second" } });
     expect(second.status).toBe(400);
     expect(((await second.json()) as { code: number }).code).toBe(40060);
+  });
+});
+
+describe("receiving-and-responding.mdx — Interaction Callback Resource shape", () => {
+  it("with_response=true on a DEFERRED (5) sets response_message_loading=true in the resource", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ctx(store);
+    const t = await trigger(app, { type: 2, commandName: "ping", channelSnowflake: channel });
+    const res = await callback(app, t.id, t.token, { type: 5 }, "?with_response=true");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { resource: { type: number; response_message_loading?: boolean } };
+    expect(body.resource.type).toBe(5);
+    expect(body.resource.response_message_loading).toBe(true);
+  });
+
+  it("with_response=true on CHANNEL_MESSAGE_WITH_SOURCE (4) includes resource.message but not activity_instance", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ctx(store);
+    const t = await trigger(app, { type: 2, commandName: "ping", channelSnowflake: channel });
+    const res = await callback(app, t.id, t.token, { type: 4, data: { content: "hi" } }, "?with_response=true");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { resource: { type: number; message?: { content: string }; activity_instance?: unknown } };
+    expect(body.resource.type).toBe(4);
+    expect(body.resource.message?.content).toBe("hi");
+    expect(body.resource.activity_instance).toBeUndefined();
+  });
+
+  it("with_response=true on LAUNCH_ACTIVITY (12) sets activity_instance but not message", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { channel } = ctx(store);
+    const t = await trigger(app, { type: 2, commandName: "ping", channelSnowflake: channel });
+    const res = await callback(app, t.id, t.token, { type: 12 }, "?with_response=true");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { resource: { type: number; message?: unknown; activity_instance?: unknown } };
+    expect(body.resource.type).toBe(12);
+    expect(body.resource.activity_instance).toBeDefined();
+    expect(body.resource.message).toBeUndefined();
   });
 });
 
@@ -410,6 +597,30 @@ describe("receiving-and-responding.mdx — @original and followup messages", () 
     const msg = (await res.json()) as { content: string };
     expect(msg.content).toBe("a followup");
     expect(ds.messages.findBy("channel_snowflake", channel).length).toBe(before + 1);
+  });
+
+  it("first followup after a DEFERRED (5) edits the loading placeholder instead of creating a second message", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { ds, appId, channel } = ctx(store);
+    const t = await trigger(app, { type: 2, commandName: "ping", channelSnowflake: channel });
+    await callback(app, t.id, t.token, { type: 5 });
+    const countAfterDefer = ds.messages.findBy("channel_snowflake", channel).length;
+    // First followup should edit the placeholder, not add a new message.
+    const res = await app.request(api(`/webhooks/${appId}/${t.token}`), {
+      method: "POST",
+      headers: botHeaders(),
+      body: JSON.stringify({ content: "resolved content" }),
+    });
+    expect(res.status).toBe(200);
+    const msg = (await res.json()) as { content: string; flags: number };
+    expect(msg.content).toBe("resolved content");
+    // No additional message was created.
+    expect(ds.messages.findBy("channel_snowflake", channel).length).toBe(countAfterDefer);
+    // The Loading flag (1<<7 = 128) must be cleared on the edited message.
+    expect((msg.flags & 128)).toBe(0);
+    // @original still resolves to the same (now-updated) message.
+    const originalRes = await app.request(api(`/webhooks/${appId}/${t.token}/messages/@original`), { headers: botHeaders() });
+    expect(((await originalRes.json()) as { content: string }).content).toBe("resolved content");
   });
 
   it("Edit / Delete Followup Message by id round-trip", async () => {

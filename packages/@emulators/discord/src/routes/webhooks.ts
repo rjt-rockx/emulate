@@ -1,7 +1,7 @@
 import type { Context, AppEnv } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore, type DiscordStore } from "../store.js";
-import { getAuth, unauthorized, notFound, discordError, unknownChannel, unknownWebhook, snowflake, toAPIUser, toAPIMessage, redactMessageContent, recordAudit, AuditLogEvent, isEphemeral, parseMessageBody } from "../helpers.js";
+import { getAuth, unauthorized, notFound, discordError, invalidFormBody, unknownChannel, unknownWebhook, snowflake, toAPIUser, toAPIMessage, redactMessageContent, recordAudit, AuditLogEvent, isEphemeral, parseMessageBody, MessageFlags } from "../helpers.js";
 import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import { getOriginalResponse, setOriginalResponse } from "../interactions/dispatch.js";
@@ -47,13 +47,21 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
     const channel = ds.channels.findOneBy("snowflake", c.req.param("channelId"));
     if (!channel) return unknownChannel(c);
     const body = (await c.req.json().catch(() => ({}))) as { name?: string; avatar?: string | null };
+    const webhookName = body.name ?? "Captain Hook";
+    // Validate webhook name: must be 1-80 chars and must not contain "clyde" or "discord" (case-insensitive).
+    if (webhookName.length < 1 || webhookName.length > 80) {
+      return invalidFormBody(c, { name: "Must be between 1 and 80 in length." });
+    }
+    if (/clyde|discord/i.test(webhookName)) {
+      return invalidFormBody(c, { name: "Webhook names cannot contain 'clyde' or 'discord'." });
+    }
     const webhook = ds.webhooks.insert({
       snowflake: snowflake(),
       type: 1,
       guild_snowflake: channel.guild_snowflake,
       channel_snowflake: channel.snowflake,
       user_snowflake: auth.user?.snowflake ?? null,
-      name: body.name ?? "Captain Hook",
+      name: webhookName,
       avatar: body.avatar ?? null,
       token: `whk_${snowflake()}_${Math.random().toString(36).slice(2)}`,
       application_snowflake: auth.application?.snowflake ?? null,
@@ -166,6 +174,43 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
     if (interaction) {
       const application = ds.applications.findOneBy("snowflake", id) ?? ds.applications.all()[0];
       if (!interaction.channel_snowflake || !application) return notFound(c);
+
+      // Per doc (mdx:479): when the first followup POST arrives right after a
+      // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE (type 5) response, this endpoint
+      // behaves like Edit Original Interaction Response — it edits the loading
+      // placeholder in place rather than creating a new message. A registered
+      // @original whose message still has the Loading flag (1<<7 = 128) is the
+      // signal that the deferred placeholder has not yet been replaced.
+      const existingOriginalSnowflake = getOriginalResponse(store, token);
+      if (existingOriginalSnowflake) {
+        const existingOriginal = ds.messages.findOneBy("snowflake", existingOriginalSnowflake);
+        if (existingOriginal && (existingOriginal.flags & MessageFlags.Loading) !== 0) {
+          // Edit the loading placeholder in place (clear Loading flag, apply new content).
+          const patch: Record<string, unknown> = {
+            edited_timestamp: new Date().toISOString(),
+            flags: existingOriginal.flags & ~MessageFlags.Loading,
+          };
+          if (typeof body.content === "string") patch.content = body.content;
+          if (body.embeds !== undefined) patch.embeds = body.embeds;
+          if (body.components !== undefined) patch.components = body.components;
+          ds.messages.update(existingOriginal.id, patch);
+          const updated = ds.messages.findOneBy("snowflake", existingOriginalSnowflake)!;
+          const payload = toAPIMessage(updated, ds);
+          if (!isEphemeral(updated.flags)) {
+            bus.publish({
+              t: "MESSAGE_UPDATE",
+              guildId: updated.guild_snowflake,
+              requiredIntents: updated.guild_snowflake ? Intents.GuildMessages : Intents.DirectMessages,
+              d: payload,
+              redactedData: redactMessageContent(payload),
+              messageAuthorId: updated.author_snowflake,
+            });
+          }
+          return c.json(payload);
+        }
+      }
+
+      // Normal followup: create a new message in the channel.
       const message = createMessage(ds, {
         channelSnowflake: interaction.channel_snowflake,
         guildSnowflake: interaction.guild_snowflake,
@@ -176,7 +221,7 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
         attachments: uploaded,
         flags: typeof body.flags === "number" ? body.flags : 0,
       });
-      if (!getOriginalResponse(store, token)) setOriginalResponse(store, token, message.snowflake);
+      if (!existingOriginalSnowflake) setOriginalResponse(store, token, message.snowflake);
       const payload = toAPIMessage(message, ds);
       // Ephemeral followups reach only the invoking user — never broadcast them.
       if (!isEphemeral(typeof body.flags === "number" ? body.flags : 0)) {
@@ -196,10 +241,32 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
     const webhook = ds.webhooks.findOneBy("snowflake", id);
     if (!webhook || webhook.token !== token) return unknownWebhook(c);
 
+    const rawFlags = typeof body.flags === "number" ? body.flags : 0;
+    const isComponentsV2 = (rawFlags & MessageFlags.IsComponentsV2) !== 0;
+
+    // Per doc (L256-257): when IS_COMPONENTS_V2 is set, content/embeds/files/poll must not be provided.
+    if (isComponentsV2) {
+      const hasContentV2 = typeof body.content === "string" && body.content.length > 0;
+      const hasEmbedsV2 = Array.isArray(body.embeds) && body.embeds.length > 0;
+      const hasFilesV2 = uploaded.length > 0;
+      const hasPollV2 = body.poll != null;
+      if (hasContentV2 || hasEmbedsV2 || hasFilesV2 || hasPollV2) {
+        return discordError(c, 400, "Cannot mix IS_COMPONENTS_V2 with content, embeds, files, or poll.", 50035);
+      }
+    }
+
+    // Per doc (L252): the `with_components` query param gates components for non-app-owned webhooks.
+    // Application-owned webhooks (application_snowflake set) can always send components.
+    // Non-owned webhooks need with_components=true to include components.
+    const withComponents = c.req.query("with_components") === "true";
+    const isAppOwned = webhook.application_snowflake != null;
+    const resolvedComponents = (Array.isArray(body.components) ? body.components : []) as unknown[];
+    const effectiveComponents = (isAppOwned || withComponents) ? resolvedComponents : [];
+
     // Per docs: "you must provide a value for at least one of content, embeds, components, file, or poll".
     const hasContent = typeof body.content === "string" && body.content.length > 0;
     const hasEmbeds = Array.isArray(body.embeds) && body.embeds.length > 0;
-    const hasComponents = Array.isArray(body.components) && body.components.length > 0;
+    const hasComponents = effectiveComponents.length > 0;
     const hasPoll = body.poll != null;
     const hasFiles = uploaded.length > 0;
     if (!hasContent && !hasEmbeds && !hasComponents && !hasPoll && !hasFiles) {
@@ -215,10 +282,10 @@ export function webhooksRoutes(ctx: DiscordRouteContext): void {
       authorSnowflake: webhook.user_snowflake ?? ds.applications.all()[0]?.bot_user_snowflake ?? "",
       content: typeof body.content === "string" ? body.content : "",
       embeds: (body.embeds as unknown[]) ?? [],
-      components: (body.components as unknown[]) ?? [],
+      components: effectiveComponents,
       attachments: uploaded,
       tts: body.tts === true,
-      flags: typeof body.flags === "number" ? body.flags : 0,
+      flags: rawFlags,
       webhookSnowflake: webhook.snowflake,
       webhookUsername: typeof body.username === "string" ? body.username : (webhook.name ?? null),
       webhookAvatar: typeof body.avatar_url === "string" ? body.avatar_url : webhook.avatar,

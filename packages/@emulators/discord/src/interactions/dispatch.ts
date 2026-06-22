@@ -79,6 +79,10 @@ export function getOriginalResponse(
 export interface ApplyResult {
   /** The message created/updated by this response, if any. */
   message?: { snowflake: string; flags: number } | null;
+  /** True when the callback was a DEFERRED type (loading state). */
+  isDeferred?: boolean;
+  /** True when the callback was a LAUNCH_ACTIVITY type. */
+  isLaunchActivity?: boolean;
 }
 
 /**
@@ -164,7 +168,7 @@ export function applyInteractionResponse(
       });
     }
     ds.interactions.update(interaction.id, { callback_used: true });
-    return { message: { snowflake: message.snowflake, flags: message.flags } };
+    return { message: { snowflake: message.snowflake, flags: message.flags }, isDeferred: true };
   } else if (response.type === InteractionResponseType.UpdateMessage && interaction.message_snowflake) {
     const target = ds.messages.findOneBy("snowflake", interaction.message_snowflake);
     if (target) {
@@ -189,7 +193,19 @@ export function applyInteractionResponse(
     return {};
   }
 
-  // Deferred update / pong / autocomplete / modal / premium / launch — no immediate message mutation.
+  // Deferred update (type 6) — ACK for a component, edits original later, no loading state.
+  if (response.type === InteractionResponseType.DeferredMessageUpdate) {
+    ds.interactions.update(interaction.id, { callback_used: true });
+    return { isDeferred: true };
+  }
+
+  // LAUNCH_ACTIVITY (type 12) — no message, but signals an activity was launched.
+  if (response.type === InteractionResponseType.LaunchActivity) {
+    ds.interactions.update(interaction.id, { callback_used: true });
+    return { isLaunchActivity: true };
+  }
+
+  // Pong / autocomplete / modal / premium — no immediate message mutation.
   ds.interactions.update(interaction.id, { callback_used: true });
   return {};
 }
