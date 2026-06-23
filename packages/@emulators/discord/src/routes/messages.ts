@@ -24,7 +24,7 @@ import {
 import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import { PermissionFlags } from "../permissions.js";
-import { isThreadType } from "../constants.js";
+import { isThreadType, ComponentType, ButtonStyle, isSelectType } from "../constants.js";
 import type { DiscordMessage } from "../entities.js";
 import type { DiscordStore } from "../store.js";
 import type { APIMessage, APIGuildMember } from "discord-api-types/v10";
@@ -260,8 +260,8 @@ function validateComponents(
       const path = `${prefix}.${i}`;
       const type = typeof comp.type === "number" ? comp.type : 0;
 
-      // C5: Text Input (type 4) is modal-only and must not appear in a message Action Row.
-      if (type === 4 && isActionRow) {
+      // C5: Text Input is modal-only and must not appear in a message Action Row.
+      if (type === ComponentType.TextInput && isActionRow) {
         return invalidFormBody(c, { [`${path}.type`]: "Text inputs are not allowed in message action rows." });
       }
 
@@ -277,8 +277,7 @@ function validateComponents(
         seenCustomIds.add(comp.custom_id);
       }
 
-      // type 2 = Button
-      if (type === 2) {
+      if (type === ComponentType.Button) {
         const label = typeof comp.label === "string" ? comp.label : "";
         if (label.length > 80) {
           return invalidFormBody(c, { [`${path}.label`]: "Must be 80 or fewer in length." });
@@ -288,12 +287,12 @@ function validateComponents(
           return invalidFormBody(c, { [`${path}.url`]: "Must be 512 or fewer in length." });
         }
         const style = typeof comp.style === "number" ? comp.style : 0;
-        if (style === 5) {
+        if (style === ButtonStyle.Link) {
           // Link button: must have url
           if (!comp.url) {
             return invalidFormBody(c, { [`${path}.url`]: "This field is required." });
           }
-        } else if (style === 6) {
+        } else if (style === ButtonStyle.Premium) {
           // C6: Premium button: must have sku_id; must NOT have custom_id/label/url.
           if (!comp.sku_id) {
             return invalidFormBody(c, { [`${path}.sku_id`]: "This field is required." });
@@ -315,8 +314,8 @@ function validateComponents(
         }
       }
 
-      // type 1 = Action Row — validate composition rules (C1).
-      if (type === 1 && !isV2) {
+      // Action Row — validate composition rules (C1).
+      if (type === ComponentType.ActionRow && !isV2) {
         const children = Array.isArray(comp.components) ? (comp.components as unknown[]) : [];
         // Count buttons vs. selects in this row.
         let buttonCount = 0;
@@ -325,8 +324,8 @@ function validateComponents(
           const childType = typeof (child as Record<string, unknown>).type === "number"
             ? (child as Record<string, unknown>).type as number
             : 0;
-          if (childType === 2) buttonCount++;
-          if (childType === 3 || childType === 5 || childType === 6 || childType === 7 || childType === 8) selectCount++;
+          if (childType === ComponentType.Button) buttonCount++;
+          if (isSelectType(childType)) selectCount++;
         }
         // At most 5 buttons per row.
         if (buttonCount > 5) {
@@ -341,8 +340,8 @@ function validateComponents(
         }
       }
 
-      // type 3,5,6,7,8 = Select menus
-      if (type === 3 || type === 5 || type === 6 || type === 7 || type === 8) {
+      // Select menus
+      if (isSelectType(type)) {
         const options = Array.isArray(comp.options) ? comp.options : [];
         if (options.length > 25) {
           return invalidFormBody(c, { [`${path}.options`]: "Must be 25 or fewer in length." });
@@ -364,8 +363,8 @@ function validateComponents(
           return invalidFormBody(c, { [`${path}.min_values`]: "min_values must be less than or equal to max_values." });
         }
       }
-      // type 4 = Text Input
-      if (type === 4) {
+      // Text Input
+      if (type === ComponentType.TextInput) {
         if (typeof comp.min_length === "number") {
           if (comp.min_length < 0 || comp.min_length > 4000) {
             return invalidFormBody(c, { [`${path}.min_length`]: "Must be between 0 and 4000." });
@@ -379,7 +378,7 @@ function validateComponents(
       }
       // Recurse into nested components (children of an Action Row are flagged as isActionRow=true).
       if (Array.isArray(comp.components)) {
-        const nested = walk(comp.components as unknown[], `${path}.components`, type === 1);
+        const nested = walk(comp.components as unknown[], `${path}.components`, type === ComponentType.ActionRow);
         if (nested) return nested;
       }
     }

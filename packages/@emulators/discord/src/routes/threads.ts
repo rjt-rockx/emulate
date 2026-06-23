@@ -20,7 +20,7 @@ import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import type { DiscordChannel } from "../entities.js";
 import { PermissionFlags } from "../permissions.js";
-import { ChannelType, isThreadType, isForumType } from "../constants.js";
+import { ChannelType, isThreadType, isForumType, AUTO_ARCHIVE_DURATIONS } from "../constants.js";
 
 /** Parent channel types that can spawn threads: text, announcement, forum, media. */
 const THREADABLE_PARENT_TYPES = new Set<number>([
@@ -35,8 +35,6 @@ const VALID_THREAD_TYPES = new Set<number>([
   ChannelType.PublicThread,
   ChannelType.PrivateThread,
 ]);
-/** Valid auto_archive_duration values per the Discord docs. */
-const VALID_AUTO_ARCHIVE = new Set([60, 1440, 4320, 10080]);
 
 /** Build the current user's thread-member object as attached to a freshly created thread. */
 function selfThreadMember(threadSnowflake: string, userSnowflake: string, joinedAt: string): Record<string, unknown> {
@@ -214,7 +212,7 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
     if (deniedStart) return deniedStart;
     // T-3: auto_archive_duration must be one of {60,1440,4320,10080}.
     if (body.auto_archive_duration !== undefined && body.auto_archive_duration !== null &&
-        !VALID_AUTO_ARCHIVE.has(body.auto_archive_duration as number)) {
+        !AUTO_ARCHIVE_DURATIONS.has(body.auto_archive_duration as number)) {
       return invalidFormBody(c, { auto_archive_duration: "Must be one of 60, 1440, 4320, 10080." });
     }
     const threadType = parent.type === ChannelType.GuildAnnouncement ? ChannelType.AnnouncementThread : ChannelType.PublicThread;
@@ -239,7 +237,7 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
     if (deniedStart) return deniedStart;
     // T-3: auto_archive_duration must be one of {60,1440,4320,10080}.
     if (body.auto_archive_duration !== undefined && body.auto_archive_duration !== null &&
-        !VALID_AUTO_ARCHIVE.has(body.auto_archive_duration as number)) {
+        !AUTO_ARCHIVE_DURATIONS.has(body.auto_archive_duration as number)) {
       return invalidFormBody(c, { auto_archive_duration: "Must be one of 60, 1440, 4320, 10080." });
     }
 

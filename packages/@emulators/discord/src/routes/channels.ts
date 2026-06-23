@@ -27,7 +27,7 @@ import {
 import { createChannel } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import { PermissionFlags } from "../permissions.js";
-import { ChannelType, isThreadType, isForumType } from "../constants.js";
+import { ChannelType, isThreadType, isForumType, AUTO_ARCHIVE_DURATIONS } from "../constants.js";
 
 /** Message flag bit for a crossposted (published) announcement message (CROSSPOSTED, 1 << 0). */
 const MESSAGE_FLAG_CROSSPOSTED = 1 << 0;
@@ -73,9 +73,8 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     if (typeof body.bitrate === "number" && body.bitrate < 8000) {
       return invalidFormBody(c, { bitrate: "Must be 8000 or greater." });
     }
-    const VALID_AUTO_ARCHIVE_CREATE = new Set([60, 1440, 4320, 10080]);
     if (body.default_auto_archive_duration !== undefined && body.default_auto_archive_duration !== null &&
-        !VALID_AUTO_ARCHIVE_CREATE.has(body.default_auto_archive_duration as number)) {
+        !AUTO_ARCHIVE_DURATIONS.has(body.default_auto_archive_duration as number)) {
       return invalidFormBody(c, { default_auto_archive_duration: "Must be one of 60, 1440, 4320, 10080." });
     }
     if (Array.isArray(body.available_tags) && body.available_tags.length > 20) {
@@ -189,9 +188,8 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
       return invalidFormBody(c, { bitrate: "Must be 8000 or greater." });
     }
 
-    const VALID_AUTO_ARCHIVE = new Set([60, 1440, 4320, 10080]);
     if (body.default_auto_archive_duration !== undefined && body.default_auto_archive_duration !== null &&
-        !VALID_AUTO_ARCHIVE.has(body.default_auto_archive_duration as number)) {
+        !AUTO_ARCHIVE_DURATIONS.has(body.default_auto_archive_duration as number)) {
       return invalidFormBody(c, { default_auto_archive_duration: "Must be one of 60, 1440, 4320, 10080." });
     }
 
@@ -245,7 +243,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     const isThread = isThreadType(channel.type);
     // T-3: auto_archive_duration (thread metadata field) must be one of {60,1440,4320,10080}.
     if (isThread && body.auto_archive_duration !== undefined && body.auto_archive_duration !== null &&
-        !VALID_AUTO_ARCHIVE.has(body.auto_archive_duration as number)) {
+        !AUTO_ARCHIVE_DURATIONS.has(body.auto_archive_duration as number)) {
       return invalidFormBody(c, { auto_archive_duration: "Must be one of 60, 1440, 4320, 10080." });
     }
     if (
