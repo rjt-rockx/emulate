@@ -626,7 +626,7 @@ export function toAPIVoiceState(v: DiscordVoiceState, ds: DiscordStore): APIVoic
 // variant fields dynamically, so the typed return is asserted at the call sites
 // below rather than narrowed per-branch. The doc-driven spec suite guards the
 // per-type field shapes.
-export function toAPIChannel(c: DiscordChannel, ds?: DiscordStore): APIChannel {
+export function toAPIChannel(c: DiscordChannel, ds: DiscordStore): APIChannel {
   const isThread = isThreadType(c.type);
   const isDM = c.type === ChannelType.DM || c.type === ChannelType.GroupDM;
   const base: Record<string, unknown> = {
@@ -638,15 +638,12 @@ export function toAPIChannel(c: DiscordChannel, ds?: DiscordStore): APIChannel {
 
   // DM (1) and group DM (3) channels carry no guild-scoped fields.
   if (isDM) {
-    // recipients is an array of user objects (resources/channel.mdx). When a store is provided we
-    // resolve them; without one we fall back to the raw id list (legacy callers).
+    // recipients is an array of user objects (resources/channel.mdx).
     if (c.recipient_snowflakes.length > 0) {
-      base.recipients = ds
-        ? c.recipient_snowflakes
-            .map((s) => ds.users.findOneBy("snowflake", s))
-            .filter((u): u is DiscordUser => !!u)
-            .map((u) => toAPIUser(u))
-        : c.recipient_snowflakes;
+      base.recipients = c.recipient_snowflakes
+        .map((s) => ds.users.findOneBy("snowflake", s))
+        .filter((u): u is DiscordUser => !!u)
+        .map((u) => toAPIUser(u));
     }
     if (c.type === ChannelType.GroupDM) {
       base.name = c.name;

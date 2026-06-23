@@ -169,7 +169,7 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
     const joined = ds.threadMembers
       .findBy("thread_snowflake", thread.snowflake)
       .find((m) => m.user_snowflake === creatorSnowflake);
-    const payload = toAPIChannel(ds.channels.findOneBy("snowflake", thread.snowflake)!);
+    const payload = toAPIChannel(ds.channels.findOneBy("snowflake", thread.snowflake)!, ds);
     // The create endpoints return the current user's thread-member object on the channel.
     (payload as { member?: unknown }).member = selfThreadMember(
       thread.snowflake,
@@ -319,7 +319,7 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
         flags: 0,
       })),
     );
-    return c.json({ threads: threads.map((t) => toAPIChannel(t)), members, has_more: false });
+    return c.json({ threads: threads.map((t) => toAPIChannel(t, ds)), members, has_more: false });
   });
 
   // Thread members.
@@ -440,7 +440,7 @@ export function threadsRoutes(ctx: DiscordRouteContext): void {
     const members = threads.flatMap((t) =>
       ds.threadMembers.findBy("thread_snowflake", t.snowflake).map((m) => ({ id: t.snowflake, user_id: m.user_snowflake, join_timestamp: m.joined_at, flags: 0 })),
     );
-    return { threads: threads.map((t) => toAPIChannel(t)), members, has_more: false };
+    return { threads: threads.map((t) => toAPIChannel(t, ds)), members, has_more: false };
   };
 
   app.get("/api/v:version/channels/:channelId/threads/archived/public", (c) => {

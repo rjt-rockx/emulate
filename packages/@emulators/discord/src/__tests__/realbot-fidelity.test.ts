@@ -89,6 +89,25 @@ describe("real-bot fidelity regressions", () => {
     expect(dm.recipients.some((r) => r.id === ids.developer)).toBe(true);
   });
 
+  // A DM channel fetched via GET /channels/:id must return recipients as full user objects
+  // (with username), not bare id strings — discord.js builds a User from each entry.
+  it("GET /channels/:id on a DM returns full recipient user objects", async () => {
+    const { app, store } = createDiscordTestApp();
+    const ids = seededIds(store);
+    const created = await app.request(api("/users/@me/channels"), {
+      method: "POST",
+      headers: botHeaders(),
+      body: `{"recipient_id": ${ids.developer}}`,
+    });
+    const channelId = (await json<{ id: string }>(created)).id;
+    const res = await app.request(api(`/channels/${channelId}`), { headers: botHeaders() });
+    expect(res.status).toBe(200);
+    const dm = await json<{ recipients: Array<{ id: string; username: string }> }>(res);
+    const recipient = dm.recipients.find((r) => r.id === ids.developer);
+    expect(recipient).toBeDefined();
+    expect(typeof recipient!.username).toBe("string");
+  });
+
   // discord.py edge case: opening a DM with your own id must be rejected.
   it("rejects opening a DM with yourself", async () => {
     const { app, store } = createDiscordTestApp();

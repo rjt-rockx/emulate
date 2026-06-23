@@ -42,7 +42,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     const channels = ds.channels
       .findBy("guild_snowflake", guildId)
       .sort((a, b) => a.position - b.position)
-      .map((ch) => toAPIChannel(ch));
+      .map((ch) => toAPIChannel(ch, ds));
     return c.json(channels);
   });
 
@@ -103,7 +103,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
       defaultThreadRateLimitPerUser: body.default_thread_rate_limit_per_user as number | undefined,
     });
     if (typeof body.flags === "number") ds.channels.update(channel.id, { flags: body.flags });
-    const payload = toAPIChannel(ds.channels.findOneBy("snowflake", channel.snowflake)!);
+    const payload = toAPIChannel(ds.channels.findOneBy("snowflake", channel.snowflake)!, ds);
     bus.publish({ t: "CHANNEL_CREATE", guildId, requiredIntents: Intents.Guilds, d: payload });
     recordAudit(ds, bus, {
       guildSnowflake: guildId,
@@ -132,7 +132,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
   app.get("/api/v:version/channels/:channelId", (c) => {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const channel = requireChannel(c, ds, c.req.param("channelId")); if (channel instanceof Response) return channel;
-    const payload = toAPIChannel(channel);
+    const payload = toAPIChannel(channel, ds);
     // For a thread, include the current user's thread-member object if they have joined.
     const isThread = isThreadType(channel.type);
     if (isThread && auth.user) {
@@ -276,7 +276,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
       }));
     if (Object.keys(patch).length > 0) ds.channels.update(channel.id, patch);
     const updated = ds.channels.findOneBy("snowflake", channel.snowflake)!;
-    const payload = toAPIChannel(updated);
+    const payload = toAPIChannel(updated, ds);
     bus.publish({
       t: isThread ? "THREAD_UPDATE" : "CHANNEL_UPDATE",
       guildId: updated.guild_snowflake,
@@ -303,7 +303,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     const deletePermFlag = isThreadForPerm ? PermissionFlags.ManageThreads : PermissionFlags.ManageChannels;
     const deniedDelete = requirePermission(c, store, auth.user?.snowflake, deletePermFlag, { channelId: channel.snowflake });
     if (deniedDelete) return deniedDelete;
-    const payload = toAPIChannel(channel);
+    const payload = toAPIChannel(channel, ds);
     const isThread = isThreadType(channel.type);
     for (const m of ds.messages.findBy("channel_snowflake", channel.snowflake)) ds.messages.delete(m.id);
     ds.channels.delete(channel.id);
@@ -372,7 +372,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     overwrites.push(overwrite);
     ds.channels.update(channel.id, { permission_overwrites: overwrites });
     const updated = ds.channels.findOneBy("snowflake", channel.snowflake)!;
-    bus.publish({ t: "CHANNEL_UPDATE", guildId: updated.guild_snowflake, requiredIntents: Intents.Guilds, d: toAPIChannel(updated) });
+    bus.publish({ t: "CHANNEL_UPDATE", guildId: updated.guild_snowflake, requiredIntents: Intents.Guilds, d: toAPIChannel(updated, ds) });
     if (updated.guild_snowflake) {
       recordAudit(ds, bus, {
         guildSnowflake: updated.guild_snowflake,
@@ -404,7 +404,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
       permission_overwrites: channel.permission_overwrites.filter((o) => o.id !== overwriteId),
     });
     const updated = ds.channels.findOneBy("snowflake", channel.snowflake)!;
-    bus.publish({ t: "CHANNEL_UPDATE", guildId: updated.guild_snowflake, requiredIntents: Intents.Guilds, d: toAPIChannel(updated) });
+    bus.publish({ t: "CHANNEL_UPDATE", guildId: updated.guild_snowflake, requiredIntents: Intents.Guilds, d: toAPIChannel(updated, ds) });
     if (updated.guild_snowflake && removed) {
       recordAudit(ds, bus, {
         guildSnowflake: updated.guild_snowflake,

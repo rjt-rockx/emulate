@@ -69,7 +69,7 @@ function buildResolved(
     if (opt.type === 6) addUser(opt.value);
     else if (opt.type === 7) {
       const ch = ds.channels.findOneBy("snowflake", opt.value);
-      if (ch) resolved.channels[opt.value] = toAPIChannel(ch);
+      if (ch) resolved.channels[opt.value] = toAPIChannel(ch, ds);
     } else if (opt.type === 8) {
       const r = ds.roles.findOneBy("snowflake", opt.value);
       if (r) resolved.roles[opt.value] = toAPIRole(r);
@@ -167,7 +167,7 @@ export function buildInteraction(ds: DiscordStore, input: TriggerInput): BuiltIn
     token,
     version: 1,
     channel_id: channel?.snowflake,
-    channel: channel ? toAPIChannel(channel) : undefined,
+    channel: channel ? toAPIChannel(channel, ds) : undefined,
     guild_id: guildSnowflake ?? undefined,
     // Partial guild ({ id, locale, features }) — real Discord includes it on guild interactions, and
     // JDA resolves the guild from it (falling back to a channel-type switch that rejects TEXT, and
