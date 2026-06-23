@@ -13,6 +13,7 @@ import {
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
 import { getAuth, requireBot, unauthorized, toAPIUser, toAPIGuild, snowflake } from "../helpers.js";
+import { ChannelType } from "../constants.js";
 import { toAPIApplication } from "./applicationManagement.js";
 import { createToken } from "../factories.js";
 
@@ -203,7 +204,7 @@ export function oauthRoutes(ctx: DiscordRouteContext): void {
         const guild = opts.guildId ? ds.guilds.findOneBy("snowflake", opts.guildId) : ds.guilds.all()[0];
         const channel = ds.channels
           .all()
-          .find((ch) => ch.guild_snowflake === (guild?.snowflake ?? null) && (ch.type === 0 || ch.type === 5));
+          .find((ch) => ch.guild_snowflake === (guild?.snowflake ?? null) && (ch.type === ChannelType.GuildText || ch.type === ChannelType.GuildAnnouncement));
         const webhook = ds.webhooks.insert({
           snowflake: snowflake(),
           type: 1,

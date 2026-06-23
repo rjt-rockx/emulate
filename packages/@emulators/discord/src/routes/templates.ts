@@ -12,6 +12,7 @@ import {
 } from "../helpers.js";
 import { PermissionFlags } from "../permissions.js";
 import { createGuild, createChannel, createRole } from "../factories.js";
+import { ChannelType } from "../constants.js";
 import type { APITemplate } from "discord-api-types/v10";
 import type { DiscordGuildTemplate } from "../entities.js";
 
@@ -313,12 +314,12 @@ export function templatesRoutes(ctx: DiscordRouteContext): void {
       const snapshotChannels = snapshot.channels as Array<Record<string, unknown>>;
       const channelIdMap = new Map<number, string>();
 
-      // Pass 1: categories (type 4).
+      // Pass 1: categories.
       for (const snapCh of snapshotChannels) {
-        if (snapCh.type !== 4) continue;
+        if (snapCh.type !== ChannelType.GuildCategory) continue;
         const ch = createChannel(ds, {
           name: typeof snapCh.name === "string" ? snapCh.name : "channel",
-          type: 4,
+          type: ChannelType.GuildCategory,
           guildSnowflake: guild.snowflake,
           position: typeof snapCh.position === "number" ? snapCh.position : 0,
           nsfw: snapCh.nsfw === true,
@@ -328,13 +329,13 @@ export function templatesRoutes(ctx: DiscordRouteContext): void {
 
       // Pass 2: non-category channels.
       for (const snapCh of snapshotChannels) {
-        if (snapCh.type === 4) continue;
+        if (snapCh.type === ChannelType.GuildCategory) continue;
         const parentSnowflake = snapCh.parent_id != null
           ? (channelIdMap.get(snapCh.parent_id as number) ?? null)
           : null;
         const ch = createChannel(ds, {
           name: typeof snapCh.name === "string" ? snapCh.name : "channel",
-          type: typeof snapCh.type === "number" ? snapCh.type : 0,
+          type: typeof snapCh.type === "number" ? snapCh.type : ChannelType.GuildText,
           guildSnowflake: guild.snowflake,
           position: typeof snapCh.position === "number" ? snapCh.position : 0,
           topic: typeof snapCh.topic === "string" ? snapCh.topic : null,

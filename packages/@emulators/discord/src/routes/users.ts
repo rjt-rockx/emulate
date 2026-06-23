@@ -17,6 +17,7 @@ import {
 import { createChannel } from "../factories.js";
 import { computeGuildPermissions } from "../permissions.js";
 import { Intents } from "../gateway/intents.js";
+import { ChannelType } from "../constants.js";
 import type { Context, AppEnv, Store } from "@emulators/core";
 import type { DiscordAuth } from "../helpers.js";
 
@@ -225,14 +226,14 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
       const memberSet = new Set(allMembers);
       const existing = ds.channels.all().find(
         (ch) =>
-          ch.type === 3 &&
+          ch.type === ChannelType.GroupDM &&
           ch.recipient_snowflakes.length === allMembers.length &&
           ch.recipient_snowflakes.every((s) => memberSet.has(s)),
       );
       if (existing) return c.json(toAPIChannel(existing, ds));
 
       const gdmName = Object.keys(nicks).length > 0 ? (Object.values(nicks)[0] ?? "") : "";
-      const gdmRaw = createChannel(ds, { name: gdmName, type: 3, guildSnowflake: null });
+      const gdmRaw = createChannel(ds, { name: gdmName, type: ChannelType.GroupDM, guildSnowflake: null });
       // findOneBy returns the typed record; use its numeric id to update recipient list.
       const gdmRecord = ds.channels.findOneBy("snowflake", gdmRaw.snowflake)!;
       ds.channels.update(gdmRecord.id, {
@@ -261,13 +262,13 @@ export function usersRoutes(ctx: DiscordRouteContext): void {
       .all()
       .find(
         (ch) =>
-          ch.type === 1 &&
+          ch.type === ChannelType.DM &&
           ch.recipient_snowflakes.includes(caller.snowflake) &&
           ch.recipient_snowflakes.includes(recipient.snowflake),
       );
     if (existing) return c.json(toAPIChannel(existing, ds));
 
-    const dm = createChannel(ds, { name: "", type: 1, guildSnowflake: null });
+    const dm = createChannel(ds, { name: "", type: ChannelType.DM, guildSnowflake: null });
     ds.channels.update(dm.id, { recipient_snowflakes: [caller.snowflake, recipient.snowflake] });
     const created = ds.channels.findOneBy("snowflake", dm.snowflake)!;
     return c.json(toAPIChannel(created, ds));

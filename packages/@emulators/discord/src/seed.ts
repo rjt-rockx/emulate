@@ -1,6 +1,7 @@
 import { type Store } from "@emulators/core";
 import { snowflake } from "./helpers.js";
 import { getDiscordStore, type DiscordStore } from "./store.js";
+import { ChannelType } from "./constants.js";
 import {
   createUser,
   createApplication,
@@ -115,16 +116,16 @@ export function seedDefaults(store: Store, _baseUrl: string): void {
 
   const guild = createGuild(ds, { name: "Emulate Server", ownerSnowflake: developer.snowflake });
   addGuildMember(ds, guild.snowflake, botUser.snowflake);
-  const category = createChannel(ds, { name: "Text Channels", type: 4, guildSnowflake: guild.snowflake });
+  const category = createChannel(ds, { name: "Text Channels", type: ChannelType.GuildCategory, guildSnowflake: guild.snowflake });
   createChannel(ds, {
     name: "general",
-    type: 0,
+    type: ChannelType.GuildText,
     guildSnowflake: guild.snowflake,
     parentSnowflake: category.snowflake,
     topic: "General discussion",
   });
-  createChannel(ds, { name: "random", type: 0, guildSnowflake: guild.snowflake, parentSnowflake: category.snowflake });
-  createChannel(ds, { name: "General", type: 2, guildSnowflake: guild.snowflake });
+  createChannel(ds, { name: "random", type: ChannelType.GuildText, guildSnowflake: guild.snowflake, parentSnowflake: category.snowflake });
+  createChannel(ds, { name: "General", type: ChannelType.GuildVoice, guildSnowflake: guild.snowflake });
 
   store.setData("discord.strict_scopes", false);
 }

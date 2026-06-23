@@ -1,6 +1,7 @@
 import type { DiscordStore } from "./store.js";
 import { snowflake } from "./helpers.js";
 import { generateEd25519KeyPair } from "./interactions/ed25519.js";
+import { ChannelType, isVoiceType, isForumType } from "./constants.js";
 import type {
   DiscordUser,
   DiscordApplication,
@@ -258,9 +259,9 @@ export interface CreateChannelInput {
 }
 
 export function createChannel(ds: DiscordStore, input: CreateChannelInput): DiscordChannel {
-  const type = input.type ?? 0;
-  const isVoice = type === 2 || type === 13;
-  const isForum = type === 15 || type === 16;
+  const type = input.type ?? ChannelType.GuildText;
+  const isVoice = isVoiceType(type);
+  const isForum = isForumType(type);
   const guildChannels = input.guildSnowflake ? ds.channels.findBy("guild_snowflake", input.guildSnowflake) : [];
   return ds.channels.insert({
     snowflake: snowflake(),

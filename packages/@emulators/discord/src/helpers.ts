@@ -17,6 +17,7 @@ import type {
 import { type Context, type AppEnv, type ContentfulStatusCode, type Store } from "@emulators/core";
 import { getDiscordStore, type DiscordStore } from "./store.js";
 import { computePermissions, computeGuildPermissions, hasPermission } from "./permissions.js";
+import { ChannelType, isThreadType, isVoiceType, isForumType } from "./constants.js";
 import { Intents } from "./gateway/intents.js";
 import type { DiscordEventBus } from "./gateway/dispatcher.js";
 import type {
@@ -626,8 +627,8 @@ export function toAPIVoiceState(v: DiscordVoiceState, ds: DiscordStore): APIVoic
 // below rather than narrowed per-branch. The doc-driven spec suite guards the
 // per-type field shapes.
 export function toAPIChannel(c: DiscordChannel, ds?: DiscordStore): APIChannel {
-  const isThread = c.type === 10 || c.type === 11 || c.type === 12;
-  const isDM = c.type === 1 || c.type === 3;
+  const isThread = isThreadType(c.type);
+  const isDM = c.type === ChannelType.DM || c.type === ChannelType.GroupDM;
   const base: Record<string, unknown> = {
     id: c.snowflake,
     type: c.type,
@@ -647,7 +648,7 @@ export function toAPIChannel(c: DiscordChannel, ds?: DiscordStore): APIChannel {
             .map((u) => toAPIUser(u))
         : c.recipient_snowflakes;
     }
-    if (c.type === 3) {
+    if (c.type === ChannelType.GroupDM) {
       base.name = c.name;
       base.owner_id = c.owner_snowflake ?? null;
       base.icon = null;
@@ -682,20 +683,20 @@ export function toAPIChannel(c: DiscordChannel, ds?: DiscordStore): APIChannel {
   if (c.default_auto_archive_duration != null) base.default_auto_archive_duration = c.default_auto_archive_duration;
   if (c.bitrate != null) base.bitrate = c.bitrate;
   if (c.user_limit != null) base.user_limit = c.user_limit;
-  // Voice (2) and stage (13) extras.
-  if (c.type === 2 || c.type === 13) {
+  // Voice and stage extras.
+  if (isVoiceType(c.type)) {
     base.rtc_region = c.rtc_region ?? null;
     base.video_quality_mode = c.video_quality_mode ?? 1;
   }
-  // Forum (15) and media (16) extras.
-  if (c.type === 15 || c.type === 16) {
+  // Forum and media extras.
+  if (isForumType(c.type)) {
     base.available_tags = c.available_tags ?? [];
     base.default_reaction_emoji = c.default_reaction_emoji ?? null;
     base.default_sort_order = c.default_sort_order ?? null;
     base.default_thread_rate_limit_per_user = c.default_thread_rate_limit_per_user ?? 0;
   }
   // default_forum_layout is a GUILD_FORUM-only field (not GUILD_MEDIA) per resources/channel.mdx.
-  if (c.type === 15) base.default_forum_layout = c.default_forum_layout ?? 0;
+  if (c.type === ChannelType.GuildForum) base.default_forum_layout = c.default_forum_layout ?? 0;
   return base as unknown as APIChannel;
 }
 
@@ -940,7 +941,6 @@ export function toAPIGuild(g: DiscordGuild, ds: DiscordStore, opts: GuildSeriali
   }
   if (opts.full) {
     const allChannels = ds.channels.findBy("guild_snowflake", g.snowflake);
-    const isThreadType = (t: number) => t === 10 || t === 11 || t === 12;
     const members = ds.members.findBy("guild_snowflake", g.snowflake).map((m) => toAPIMember(m, ds));
     const channels = allChannels.filter((c) => !isThreadType(c.type)).map((c) => toAPIChannel(c, ds));
     base.channels = channels;

@@ -24,6 +24,7 @@ import {
 import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import { PermissionFlags } from "../permissions.js";
+import { isThreadType } from "../constants.js";
 import type { DiscordMessage } from "../entities.js";
 import type { DiscordStore } from "../store.js";
 import type { APIMessage, APIGuildMember } from "discord-api-types/v10";
@@ -641,7 +642,7 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
 
     // Thread message counters: when a message is posted in a thread channel (type 10/11/12),
     // increment message_count (excludes the starter) and total_message_sent (never decrements).
-    if (channel.type === 10 || channel.type === 11 || channel.type === 12) {
+    if (isThreadType(channel.type)) {
       ds.channels.update(channel.id, {
         message_count: (channel.message_count ?? 0) + 1,
         total_message_sent: (channel.total_message_sent ?? 0) + 1,

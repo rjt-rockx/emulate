@@ -27,6 +27,7 @@ import {
 import { createChannel } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 import { PermissionFlags } from "../permissions.js";
+import { ChannelType, isThreadType, isForumType } from "../constants.js";
 
 /** Message flag bit for a crossposted (published) announcement message (CROSSPOSTED, 1 << 0). */
 const MESSAGE_FLAG_CROSSPOSTED = 1 << 0;
@@ -57,8 +58,8 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
       return invalidFormBody(c, { name: "Must be between 1 and 100 in length." });
     }
     if (typeof body.topic === "string") {
-      const t = body.type as number | undefined;
-      const maxTopic = (t === 15 || t === 16) ? 4096 : 1024;
+      const t = (body.type as number | undefined) ?? ChannelType.GuildText;
+      const maxTopic = isForumType(t) ? 4096 : 1024;
       if (body.topic.length > maxTopic) {
         return invalidFormBody(c, { topic: `Must be ${maxTopic} or fewer in length.` });
       }
@@ -133,7 +134,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     const channel = requireChannel(c, ds, c.req.param("channelId")); if (channel instanceof Response) return channel;
     const payload = toAPIChannel(channel);
     // For a thread, include the current user's thread-member object if they have joined.
-    const isThread = channel.type === 10 || channel.type === 11 || channel.type === 12;
+    const isThread = isThreadType(channel.type);
     if (isThread && auth.user) {
       const tm = ds.threadMembers
         .findBy("thread_snowflake", channel.snowflake)
@@ -154,7 +155,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     const channel = requireChannel(c, ds, c.req.param("channelId")); if (channel instanceof Response) return channel;
     // P-1: PATCH /channels/:id -> MANAGE_CHANNELS (or MANAGE_THREADS for threads).
     const channelId = c.req.param("channelId");
-    const isThreadForPerm = channel.type === 10 || channel.type === 11 || channel.type === 12;
+    const isThreadForPerm = isThreadType(channel.type);
     const patchPermFlag = isThreadForPerm ? PermissionFlags.ManageThreads : PermissionFlags.ManageChannels;
     const deniedPatch = requirePermission(c, store, auth.user?.snowflake, patchPermFlag, { channelId });
     if (deniedPatch) return deniedPatch;
@@ -167,7 +168,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
 
     // Topic length: text/announcement channels allow up to 1024 chars; forum/media up to 4096
     if (typeof body.topic === "string") {
-      const maxTopic = (channel.type === 15 || channel.type === 16) ? 4096 : 1024;
+      const maxTopic = isForumType(channel.type) ? 4096 : 1024;
       if (body.topic.length > maxTopic) {
         return invalidFormBody(c, { topic: `Must be ${maxTopic} or fewer in length.` });
       }
@@ -241,7 +242,7 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     if (body.default_thread_rate_limit_per_user !== undefined)
       patch.default_thread_rate_limit_per_user = body.default_thread_rate_limit_per_user;
     if (body.applied_tags !== undefined) patch.applied_tags = body.applied_tags;
-    const isThread = channel.type === 10 || channel.type === 11 || channel.type === 12;
+    const isThread = isThreadType(channel.type);
     // T-3: auto_archive_duration (thread metadata field) must be one of {60,1440,4320,10080}.
     if (isThread && body.auto_archive_duration !== undefined && body.auto_archive_duration !== null &&
         !VALID_AUTO_ARCHIVE.has(body.auto_archive_duration as number)) {
@@ -298,12 +299,12 @@ export function channelsRoutes(ctx: DiscordRouteContext): void {
     const g = requireBot(c, store); if (g instanceof Response) return g; const { auth, ds } = g;
     const channel = requireChannel(c, ds, c.req.param("channelId")); if (channel instanceof Response) return channel;
     // P-1: DELETE /channels/:id -> MANAGE_CHANNELS (or MANAGE_THREADS if channel is a thread).
-    const isThreadForPerm = channel.type === 10 || channel.type === 11 || channel.type === 12;
+    const isThreadForPerm = isThreadType(channel.type);
     const deletePermFlag = isThreadForPerm ? PermissionFlags.ManageThreads : PermissionFlags.ManageChannels;
     const deniedDelete = requirePermission(c, store, auth.user?.snowflake, deletePermFlag, { channelId: channel.snowflake });
     if (deniedDelete) return deniedDelete;
     const payload = toAPIChannel(channel);
-    const isThread = channel.type === 10 || channel.type === 11 || channel.type === 12;
+    const isThread = isThreadType(channel.type);
     for (const m of ds.messages.findBy("channel_snowflake", channel.snowflake)) ds.messages.delete(m.id);
     ds.channels.delete(channel.id);
     bus.publish({

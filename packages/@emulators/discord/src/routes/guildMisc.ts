@@ -1,5 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import type { DiscordStore } from "../store.js";
+import { isThreadType } from "../constants.js";
 import {
   getAuth,
   unauthorized,
@@ -207,7 +208,7 @@ export function guildMiscRoutes(ctx: DiscordRouteContext): void {
     // A3: Use canonical toAPIChannel serializer for thread channel objects.
     const threads = ds.channels
       .findBy("guild_snowflake", guildId)
-      .filter((ch) => ch.type === 10 || ch.type === 11 || ch.type === 12)
+      .filter((ch) => isThreadType(ch.type))
       .map((ch) => toAPIChannel(ch, ds));
     // A3: Use canonical toAPIApplicationCommand serializer.
     const applicationCommands = ds.commands

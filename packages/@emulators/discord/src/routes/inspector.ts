@@ -2,6 +2,7 @@ import type { InspectorTab } from "@emulators/core";
 import { escapeAttr, escapeHtml, renderInspectorPage } from "@emulators/core";
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
+import { ChannelType } from "../constants.js";
 
 const SERVICE_LABEL = "Discord";
 
@@ -173,7 +174,7 @@ export function inspectorRoutes(ctx: DiscordRouteContext): void {
   }
 
   function renderMessagesTab(requestedChannel: string): string {
-    const channels = ds().channels.all().filter((ch) => ch.type === 0 || ch.type === 5);
+    const channels = ds().channels.all().filter((ch) => ch.type === ChannelType.GuildText || ch.type === ChannelType.GuildAnnouncement);
     const activeChannel =
       channels.find((ch) => ch.snowflake === requestedChannel) ?? channels[0];
 
