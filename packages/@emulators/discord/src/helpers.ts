@@ -780,7 +780,8 @@ function assignComponentIds(components: unknown): unknown[] {
 }
 
 export function toAPIMessage(m: DiscordMessage, ds: DiscordStore, meSnowflake?: string): APIMessage {
-  // Webhook messages with a custom username/avatar present a webhook-shaped author.
+  // Webhook messages with a custom username/avatar present a webhook-shaped author. It is still a
+  // full user object per the spec (UserResponse), so carry the same required fields toAPIUser emits.
   const author =
     m.webhook_snowflake && m.webhook_username
       ? {
@@ -790,7 +791,14 @@ export function toAPIMessage(m: DiscordMessage, ds: DiscordStore, meSnowflake?: 
           avatar: m.webhook_avatar ?? null,
           discriminator: "0000",
           bot: true,
+          system: false,
+          banner: null,
+          accent_color: null,
           public_flags: 0,
+          flags: 0,
+          avatar_decoration_data: null,
+          collectibles: null,
+          primary_guild: null,
         }
       : (() => {
           const user = ds.users.findOneBy("snowflake", m.author_snowflake);

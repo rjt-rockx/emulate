@@ -9,6 +9,7 @@ import {
   toAPIRole,
   toAPIMember,
   toAPIEmoji,
+  toAPISticker,
   toAPIUser,
   recordAudit,
   AuditLogEvent,
@@ -201,7 +202,7 @@ export function guildsRoutes(ctx: DiscordRouteContext): void {
       approximate_member_count: memberCount,
       approximate_presence_count: memberCount,
       description: guild.description,
-      stickers: ds.stickers.findBy("guild_snowflake", guildId).map((s) => ({ id: s.snowflake, name: s.name })),
+      stickers: ds.stickers.findBy("guild_snowflake", guildId).map((s) => toAPISticker(s, ds)),
     });
   });
 

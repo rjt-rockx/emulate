@@ -3,6 +3,7 @@ import { writeFileSync } from "node:fs";
 import { createDiscordTestApp, api, botHeaders, seededIds } from "../helpers.js";
 import { getDiscordStore } from "../../store.js";
 import { createUser } from "../../factories.js";
+import { snowflake } from "../../helpers.js";
 import { checkResponse, specOperations, findOverEmission } from "./specValidator.js";
 
 /**
@@ -17,6 +18,10 @@ const KNOWN: Array<{ path: RegExp; error: string }> = [
   // Preview spec types role-connection platform_name non-null; the docs/real Discord return null
   // when the user has no connection.
   { path: /\/role-connection$/, error: "/platform_name must be string" },
+  // Guild-template serialized channels use INTEGER placeholder ids; the docs state "placeholder IDs
+  // are given as integers" and the official example shows `"parent_id": 1`. The OpenAPI spec types
+  // parent_id as null|Snowflake(string), contradicting Discord's own docs — spec imprecision.
+  { path: /\/templates/, error: "parent_id" },
 ];
 const isKnown = (p: string, e: string) => KNOWN.some((k) => k.path.test(p.split("?")[0]) && e.includes(k.error));
 
@@ -26,8 +31,11 @@ const isKnown = (p: string, e: string) => KNOWN.some((k) => k.path.test(p.split(
  * discord-api-types, so emitting it does not violate the typed contract:
  *  - application command `default_permission`: a documented (deprecated) command field still present
  *    on APIApplicationCommand; the OpenAPI spec dropped it but the docs/types retain it.
+ *  - template `icon_hash`: documented as "returned when in the template object", but the spec's
+ *    serialized template-guild schema under-declares it (spec gap), so it only appears nested under
+ *    serialized_source_guild.
  */
-const OVER_EMISSION_KNOWN = new Set(["default_permission"]);
+const OVER_EMISSION_KNOWN = new Set(["default_permission", "icon_hash"]);
 const normalizeKey = (k: string): string => k.replace(/^.*?(\w+)$/, "$1");
 
 const PNG = "data:image/png;base64,iVBORw0KGgo=";
@@ -37,9 +45,12 @@ describe("OpenAPI GET coverage sweep", () => {
     const { app, store } = createDiscordTestApp();
     const ids = seededIds(store);
 
-    const postId = async (path: string, body: unknown): Promise<string | undefined> => {
+    const postFull = async (path: string, body: unknown): Promise<Record<string, unknown>> => {
       const res = await app.request(api(path), { method: "POST", headers: botHeaders(), body: JSON.stringify(body) });
-      const b = (await res.json().catch(() => ({}))) as { id?: string; code?: string };
+      return (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    };
+    const postId = async (path: string, body: unknown): Promise<string | undefined> => {
+      const b = (await postFull(path, body)) as { id?: string; code?: string };
       return b.id ?? b.code;
     };
 
@@ -74,8 +85,44 @@ describe("OpenAPI GET coverage sweep", () => {
       command_id: await postId(`/applications/${ids.app}/commands`, { name: "cov-cmd", description: "d", type: 1 }),
       invite_code: await postId(`/channels/${ids.general}/invites`, {}),
       thread_id: await postId(`/channels/${ids.general}/threads`, { name: "cov-thread", type: 11, auto_archive_duration: 1440 }),
+      sound_id: await postId(`/guilds/${ids.guild}/soundboard-sounds`, { name: "cov-sound", sound: "data:audio/mpeg;base64,AAAA" }),
+      lobby_id: await postId(`/lobbies`, {}),
     };
     map.overwrite_id = map.role_id;
+    // Spec uses {rule_id} for the auto-moderation rule path; the create map keyed it as
+    // {auto_moderation_rule_id}.
+    map.rule_id = map.auto_moderation_rule_id;
+    // {code} addresses invites by default; the template path overrides it below.
+    map.code = map.invite_code;
+
+    // A webhook carries a token used by the token-authenticated webhook routes.
+    const webhook = await postFull(`/channels/${ids.general}/webhooks`, { name: "cov-tok-hook" });
+    const webhookId = webhook.id as string | undefined;
+    const webhookToken = webhook.token as string | undefined;
+    // Execute it (wait=true) so a webhook-authored message exists for the message GET.
+    const webhookMessage = await postFull(`/webhooks/${webhookId}/${webhookToken}?wait=true`, { content: "cov-hook-msg" });
+    const webhookMessageId = webhookMessage.id as string | undefined;
+
+    // A guild template exposes a {code}; the same param name also addresses invites, resolved per-op.
+    const templateCode = await postId(`/guilds/${ids.guild}/templates`, { name: "cov-tmpl" });
+
+    // A standard sticker pack (built-in) for the sticker-packs endpoints.
+    const packsRes = await app.request(api(`/sticker-packs`), { headers: botHeaders() });
+    const packsBody = (await packsRes.json().catch(() => ({}))) as { sticker_packs?: Array<{ id?: string }> };
+    const packId = packsBody.sticker_packs?.[0]?.id;
+
+    // A message carrying a poll, plus a reaction, so the poll-answer and reaction-by-emoji GETs resolve.
+    const pollMessageId = await postId(`/channels/${ids.general}/messages`, {
+      content: "cov-poll",
+      poll: { question: { text: "Q?" }, answers: [{ poll_media: { text: "A" } }, { poll_media: { text: "B" } }], duration: 24 },
+    });
+    const reactionEmoji = encodeURIComponent("\u{1F44D}"); // thumbs up
+    if (map.message_id) {
+      await app.request(api(`/channels/${ids.general}/messages/${map.message_id}/reactions/${reactionEmoji}/@me`), {
+        method: "PUT",
+        headers: botHeaders(),
+      });
+    }
 
     // Resources whose param NAME collides with a differently-typed resource (e.g. an application
     // emoji vs a guild emoji both use {emoji_id}). Seeded separately and applied per-op below.
@@ -93,6 +140,32 @@ describe("OpenAPI GET coverage sweep", () => {
     const ds = getDiscordStore(store);
     const bannedUser = createUser(ds, { username: "cov-banned" });
     ds.bans.insert({ guild_snowflake: ids.guild, user_snowflake: bannedUser.snowflake, reason: "cov" });
+    // A guild sticker (created via multipart in reality; seeded here so the sticker GETs resolve).
+    const stickerId = snowflake();
+    ds.stickers.insert({
+      snowflake: stickerId,
+      guild_snowflake: ids.guild,
+      name: "cov-sticker",
+      description: "cov",
+      tags: "cov",
+      type: 2,
+      format_type: 1,
+      available: true,
+      creator_snowflake: ids.bot,
+    });
+    // An application entitlement for the entitlement GET.
+    const entitlementId = snowflake();
+    ds.entitlements.insert({
+      snowflake: entitlementId,
+      sku_snowflake: snowflake(),
+      application_snowflake: ids.app,
+      user_snowflake: ids.developer,
+      guild_snowflake: null,
+      type: 8,
+      deleted: false,
+      starts_at: null,
+      ends_at: null,
+    });
     const seedVoiceState = (userSf: string) =>
       ds.voiceStates.insert({
         guild_snowflake: ids.guild,
@@ -117,6 +190,11 @@ describe("OpenAPI GET coverage sweep", () => {
         permissions: [{ id: ids.guild, type: 1, permission: true }],
       });
     }
+    map.sticker_id = stickerId;
+    map.entitlement_id = entitlementId;
+    map.pack_id = packId;
+    map.webhook_token = webhookToken;
+
     // Per-op path-param overrides: the same param name resolves to a different resource depending
     // on the parent path (thread vs channel, application vs guild emoji/command, stage channel).
     const PATH_PARAM_OVERRIDES: Record<string, Record<string, string | undefined>> = {
@@ -127,6 +205,15 @@ describe("OpenAPI GET coverage sweep", () => {
       "/applications/{application_id}/guilds/{guild_id}/commands/{command_id}/permissions": { command_id: guildCommandId },
       "/stage-instances/{channel_id}": { channel_id: stageChannelId },
       "/guilds/{guild_id}/bans/{user_id}": { user_id: bannedUser.snowflake },
+      // {code} addresses a guild template here rather than an invite.
+      "/guilds/templates/{code}": { code: templateCode },
+      // Reaction-by-emoji and poll-answer GETs key off a specific message + emoji/answer.
+      "/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}": { emoji_name: reactionEmoji },
+      "/channels/{channel_id}/polls/{message_id}/answers/{answer_id}": { message_id: pollMessageId, answer_id: "1" },
+      // The token-authenticated webhook routes need an id+token pair from the same webhook.
+      "/webhooks/{webhook_id}/{webhook_token}": { webhook_id: webhookId },
+      "/webhooks/{webhook_id}/{webhook_token}/messages/@original": { webhook_id: webhookId },
+      "/webhooks/{webhook_id}/{webhook_token}/messages/{message_id}": { webhook_id: webhookId, message_id: webhookMessageId },
     };
 
     const gets = specOperations().filter((o) => o.method === "GET");

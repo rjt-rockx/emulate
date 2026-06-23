@@ -517,7 +517,9 @@ export function messagesRoutes(ctx: DiscordRouteContext): void {
       const durationHours = typeof (body.poll as { duration?: number }).duration === "number"
         ? (body.poll as { duration: number }).duration
         : 24; // Poll Create Request defaults duration to 24h.
-      poll = { ...poll, expiry: new Date(Date.now() + durationHours * 3600_000).toISOString() };
+      // Discord assigns each answer a 1-indexed answer_id; the create request omits it.
+      const answers = (poll.answers ?? []).map((a, i) => ({ ...a, answer_id: a.answer_id ?? i + 1 }));
+      poll = { ...poll, answers, expiry: new Date(Date.now() + durationHours * 3600_000).toISOString() };
     }
 
     // enforce_nonce: if a recent message by this author with the same nonce already exists in the

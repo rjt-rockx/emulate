@@ -75,6 +75,18 @@ describe("poll.mdx — Poll object structure", () => {
     expect((a.poll_media as Json).text).toBe("TypeScript");
   });
 
+  // Real clients omit answer_id in the Create request — Discord assigns it 1-indexed by position.
+  it("assigns 1-indexed answer_id when the request omits it", async () => {
+    const { app, store } = createDiscordTestApp();
+    const { general } = ctx(store);
+    const poll = {
+      question: { text: "Pick one" },
+      answers: [{ poll_media: { text: "A" } }, { poll_media: { text: "B" } }, { poll_media: { text: "C" } }],
+    };
+    const msg = (await (await postPoll(app, general, poll)).json()) as { poll: { answers: Array<Json> } };
+    expect(msg.poll.answers.map((a) => a.answer_id)).toEqual([1, 2, 3]);
+  });
+
   it("results carries is_finalized:false and an answer_counts list", async () => {
     const { app, store } = createDiscordTestApp();
     const { general } = ctx(store);
