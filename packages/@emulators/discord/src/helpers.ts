@@ -714,7 +714,7 @@ export function toAPIEmoji(e: DiscordEmoji, ds: DiscordStore, includeUser = true
 }
 
 /** Aggregate per-user reaction rows into Discord's reaction summary array. */
-export function aggregateReactions(
+function aggregateReactions(
   ds: DiscordStore,
   messageSnowflake: string,
   meSnowflake?: string,
@@ -855,7 +855,7 @@ export function toAPIMessage(m: DiscordMessage, ds: DiscordStore, meSnowflake?: 
   } as unknown as APIMessage;
 }
 
-export function toAPIPoll(m: DiscordMessage, ds: DiscordStore, meSnowflake?: string): APIPoll {
+function toAPIPoll(m: DiscordMessage, ds: DiscordStore, meSnowflake?: string): APIPoll {
   const poll = m.poll!;
   const votes = ds.pollVotes.findBy("message_snowflake", m.snowflake);
   const counts = new Map<number, { count: number; me: boolean }>();
