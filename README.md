@@ -148,7 +148,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, or `'linear'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, or `'discord'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -925,6 +925,39 @@ All operations via `POST /iam/` with `Action` parameter:
 All operations via `POST /sts/` with `Action` parameter:
 - `GetCallerIdentity`, `AssumeRole`
 
+## Discord API
+
+Stateful Discord emulation: the REST API under `/api/v10` plus a real **Gateway WebSocket** served on the same port, so real bots (discord.js, discord.py, JDA, serenity, discordgo, Eris, discordrb, py-cord, …) log in, reach `READY`, heartbeat, and receive pushed events against a local server instead of Discord. Guild, channel, message, role, member, reaction, emoji, thread, invite, ban, webhook, application command, scheduled event, auto-moderation, sticker, soundboard, poll, monetization, and integration state is held in memory. REST mutations publish Gateway events filtered by intents and guild membership, with `MESSAGE_CONTENT` gating just like real Discord. Entities preserve the Discord invariant that the bot user and its application share one snowflake.
+
+### REST (under `/api/v10`)
+- **Users** - `GET/PATCH /users/@me`, `GET /users/:id`, `GET /users/@me/guilds`, current-user guild member, leave guild, create DM / group DM, connections, application role connection
+- **Guilds** - CRUD; roles, members (roles, nick, search), bans (+ bulk ban), emojis and application emojis, audit log, templates, welcome screen, onboarding, widget, vanity URL, prune, voice regions, join requests, voice states
+- **Channels** - CRUD, permission overwrites, pins, invites, typing indicator, announcement followers, threads (active + public/private/announcement archived), thread members
+- **Messages** - CRUD, bulk delete, crosspost, reactions (add/remove/list/clear), polls (answer voters, expire)
+- **Webhooks** - channel webhook CRUD and execution, GitHub/Slack-compatible variants, edit/delete `@original` and followup messages
+- **Interactions & commands** - interaction callback and followups; application commands (global + guild) with bulk overwrite and command permissions
+- **OAuth2** - `GET /oauth2/authorize`, `POST /api/oauth2/token` (authorization-code + client-credentials), `GET /oauth2/@me`, `GET /oauth2/applications/@me`, userinfo, public keys
+- **Monetization** - entitlements (+ test entitlements, consume), SKUs, subscriptions
+- **Moderation & more** - auto-moderation rules, stage instances, guild scheduled events (+ exceptions), stickers + sticker packs, soundboard sounds, integrations, lobbies, application management, audit log
+
+### Gateway (same port)
+`GET /api/v10/gateway` and `GET /api/v10/gateway/bot` advertise `ws://<host>/`. The socket performs the `HELLO → IDENTIFY → READY → GUILD_CREATE` handshake, heartbeats, intent-filtered dispatch, `RESUME` with a per-session replay buffer, and `REQUEST_GUILD_MEMBERS` (answered with `GUILD_MEMBERS_CHUNK`). Encoding is JSON or ETF; transport compression supports `zlib-stream` and `zstd-stream`, plus per-message (Identify-level) compression. REST writes dispatch the matching events - `READY`, `GUILD_*`, `CHANNEL_*`, `THREAD_*`, `MESSAGE_*`, `MESSAGE_REACTION_*`, `GUILD_MEMBER_*`, `GUILD_ROLE_*`, `GUILD_BAN_*`, `TYPING_START`, `INTERACTION_CREATE`, `VOICE_STATE_UPDATE`, `STAGE_INSTANCE_*`, `AUTO_MODERATION_*`, `GUILD_SCHEDULED_EVENT_*`, and more.
+
+### Interactions (both delivery paths)
+Interactions are delivered over the Gateway (`INTERACTION_CREATE`) and via the **Ed25519-signed HTTP endpoint** (the emulator signs `timestamp + rawBody` and POSTs to the app's configured `interactions_endpoint_url`; the app verifies with the app public key). Buttons, select menus, modals, and autocomplete are routed by `custom_id`.
+
+### Control plane
+Because there is no human clicking buttons, a few non-Discord control endpoints (all requiring `Authorization: Bot <token>`) drive multi-user scenarios in tests:
+- `POST /__emulate/interactions` - simulate a user running a command, clicking a button, or submitting a modal
+- `POST /__emulate/messages` - post a message as an arbitrary user (for testing moderation flows)
+- `POST /__emulate/voice-state` - set a user's voice state
+- `POST /__emulate/poll-vote` - cast a poll vote as a user
+
+### Rate limiting & inspector
+Responses carry Discord-style `X-RateLimit-*` headers backed by real per-route buckets plus a global budget; an exhausted bucket returns `429` with `Retry-After`. `GET /` serves a tabbed local inspector.
+
+Voice supports the signaling handshake and UDP media plane (IP discovery + opaque RTP relay to other guild participants; audio is not decoded or transcoded). Current limits: a single shard (the `shard` Identify field is validated but never splits guilds), no audio transcoding, and rate-limit windows that are Discord-shaped rather than byte-exact to production.
+
 ## Next.js Integration
 
 Embed emulators directly in your Next.js app so they run on the same origin. This solves the Vercel preview deployment problem where OAuth callback URLs change with every deployment.
@@ -1050,6 +1083,7 @@ packages/
     google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, Drive
     slack/          # Slack Web API, OAuth v2, incoming webhooks
     linear/         # Linear GraphQL API, OAuth, webhooks
+    discord/        # Discord REST + Gateway WebSocket, interactions, OAuth2
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
@@ -1057,7 +1091,7 @@ apps/
   web/              # Documentation site (Next.js)
 ```
 
-The core provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers its routes with the shared internal app and uses the store for state.
+The core provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers its routes with the shared internal app and uses the store for state. Plugins that need realtime transport (Discord's Gateway) also implement an optional `attach(server)` lifecycle hook to take over the HTTP server's `upgrade` event and run a WebSocket alongside the REST routes on the same port.
 
 ## Auth
 
@@ -1072,6 +1106,8 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Slack**: All Web API endpoints require `Authorization: Bearer <token>`. Seeded OAuth apps create local installation records, and OAuth v2 flow with user picker UI creates scoped bot tokens. Optional strict scope mode returns `missing_scope` when a token lacks a required method scope.
 
 **Linear**: GraphQL accepts `Authorization: Bearer <token>` or a bare personal API key value. Seeded Linear tokens map to users or app actors, OAuth apps support local authorization code and client credentials flows, and optional strict scope mode checks supported GraphQL operations.
+
+**Discord**: Bots authenticate with `Authorization: Bot <token>`; the Gateway `IDENTIFY` validates the same bot tokens. OAuth bearer tokens use `Authorization: Bearer <token>`, with optional strict scope mode (`discord.strict_scopes: true`). The Discord invariant `application.id === bot_user.id` is preserved. A `test_bot_token` bot token is seeded by default.
 
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 

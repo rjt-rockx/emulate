@@ -1,6 +1,6 @@
 # Discord API
 
-Stateful Discord API emulation: a REST API under `/api/v10` plus a real Gateway WebSocket on the same port, so real clients like discord.js and discord.py connect and run against it. Covers users, guilds (roles, members, emojis, bans), channels, messages, reactions, pins, invites, threads, stickers, scheduled events, OAuth2, application commands, interactions (slash commands and message components) over both the Gateway and the HTTP interactions endpoint, channel webhooks, stage instances, and auto-moderation. REST mutations dispatch the matching Gateway events to connected bots, filtered by intents and guild membership, with `MESSAGE_CONTENT` gating just like real Discord. The Gateway supports `zlib-stream` compression (discord.py's default).
+Stateful Discord API emulation: a REST API under `/api/v10` plus a real Gateway WebSocket on the same port, so real clients like discord.js, discord.py, JDA, serenity, and discordgo connect and run against it. Covers users, guilds (roles, members, emojis, bans), channels, messages, reactions, polls, pins, invites, threads, stickers, soundboard, scheduled events, monetization, integrations, OAuth2, application commands, interactions (slash commands and message components) over both the Gateway and the Ed25519-signed HTTP interactions endpoint, channel webhooks, stage instances, and auto-moderation. REST mutations dispatch the matching Gateway events to connected bots, filtered by intents and guild membership, with `MESSAGE_CONTENT` gating just like real Discord. The Gateway speaks JSON or ETF, with `zlib-stream` and `zstd-stream` transport compression.
 
 ## Start
 
@@ -53,19 +53,26 @@ client.run("test_bot_token")
 - Threads: create from a message or standalone, active threads, thread members
 - Application commands: global and guild CRUD + bulk overwrite
 - Interactions: `POST /interactions/:id/:token/callback`, followups, `@original`
-- Webhooks: channel webhook management and execution (`POST /webhooks/:id/:token`)
-- Stickers, scheduled events, stage instances, auto-moderation rules
-- Voice regions, guild prune, vanity url, audit logs
+- Webhooks: channel webhook management and execution (`POST /webhooks/:id/:token`), plus GitHub/Slack-compatible variants
+- Polls: answer voters, expire a poll
+- Stickers and sticker packs, soundboard sounds, scheduled events, stage instances, auto-moderation rules
+- Monetization: entitlements, SKUs, subscriptions; integrations; lobbies
+- Voice regions, guild prune, vanity url, templates, welcome screen, onboarding, widget, audit logs
 - OAuth2: `GET /oauth2/authorize`, `POST /api/oauth2/token`, `GET /api/v10/oauth2/@me`
 - Gateway bootstrap: `GET /api/v10/gateway`, `GET /api/v10/gateway/bot`
 
 ## Gateway events
 
-REST writes dispatch the matching Gateway events to connected bots: `READY`, `GUILD_CREATE`, `GUILD_UPDATE/DELETE`, `CHANNEL_*`, `THREAD_*`, `MESSAGE_*`, `MESSAGE_REACTION_*`, `GUILD_MEMBER_*`, `GUILD_ROLE_*`, `GUILD_BAN_*`, `TYPING_START`, `INTERACTION_CREATE`, `STAGE_INSTANCE_*`, `AUTO_MODERATION_RULE_*`, `GUILD_SCHEDULED_EVENT_*`, and `GUILD_STICKERS_UPDATE`. Events are filtered by the connection's intents and guild membership. `REQUEST_GUILD_MEMBERS` is answered with a `GUILD_MEMBERS_CHUNK`.
+REST writes dispatch the matching Gateway events to connected bots: `READY`, `GUILD_CREATE`, `GUILD_UPDATE/DELETE`, `CHANNEL_*`, `THREAD_*`, `MESSAGE_*`, `MESSAGE_REACTION_*`, `GUILD_MEMBER_*`, `GUILD_ROLE_*`, `GUILD_BAN_*`, `TYPING_START`, `INTERACTION_CREATE`, `VOICE_STATE_UPDATE`, `STAGE_INSTANCE_*`, `AUTO_MODERATION_RULE_*`, `GUILD_SCHEDULED_EVENT_*`, and `GUILD_STICKERS_UPDATE`. Events are filtered by the connection's intents and guild membership. `REQUEST_GUILD_MEMBERS` is answered with a `GUILD_MEMBERS_CHUNK`.
 
-## Triggering interactions in tests
+## Driving multi-user scenarios in tests
 
-There is no real client to click a button, so a control endpoint simulates a user triggering an interaction. It routes the interaction over the Gateway and/or the configured HTTP interactions endpoint:
+There is no human to click a button or send a message from a second account, so a few non-Discord control endpoints (all requiring `Authorization: Bot test_bot_token`) simulate other users. This is how you test flows like "ban after five warnings": post warnings as different users, then assert the bot's response.
+
+- `POST /__emulate/interactions` - run a command, click a button, or submit a modal (routed over the Gateway and/or the signed HTTP endpoint)
+- `POST /__emulate/messages` - post a message as an arbitrary user
+- `POST /__emulate/voice-state` - set a user's voice state
+- `POST /__emulate/poll-vote` - cast a poll vote as a user
 
 ```bash
 curl -X POST http://localhost:4000/__emulate/interactions \
@@ -75,4 +82,4 @@ curl -X POST http://localhost:4000/__emulate/interactions \
 
 ## Current limits
 
-JSON encoding only (no ETF); `zlib-stream` compression is supported, `zstd-stream` is not. Voice connections, sharding, gateway resume replay buffering, polls, soundboard, guild templates/widget/onboarding, retroactive audit-log entries, strict permission enforcement, and exact rate limiting are not yet implemented.
+The Gateway speaks JSON and ETF with `zlib-stream` and `zstd-stream` transport compression, supports `RESUME` with a per-session replay buffer, and validates the `shard` Identify field (always a single shard - guilds are never split). Voice supports the signaling handshake and the UDP media plane (IP discovery plus opaque RTP relay to other guild participants); audio is not decoded or transcoded. Rate limiting uses real per-route buckets and a global budget with `X-RateLimit-*` headers and `429` / `Retry-After`, shaped like Discord rather than byte-exact to production. Not yet implemented: multi-shard splitting and audio transcoding.
