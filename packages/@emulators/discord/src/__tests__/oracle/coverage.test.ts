@@ -153,11 +153,13 @@ describe("OpenAPI GET coverage sweep", () => {
       available: true,
       creator_snowflake: ids.bot,
     });
-    // An application entitlement for the entitlement GET.
+    // A SKU + an application entitlement to it, plus a user subscription to the SKU.
+    const skuId = snowflake();
+    ds.skus.insert({ snowflake: skuId, application_snowflake: ids.app, type: 5, name: "cov-sku", slug: "cov-sku", flags: 0 });
     const entitlementId = snowflake();
     ds.entitlements.insert({
       snowflake: entitlementId,
-      sku_snowflake: snowflake(),
+      sku_snowflake: skuId,
       application_snowflake: ids.app,
       user_snowflake: ids.developer,
       guild_snowflake: null,
@@ -166,6 +168,30 @@ describe("OpenAPI GET coverage sweep", () => {
       starts_at: null,
       ends_at: null,
     });
+    const subscriptionId = snowflake();
+    ds.subscriptions.insert({
+      snowflake: subscriptionId,
+      user_snowflake: ids.developer,
+      sku_snowflakes: [skuId],
+      entitlement_snowflakes: [entitlementId],
+      current_period_start: new Date().toISOString(),
+      current_period_end: new Date(Date.now() + 86_400_000).toISOString(),
+      status: 0,
+      canceled_at: null,
+    });
+    // A scheduled-event occurrence exception, for the per-exception users GET.
+    const exceptionId = snowflake();
+    if (map.guild_scheduled_event_id) {
+      ds.scheduledEventExceptions.insert({
+        snowflake: exceptionId,
+        event_snowflake: map.guild_scheduled_event_id,
+        guild_snowflake: ids.guild,
+        original_scheduled_start_time: startsAt,
+        scheduled_start_time: startsAt,
+        scheduled_end_time: endsAt,
+        is_canceled: false,
+      });
+    }
     const seedVoiceState = (userSf: string) =>
       ds.voiceStates.insert({
         guild_snowflake: ids.guild,
@@ -194,6 +220,11 @@ describe("OpenAPI GET coverage sweep", () => {
     map.entitlement_id = entitlementId;
     map.pack_id = packId;
     map.webhook_token = webhookToken;
+    map.sku_id = skuId;
+    map.subscription_id = subscriptionId;
+    map.guild_scheduled_event_exception_id = exceptionId;
+    // The activity-instance GET synthesizes its response from the id, so any value resolves.
+    map.instance_id = "cov-instance";
 
     // Per-op path-param overrides: the same param name resolves to a different resource depending
     // on the parent path (thread vs channel, application vs guild emoji/command, stage channel).

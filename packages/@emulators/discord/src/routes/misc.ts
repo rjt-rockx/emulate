@@ -1,6 +1,6 @@
 import type { DiscordRouteContext } from "../context.js";
 import { getDiscordStore } from "../store.js";
-import { getAuth, requireBot, requireUser, unauthorized, notFound, toAPIMessage, redactMessageContent } from "../helpers.js";
+import { getAuth, requireBot, requireUser, unauthorized, notFound, toAPIMessage, redactMessageContent, snowflake } from "../helpers.js";
 import { createMessage } from "../factories.js";
 import { Intents } from "../gateway/intents.js";
 
@@ -132,11 +132,14 @@ export function miscRoutes(ctx: DiscordRouteContext): void {
     const g = requireBot(c, store);
     if (g instanceof Response) return g;
     const instanceId = c.req.param("instanceId");
+    // No activity instances are modelled, so synthesize a spec-valid PrivateChannelLocation
+    // (kind "pc" requires only id/kind/channel_id, all strings — GUILD_CHANNEL would additionally
+    // need a real guild_id).
     return c.json({
       application_id: c.req.param("appId"),
       instance_id: instanceId,
       launch_id: instanceId,
-      location: { id: instanceId, kind: "gc", channel_id: null, guild_id: null },
+      location: { id: instanceId, kind: "pc", channel_id: snowflake() },
       users: [],
     });
   });
